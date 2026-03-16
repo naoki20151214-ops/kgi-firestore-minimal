@@ -58,16 +58,11 @@ saveButton.addEventListener("click", async () => {
       createdAt: serverTimestamp()
     });
 
-    alert("FirestoreにKGIを保存しました。");
-    nameInput.value = "";
-    targetInput.value = "";
-    emojiSelect.selectedIndex = 0;
-    setStatus("保存しました。続けて入力できます。");
+    location.href = "./list.html";
   } catch (error) {
     console.error(error);
     alert("保存に失敗しました。Firebase設定とルールを確認してください。");
     setStatus("保存に失敗しました。Firebase設定とルールを確認してください。", true);
-  } finally {
     saveButton.disabled = false;
   }
 });
