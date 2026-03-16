@@ -70,6 +70,10 @@
         font-size: 0.84rem;
         color: #6b7280;
       }
+
+      .hint.error {
+        color: #b91c1c;
+      }
     </style>
   </head>
   <body>
@@ -98,7 +102,7 @@
       </div>
 
       <button id="saveButton" type="button">保存</button>
-      <p class="hint">Firebase設定は firebase-config.js の値を実環境に置き換えてください。</p>
+      <p id="statusText" class="hint"></p>
     </main>
 
     <script type="module" src="./app.js"></script>
