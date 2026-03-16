@@ -2,12 +2,12 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.5/fireba
 import { getFirestore } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
 
 const firebaseConfig = {
-  apiKey: "",
+  apiKey: "AIzaSyBmMPhaYSr6CPo83uhZ6jTKOvZJnURTJv4",
   authDomain: "kgi-db.firebaseapp.com",
   projectId: "kgi-db",
-  storageBucket: "kgi-db.appspot.com",
-  messagingSenderId: "",
-  appId: ""
+  storageBucket: "kgi-db.firebasestorage.app",
+  messagingSenderId: "689071277026",
+  appId: "1:689071277026:web:0fd1b5b33fe5832b8defbb"
 };
 
 let dbInstance;
