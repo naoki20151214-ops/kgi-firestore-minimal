@@ -33,7 +33,7 @@ const renderRows = (docs) => {
 
     row.innerHTML = `
       <td>${data.emoji ?? ""}</td>
-      <td>${data.name ?? ""}</td>
+      <td><a href="./detail.html?id=${docItem.id}">${data.name ?? ""}</a></td>
       <td>${data.target ?? ""}</td>
       <td>${formatCreatedAt(data.createdAt)}</td>
     `;
