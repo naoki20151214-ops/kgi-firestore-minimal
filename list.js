@@ -7,7 +7,7 @@ import {
 import { getDb } from "./firebase-config.js";
 
 const statusText = document.getElementById("statusText");
-const table = document.getElementById("kgiTable");
+const tableWrap = document.getElementById("tableWrap");
 const tableBody = document.getElementById("kgiTableBody");
 const emptyState = document.getElementById("emptyState");
 
@@ -16,12 +16,37 @@ const setStatus = (message, isError = false) => {
   statusText.classList.toggle("error", isError);
 };
 
-const formatCreatedAt = (createdAt) => {
-  if (!createdAt) {
+const formatDateValue = (value) => {
+  if (!value) {
     return "-";
   }
 
-  return createdAt.toDate().toLocaleString("ja-JP");
+  if (typeof value === "string") {
+    const matched = value.match(/^\d{4}-\d{2}-\d{2}$/);
+    if (matched) {
+      return value.replaceAll("-", "/");
+    }
+
+    const parsed = new Date(value);
+    if (!Number.isNaN(parsed.getTime())) {
+      const year = parsed.getFullYear();
+      const month = String(parsed.getMonth() + 1).padStart(2, "0");
+      const day = String(parsed.getDate()).padStart(2, "0");
+      return `${year}/${month}/${day}`;
+    }
+
+    return "-";
+  }
+
+  if (typeof value.toDate === "function") {
+    const date = value.toDate();
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    return `${year}/${month}/${day}`;
+  }
+
+  return "-";
 };
 
 const renderRows = (docs) => {
@@ -32,10 +57,10 @@ const renderRows = (docs) => {
     const row = document.createElement("tr");
 
     row.innerHTML = `
-      <td>${data.emoji ?? ""}</td>
+      <td>${formatDateValue(data.createdAt)}</td>
       <td><a href="./detail.html?id=${docItem.id}">${data.name ?? ""}</a></td>
       <td>${data.target ?? ""}</td>
-      <td>${formatCreatedAt(data.createdAt)}</td>
+      <td>${formatDateValue(data.deadline)}</td>
     `;
 
     tableBody.appendChild(row);
@@ -56,7 +81,7 @@ const renderRows = (docs) => {
     }
 
     renderRows(snapshot.docs);
-    table.hidden = false;
+    tableWrap.hidden = false;
     setStatus(`${snapshot.size}件のKGIを表示しています。`);
   } catch (error) {
     console.error(error);

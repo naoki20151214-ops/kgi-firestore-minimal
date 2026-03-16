@@ -3,6 +3,7 @@ import { getDb } from "./firebase-config.js";
 
 const nameInput = document.getElementById("kgiName");
 const targetInput = document.getElementById("kgiTarget");
+const deadlineInput = document.getElementById("kgiDeadline");
 const emojiSelect = document.getElementById("kgiEmoji");
 const saveButton = document.getElementById("saveButton");
 const statusText = document.getElementById("statusText");
@@ -36,6 +37,7 @@ saveButton.addEventListener("click", async () => {
 
   const name = nameInput.value.trim();
   const target = Number(targetInput.value);
+  const deadline = deadlineInput.value;
   const emoji = emojiSelect.value;
 
   if (!name) {
@@ -54,6 +56,7 @@ saveButton.addEventListener("click", async () => {
     await addDoc(collection(db, "kgis"), {
       name,
       target,
+      deadline,
       emoji,
       createdAt: serverTimestamp()
     });
