@@ -20,6 +20,9 @@ const kpiNameInput = document.getElementById("kpiName");
 const kpiTargetInput = document.getElementById("kpiTarget");
 const kpiProgressInput = document.getElementById("kpiProgress");
 const addKpiButton = document.getElementById("addKpiButton");
+const overallProgressValue = document.getElementById("overallProgressValue");
+const overallProgressFill = document.getElementById("overallProgressFill");
+const overallProgressCaption = document.getElementById("overallProgressCaption");
 
 let db;
 let kgiId;
@@ -40,6 +43,38 @@ const formatDate = (timestamp) => {
   }
 
   return timestamp.toDate().toLocaleString("ja-JP");
+};
+
+const formatPercent = (value) => `${Math.round(value)}%`;
+
+const clampPercent = (value) => Math.max(0, Math.min(100, value));
+
+const calcKpiProgress = (kpi) => {
+  const target = Number(kpi.target);
+  const progress = Number(kpi.progress);
+
+  if (!Number.isFinite(target) || target <= 0 || !Number.isFinite(progress)) {
+    return 0;
+  }
+
+  return (progress / target) * 100;
+};
+
+const renderOverallProgress = (kpis) => {
+  if (kpis.length === 0) {
+    overallProgressValue.textContent = "0%";
+    overallProgressFill.style.width = "0%";
+    overallProgressCaption.textContent = "KPIがありません";
+    return;
+  }
+
+  const total = kpis.reduce((sum, kpi) => sum + calcKpiProgress(kpi), 0);
+  const average = total / kpis.length;
+  const safeAverage = clampPercent(average);
+
+  overallProgressValue.textContent = formatPercent(safeAverage);
+  overallProgressFill.style.width = `${safeAverage}%`;
+  overallProgressCaption.textContent = `${kpis.length}件のKPI平均`;
 };
 
 const getKpisRef = () => collection(db, "kgis", kgiId, "kpis");
@@ -63,21 +98,32 @@ const loadKpis = async () => {
 
   if (snapshot.empty) {
     kpiTable.hidden = true;
+    renderOverallProgress([]);
     setKpiStatus("KPIはまだありません。上のフォームから追加してください。");
     return;
   }
 
-  snapshot.docs.forEach((kpiDoc) => {
-    const kpi = kpiDoc.data();
+  const kpis = snapshot.docs.map((kpiDoc) => ({ id: kpiDoc.id, ...kpiDoc.data() }));
+
+  kpis.forEach((kpi) => {
     const row = document.createElement("tr");
+    const progressPercent = clampPercent(calcKpiProgress(kpi));
 
     row.innerHTML = `
       <td>${kpi.name ?? ""}</td>
-      <td>${kpi.target ?? ""}</td>
+      <td>${kpi.progress ?? 0} / ${kpi.target ?? 0}</td>
+      <td class="kpi-progress-cell">
+        <div class="progress-wrap">
+          <div class="progress-bar" aria-label="${kpi.name ?? "KPI"}の進捗バー">
+            <div class="progress-fill" style="width: ${progressPercent}%"></div>
+          </div>
+          <p class="progress-label">${formatPercent(progressPercent)}</p>
+        </div>
+      </td>
       <td>
         <div class="progress-cell">
           <input class="progress-input" type="number" value="${kpi.progress ?? 0}" />
-          <button class="button save-progress-button" type="button" data-kpi-id="${kpiDoc.id}">進捗保存</button>
+          <button class="button save-progress-button" type="button" data-kpi-id="${kpi.id}">進捗保存</button>
         </div>
       </td>
       <td>${formatDate(kpi.updatedAt ?? kpi.createdAt)}</td>
@@ -86,6 +132,7 @@ const loadKpis = async () => {
     kpiTableBody.appendChild(row);
   });
 
+  renderOverallProgress(kpis);
   kpiTable.hidden = false;
   setKpiStatus(`${snapshot.size}件のKPIを表示しています。`);
 };
