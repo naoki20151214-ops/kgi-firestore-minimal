@@ -174,6 +174,14 @@ const getTaskIsCompleted = (task) => {
     return task.isCompleted;
   }
 
+  if (typeof task.completed === "boolean") {
+    return task.completed;
+  }
+
+  if (typeof task.completionStatus === "string") {
+    return task.completionStatus === "completed";
+  }
+
   return task.status === "done";
 };
 
@@ -189,7 +197,7 @@ const getTaskContribution = (task) => {
 };
 
 const displayProgress = (kpi) => {
-  const progress = Number(kpi.progress);
+  const progress = Number(kpi.progress ?? kpi.percentage);
 
   if (!Number.isFinite(progress)) {
     return 0;
@@ -269,7 +277,7 @@ const calculateCurrentValueFromTasks = (tasks) => tasks
   .reduce((sum, task) => sum + getTaskContribution(task), 0);
 
 const calculateProgressFromCurrentValue = (kpi, currentValue) => {
-  const target = parsePositiveNumber(kpi.target, 100);
+  const target = parsePositiveNumber(kpi.target ?? kpi.targetValue, 100);
 
   if (target <= 0) {
     return 0;
@@ -287,6 +295,7 @@ const syncKpiProgressFromTasks = async (kpiId, kpiDataForTarget) => {
   await updateDoc(getKpiRef(kpiId), {
     currentValue,
     progress,
+    percentage: progress,
     updatedAt: serverTimestamp()
   });
 
@@ -305,7 +314,7 @@ const renderTaskRows = (kpiId, tasks) => {
     const taskPriority = displayTaskPriority(task.priority);
     const taskDeadline = displayDeadline(task.deadline);
     const taskRemaining = calcRemainingDays(taskDeadline === "未設定" ? "" : taskDeadline);
-    const progressValue = getTaskProgressValue(task);
+    const contributedValue = getTaskContribution(task);
     const isCompleted = getTaskIsCompleted(task);
     const completedCount = getTaskCompletedCount(task);
 
@@ -314,7 +323,7 @@ const renderTaskRows = (kpiId, tasks) => {
         <td>${taskTitle}</td>
         <td>${taskDescription}</td>
         <td>${taskType}</td>
-        <td>${progressValue}</td>
+        <td>${contributedValue}</td>
         <td>
           ${taskType === "one_time"
     ? `<label><input type="checkbox" class="task-completion-input" data-kpi-id="${kpiId}" data-task-id="${task.id}" data-task-type="one_time" ${isCompleted ? "checked" : ""} /> 完了</label>`
