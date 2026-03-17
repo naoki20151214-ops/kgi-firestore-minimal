@@ -88,7 +88,8 @@
         font-size: 0.95rem;
       }
 
-      .deadline-value.overdue {
+      .deadline-value.overdue,
+      .overdue-text {
         color: #b91c1c;
       }
 
@@ -131,7 +132,8 @@
         font-weight: 600;
       }
 
-      input {
+      input,
+      select {
         font-size: 1rem;
         padding: 10px 12px;
         border-radius: 10px;
@@ -162,16 +164,6 @@
 
       .hint.error {
         color: #b91c1c;
-      }
-
-      .progress-cell {
-        display: flex;
-        gap: 8px;
-        align-items: center;
-      }
-
-      .progress-input {
-        width: 96px;
       }
 
       .progress-wrap {
@@ -222,15 +214,6 @@
           font-size: clamp(2rem, 9vw, 2.6rem);
         }
 
-        .progress-cell {
-          flex-direction: column;
-          align-items: stretch;
-        }
-
-        .progress-input {
-          width: 100%;
-        }
-
         th,
         td {
           padding: 8px 6px;
@@ -270,27 +253,35 @@
           <input id="kpiName" type="text" placeholder="例: 問い合わせ件数" />
         </div>
         <div class="field">
-          <label for="kpiTarget">KPI目標値</label>
-          <input id="kpiTarget" type="number" placeholder="例: 200" />
+          <label for="kpiDescription">補足説明</label>
+          <input id="kpiDescription" type="text" placeholder="任意" />
         </div>
         <div class="field">
-          <label for="kpiProgress">初期進捗</label>
-          <input id="kpiProgress" type="number" value="0" />
+          <label for="kpiType">KPIタイプ</label>
+          <select id="kpiType">
+            <option value="result">result</option>
+            <option value="action">action</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="kpiDeadline">期限</label>
+          <input id="kpiDeadline" type="date" />
         </div>
         <button id="addKpiButton" class="button" type="button">KPIを保存</button>
       </section>
 
       <section class="card">
-        <h2>KPI一覧（進捗更新つき）</h2>
+        <h2>KPI一覧</h2>
         <p id="kpiStatusText" class="hint">読み込み中...</p>
         <table id="kpiTable" hidden>
           <thead>
             <tr>
-              <th>name</th>
-              <th>current / target</th>
+              <th>KPI名</th>
+              <th>補足説明</th>
+              <th>KPIタイプ</th>
               <th>進捗率</th>
-              <th>更新</th>
-              <th>updatedAt</th>
+              <th>期限</th>
+              <th>残り日数</th>
             </tr>
           </thead>
           <tbody id="kpiTableBody"></tbody>
