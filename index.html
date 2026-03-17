@@ -44,12 +44,17 @@
       }
 
       input,
-      select,
+      textarea,
       button {
         font-size: 1rem;
         padding: 10px 12px;
         border-radius: 10px;
         border: 1px solid #d1d5db;
+      }
+
+      textarea {
+        min-height: 96px;
+        resize: vertical;
       }
 
       button {
@@ -86,24 +91,13 @@
       </div>
 
       <div class="field">
-        <label for="kgiTarget">目標値</label>
-        <input id="kgiTarget" type="number" placeholder="例: 1000000" required />
+        <label for="kgiGoalText">ゴール説明</label>
+        <textarea id="kgiGoalText" placeholder="例: 月末までに月間売上100万円を達成する"></textarea>
       </div>
 
       <div class="field">
         <label for="kgiDeadline">期限</label>
         <input id="kgiDeadline" type="date" />
-      </div>
-
-      <div class="field">
-        <label for="kgiEmoji">絵文字</label>
-        <select id="kgiEmoji">
-          <option value="🚀">🚀</option>
-          <option value="🎯">🎯</option>
-          <option value="💰">💰</option>
-          <option value="📈">📈</option>
-          <option value="🔥">🔥</option>
-        </select>
       </div>
 
       <button id="saveButton" type="button">保存</button>

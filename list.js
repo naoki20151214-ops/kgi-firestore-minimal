@@ -16,37 +16,34 @@ const setStatus = (message, isError = false) => {
   statusText.classList.toggle("error", isError);
 };
 
-const formatDateValue = (value) => {
-  if (!value) {
+const formatTimestampToYmd = (value) => {
+  if (!value || typeof value.toDate !== "function") {
     return "-";
   }
 
-  if (typeof value === "string") {
-    const matched = value.match(/^\d{4}-\d{2}-\d{2}$/);
-    if (matched) {
-      return value.replaceAll("-", "/");
-    }
+  const date = value.toDate();
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}/${month}/${day}`;
+};
 
-    const parsed = new Date(value);
-    if (!Number.isNaN(parsed.getTime())) {
-      const year = parsed.getFullYear();
-      const month = String(parsed.getMonth() + 1).padStart(2, "0");
-      const day = String(parsed.getDate()).padStart(2, "0");
-      return `${year}/${month}/${day}`;
-    }
-
+const displayGoalText = (goalText) => {
+  if (typeof goalText !== "string") {
     return "-";
   }
 
-  if (typeof value.toDate === "function") {
-    const date = value.toDate();
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, "0");
-    const day = String(date.getDate()).padStart(2, "0");
-    return `${year}/${month}/${day}`;
+  const trimmed = goalText.trim();
+  return trimmed || "-";
+};
+
+const displayDeadline = (deadline) => {
+  if (typeof deadline !== "string") {
+    return "未設定";
   }
 
-  return "-";
+  const trimmed = deadline.trim();
+  return trimmed || "未設定";
 };
 
 const renderRows = (docs) => {
@@ -57,10 +54,10 @@ const renderRows = (docs) => {
     const row = document.createElement("tr");
 
     row.innerHTML = `
-      <td>${formatDateValue(data.createdAt)}</td>
+      <td>${formatTimestampToYmd(data.createdAt)}</td>
       <td><a href="./detail.html?id=${docItem.id}">${data.name ?? ""}</a></td>
-      <td>${data.target ?? ""}</td>
-      <td>${formatDateValue(data.deadline)}</td>
+      <td>${displayGoalText(data.goalText)}</td>
+      <td>${displayDeadline(data.deadline)}</td>
     `;
 
     tableBody.appendChild(row);
