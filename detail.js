@@ -243,6 +243,16 @@ const calculateProgressFromTasks = (tasks) => {
   return Math.round((doneCount / tasks.length) * 100);
 };
 
+const resolveKpiProgress = (kpi, tasks) => {
+  const progress = Number(kpi.progress);
+
+  if (Number.isFinite(progress)) {
+    return clampPercent(Math.round(progress));
+  }
+
+  return calculateProgressFromTasks(tasks);
+};
+
 const syncKpiProgressFromTasks = async (kpiId) => {
   const tasksSnapshot = await getDocs(getTasksRef(kpiId));
   const tasks = normalizeTasks(tasksSnapshot.docs);
@@ -252,6 +262,8 @@ const syncKpiProgressFromTasks = async (kpiId) => {
     progress,
     updatedAt: serverTimestamp()
   });
+
+  return progress;
 };
 
 const renderTaskRows = (kpiId, tasks) => {
@@ -384,9 +396,12 @@ const loadKpis = async () => {
   const kpisWithTasks = await Promise.all(
     kpis.map(async (kpi) => {
       const taskSnapshot = await getDocs(getTasksRef(kpi.id));
+      const tasks = normalizeTasks(taskSnapshot.docs);
+
       return {
         ...kpi,
-        tasks: normalizeTasks(taskSnapshot.docs)
+        progress: resolveKpiProgress(kpi, tasks),
+        tasks
       };
     })
   );
