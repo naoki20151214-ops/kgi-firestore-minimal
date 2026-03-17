@@ -2,9 +2,8 @@ import { collection, addDoc, serverTimestamp } from "https://www.gstatic.com/fir
 import { getDb } from "./firebase-config.js";
 
 const nameInput = document.getElementById("kgiName");
-const targetInput = document.getElementById("kgiTarget");
+const goalTextInput = document.getElementById("kgiGoalText");
 const deadlineInput = document.getElementById("kgiDeadline");
-const emojiSelect = document.getElementById("kgiEmoji");
 const saveButton = document.getElementById("saveButton");
 const statusText = document.getElementById("statusText");
 
@@ -36,17 +35,11 @@ saveButton.addEventListener("click", async () => {
   }
 
   const name = nameInput.value.trim();
-  const target = Number(targetInput.value);
+  const goalText = goalTextInput.value.trim();
   const deadline = deadlineInput.value;
-  const emoji = emojiSelect.value;
 
   if (!name) {
     alert("KGI名を入力してください。");
-    return;
-  }
-
-  if (!Number.isFinite(target)) {
-    alert("目標値を正しく入力してください。");
     return;
   }
 
@@ -55,10 +48,14 @@ saveButton.addEventListener("click", async () => {
   try {
     await addDoc(collection(db, "kgis"), {
       name,
-      target,
+      goalText,
       deadline,
-      emoji,
-      createdAt: serverTimestamp()
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+      status: "active",
+      overallProgress: 0,
+      nextActionText: "",
+      nextActionReason: ""
     });
 
     location.href = "./list.html";

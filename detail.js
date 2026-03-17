@@ -37,12 +37,41 @@ const setKpiStatus = (message, isError = false) => {
   kpiStatusText.classList.toggle("error", isError);
 };
 
-const formatDate = (timestamp) => {
-  if (!timestamp) {
+const formatDate = (value) => {
+  if (!value) {
     return "-";
   }
 
-  return timestamp.toDate().toLocaleString("ja-JP");
+  if (typeof value.toDate === "function") {
+    return value.toDate().toLocaleString("ja-JP");
+  }
+
+  if (typeof value === "string") {
+    const parsed = new Date(value);
+    if (!Number.isNaN(parsed.getTime())) {
+      return parsed.toLocaleString("ja-JP");
+    }
+  }
+
+  return "-";
+};
+
+const displayGoalText = (goalText) => {
+  if (typeof goalText !== "string") {
+    return "-";
+  }
+
+  const trimmed = goalText.trim();
+  return trimmed || "-";
+};
+
+const displayDeadline = (deadline) => {
+  if (typeof deadline !== "string") {
+    return "未設定";
+  }
+
+  const trimmed = deadline.trim();
+  return trimmed || "未設定";
 };
 
 const parseDeadline = (deadline) => {
@@ -139,19 +168,19 @@ const renderOverallProgress = (kpis) => {
 const getKpisRef = () => collection(db, "kgis", kgiId, "kpis");
 
 const renderKgiMeta = (kgiData) => {
-  const deadlineInfo = calcRemainingDays(kgiData.deadline);
+  const deadline = displayDeadline(kgiData.deadline);
+  const deadlineInfo = calcRemainingDays(deadline === "未設定" ? "" : deadline);
+
   kgiMeta.hidden = false;
   kgiMeta.innerHTML = `
     <div class="deadline-highlight">
       <p class="deadline-label">残り日数</p>
       <p class="deadline-value ${deadlineInfo.isOverdue ? "overdue" : ""}">${deadlineInfo.remainingText}</p>
-      <p class="deadline-date">期限: ${deadlineInfo.deadlineText}</p>
+      <p class="deadline-date">期限: ${deadline}</p>
     </div>
-    <div class="row"><strong>ID</strong><span>${kgiId}</span></div>
-    <div class="row"><strong>絵文字</strong><span>${kgiData.emoji ?? ""}</span></div>
     <div class="row"><strong>KGI名</strong><span>${kgiData.name ?? ""}</span></div>
-    <div class="row"><strong>目標値</strong><span>${kgiData.target ?? ""}</span></div>
-    <div class="row"><strong>期限</strong><span>${deadlineInfo.deadlineText}</span></div>
+    <div class="row"><strong>ゴール説明</strong><span>${displayGoalText(kgiData.goalText)}</span></div>
+    <div class="row"><strong>期限</strong><span>${deadline}</span></div>
     <div class="row"><strong>作成日時</strong><span>${formatDate(kgiData.createdAt)}</span></div>
   `;
 };
