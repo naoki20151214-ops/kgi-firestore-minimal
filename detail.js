@@ -363,6 +363,46 @@ const getOneTimeTaskContribution = (task) => {
 const calculateCurrentValueFromTasks = (tasks) => tasks
   .reduce((sum, task) => sum + calculateTaskContributedValue(task), 0);
 
+const calculateOneTimeTaskSummary = (tasks) => {
+  const totalTaskCount = tasks.length;
+  const completedTaskCount = tasks.filter((task) => getTaskIsCompleted(task)).length;
+
+  if (totalTaskCount === 0) {
+    return {
+      totalTaskCount,
+      completedTaskCount,
+      currentValue: 0,
+      progress: 0
+    };
+  }
+
+  return {
+    totalTaskCount,
+    completedTaskCount,
+    currentValue: completedTaskCount,
+    progress: clampPercent(Math.round((completedTaskCount / totalTaskCount) * 100))
+  };
+};
+
+const isOneTimeTaskBasedKpi = (kpiDataForTarget, tasks) => {
+  const progressType = String(kpiDataForTarget?.progressType ?? "").toLowerCase();
+  const kpiType = String(kpiDataForTarget?.kpiType ?? "").toLowerCase();
+
+  if (progressType === "one_time" || progressType === "one_time_task") {
+    return true;
+  }
+
+  if (kpiType === "one_time") {
+    return true;
+  }
+
+  if (tasks.length === 0) {
+    return false;
+  }
+
+  return tasks.every((task) => normalizeTaskType(task.type) === "one_time");
+};
+
 const calculateProgressFromCurrentValue = (kpi, currentValue) => {
   const target = parsePositiveNumber(kpi.targetValue ?? kpi.target, 0);
 
@@ -401,8 +441,16 @@ const syncKpiProgressFromTasks = async (kpiId, kpiDataForTarget) => {
     task.progressValue = normalized.progressValue;
   }));
 
-  const currentValue = calculateCurrentValueFromTasks(tasks);
-  const progress = calculateProgressFromCurrentValue(kpiDataForTarget, currentValue);
+  const oneTimeTaskBasedKpi = isOneTimeTaskBasedKpi(kpiDataForTarget, tasks);
+  const oneTimeSummary = oneTimeTaskBasedKpi
+    ? calculateOneTimeTaskSummary(tasks)
+    : null;
+  const currentValue = oneTimeSummary
+    ? oneTimeSummary.currentValue
+    : calculateCurrentValueFromTasks(tasks);
+  const progress = oneTimeSummary
+    ? oneTimeSummary.progress
+    : calculateProgressFromCurrentValue(kpiDataForTarget, currentValue);
 
   console.log("[kpi aggregation]", {
     kpiId,
