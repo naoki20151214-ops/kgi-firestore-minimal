@@ -633,7 +633,10 @@ kpiTableBody.addEventListener("submit", async (event) => {
   const priorityInput = Number(formData.get("priority"));
   const priority = Number.isFinite(priorityInput) ? priorityInput : 2;
   const taskType = normalizeTaskType(String(formData.get("type") ?? "one_time"));
-  const progressValue = parsePositiveNumber(formData.get("progressValue"), 1);
+  const rawProgressValue = Number(formData.get("progressValue"));
+  const progressValue = Number.isFinite(rawProgressValue) && rawProgressValue >= 0
+    ? rawProgressValue
+    : 1;
 
   if (!kpiTargetId || !title) {
     alert("Task名を入力してください。");
