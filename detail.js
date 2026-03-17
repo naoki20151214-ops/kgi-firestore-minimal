@@ -22,6 +22,58 @@ const addKpiButton = document.getElementById("addKpiButton");
 const overallProgressValue = document.getElementById("overallProgressValue");
 const overallProgressFill = document.getElementById("overallProgressFill");
 const overallProgressCaption = document.getElementById("overallProgressCaption");
+const debugPanel = document.getElementById("debugPanel");
+const debugPanelContent = document.getElementById("debugPanelContent");
+
+const debugMode = true;
+let latestDebugState = [];
+
+const updateDebugPanel = (kpiDebugItems = latestDebugState) => {
+  latestDebugState = kpiDebugItems;
+
+  if (!debugPanel || !debugPanelContent) {
+    return;
+  }
+
+  if (!debugMode) {
+    debugPanel.hidden = true;
+    return;
+  }
+
+  debugPanel.hidden = false;
+
+  if (kpiDebugItems.length === 0) {
+    debugPanelContent.textContent = "KPI / Task データなし";
+    return;
+  }
+
+  const lines = kpiDebugItems.flatMap((kpiItem, index) => {
+    const kpiHeader = `KPI ${index + 1}`;
+    const kpiLines = [
+      kpiHeader,
+      `  id: ${kpiItem.id}`,
+      `  currentValue: ${kpiItem.currentValue}`,
+      `  related task count: ${kpiItem.relatedTaskCount}`,
+      `  summed contributedValue: ${kpiItem.summedContributedValue}`
+    ];
+
+    const taskLines = (kpiItem.tasks ?? []).map((task, taskIndex) => [
+      `    Task ${taskIndex + 1}`,
+      `      id: ${task.id}`,
+      `      title: ${task.title}`,
+      `      type: ${task.type}`,
+      `      isCompleted: ${task.isCompleted}`,
+      `      progressValue: ${task.progressValue}`,
+      `      contributedValue: ${task.contributedValue}`
+    ].join("\n"));
+
+    return [...kpiLines, ...taskLines, ""]; 
+  });
+
+  debugPanelContent.textContent = lines.join("\n").trim();
+};
+
+updateDebugPanel([]);
 
 let db;
 let kgiId;
@@ -330,7 +382,7 @@ const syncKpiProgressFromTasks = async (kpiId, kpiDataForTarget) => {
     updatedAt: serverTimestamp()
   });
 
-  return { currentValue, progress };
+  return { currentValue, progress, tasks };
 };
 
 const renderTaskRows = (kpiId, tasks) => {
@@ -474,6 +526,7 @@ const loadKpis = async () => {
     kpiTable.hidden = true;
     renderOverallProgress([]);
     setKpiStatus("KPIがまだありません。上のフォームから追加してください。");
+    updateDebugPanel([]);
     return;
   }
 
@@ -481,17 +534,34 @@ const loadKpis = async () => {
   const kpisWithTasks = await Promise.all(
     kpis.map(async (kpi) => {
       const synced = await syncKpiProgressFromTasks(kpi.id, kpi);
-      const taskSnapshot = await getDocs(getTasksRef(kpi.id));
-      const tasks = normalizeTasks(taskSnapshot.docs);
+      const tasks = synced.tasks;
+
+      const taskDebugItems = synced.tasks.map((task) => ({
+        id: task.id ?? "",
+        title: task.title ?? "",
+        type: normalizeTaskType(task.type),
+        isCompleted: getTaskIsCompleted(task),
+        progressValue: getTaskProgressValue(task),
+        contributedValue: calculateTaskContributedValue(task)
+      }));
 
       return {
         ...kpi,
         currentValue: synced.currentValue,
         progress: synced.progress,
-        tasks
+        tasks,
+        debug: {
+          id: kpi.id,
+          currentValue: synced.currentValue,
+          relatedTaskCount: synced.tasks.length,
+          summedContributedValue: synced.currentValue,
+          tasks: taskDebugItems
+        }
       };
     })
   );
+
+  updateDebugPanel(kpisWithTasks.map((kpi) => kpi.debug));
 
   renderKpiTable(kpisWithTasks);
   renderOverallProgress(kpisWithTasks);
