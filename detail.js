@@ -259,7 +259,7 @@ const calculateTaskContributedValue = (task) => {
   }
 
   const isCompleted = getTaskIsCompleted(task);
-  const contributedValue = isCompleted ? Number(task.progressValue || 0) : 0;
+  const contributedValue = isCompleted ? 1 : 0;
 
   console.log("[task contributedValue]", {
     id: task.id ?? "",
@@ -350,11 +350,21 @@ const normalizeTasks = (docs) => docs
     return 0;
   });
 
+
+const getOneTimeTaskContribution = (task) => {
+  const isCompleted = getTaskIsCompleted(task);
+  return {
+    isCompleted,
+    contributedValue: isCompleted ? 1 : 0,
+    progressValue: isCompleted ? 1 : 0
+  };
+};
+
 const calculateCurrentValueFromTasks = (tasks) => tasks
   .reduce((sum, task) => sum + calculateTaskContributedValue(task), 0);
 
 const calculateProgressFromCurrentValue = (kpi, currentValue) => {
-  const target = parsePositiveNumber(kpi.target ?? kpi.targetValue, 100);
+  const target = parsePositiveNumber(kpi.targetValue ?? kpi.target, 0);
 
   if (target <= 0) {
     return 0;
@@ -366,6 +376,31 @@ const calculateProgressFromCurrentValue = (kpi, currentValue) => {
 const syncKpiProgressFromTasks = async (kpiId, kpiDataForTarget) => {
   const tasksSnapshot = await getDocs(getTasksRef(kpiId));
   const tasks = normalizeTasks(tasksSnapshot.docs);
+
+  await Promise.all(tasks.map(async (task) => {
+    if (normalizeTaskType(task.type) !== "one_time") {
+      return;
+    }
+
+    const normalized = getOneTimeTaskContribution(task);
+
+    if (
+      Number(task.contributedValue) === normalized.contributedValue
+      && Number(task.progressValue) === normalized.progressValue
+    ) {
+      return;
+    }
+
+    await updateDoc(doc(db, "kgis", kgiId, "kpis", kpiId, "tasks", task.id), {
+      contributedValue: normalized.contributedValue,
+      progressValue: normalized.progressValue,
+      updatedAt: serverTimestamp()
+    });
+
+    task.contributedValue = normalized.contributedValue;
+    task.progressValue = normalized.progressValue;
+  }));
+
   const currentValue = calculateCurrentValueFromTasks(tasks);
   const progress = calculateProgressFromCurrentValue(kpiDataForTarget, currentValue);
 
@@ -668,6 +703,9 @@ kpiTableBody.addEventListener("submit", async (event) => {
       taskPayload.completedCount = 0;
     } else {
       taskPayload.isCompleted = false;
+      taskPayload.contributedValue = 0;
+      taskPayload.progressValue = 0;
+      taskPayload.completedAt = null;
     }
 
     await addDoc(getTasksRef(kpiTargetId), taskPayload);
@@ -712,8 +750,11 @@ kpiTableBody.addEventListener("change", async (event) => {
     if (taskType === "repeatable") {
       updatePayload.completedCount = parsePositiveNumber(input.value, 0);
     } else {
-      updatePayload.isCompleted = Boolean(input.checked);
-      updatePayload.completedAt = input.checked ? serverTimestamp() : null;
+      const isCompleted = Boolean(input.checked);
+      updatePayload.isCompleted = isCompleted;
+      updatePayload.contributedValue = isCompleted ? 1 : 0;
+      updatePayload.progressValue = isCompleted ? 1 : 0;
+      updatePayload.completedAt = isCompleted ? serverTimestamp() : null;
     }
 
     await updateDoc(doc(db, "kgis", kgiId, "kpis", kpiTargetId, "tasks", taskId), updatePayload);
