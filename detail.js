@@ -4,10 +4,7 @@ import {
   doc,
   getDoc,
   getDocs,
-  orderBy,
-  query,
-  serverTimestamp,
-  updateDoc
+  serverTimestamp
 } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
 import { getDb } from "./firebase-config.js";
 
@@ -17,8 +14,9 @@ const kpiStatusText = document.getElementById("kpiStatusText");
 const kpiTable = document.getElementById("kpiTable");
 const kpiTableBody = document.getElementById("kpiTableBody");
 const kpiNameInput = document.getElementById("kpiName");
-const kpiTargetInput = document.getElementById("kpiTarget");
-const kpiProgressInput = document.getElementById("kpiProgress");
+const kpiDescriptionInput = document.getElementById("kpiDescription");
+const kpiTypeInput = document.getElementById("kpiType");
+const kpiDeadlineInput = document.getElementById("kpiDeadline");
 const addKpiButton = document.getElementById("addKpiButton");
 const overallProgressValue = document.getElementById("overallProgressValue");
 const overallProgressFill = document.getElementById("overallProgressFill");
@@ -137,15 +135,23 @@ const formatPercent = (value) => `${Math.round(value)}%`;
 
 const clampPercent = (value) => Math.max(0, Math.min(100, value));
 
-const calcKpiProgress = (kpi) => {
-  const target = Number(kpi.target);
+const displayDescription = (description) => {
+  if (typeof description !== "string") {
+    return "-";
+  }
+
+  const trimmed = description.trim();
+  return trimmed || "-";
+};
+
+const displayProgress = (kpi) => {
   const progress = Number(kpi.progress);
 
-  if (!Number.isFinite(target) || target <= 0 || !Number.isFinite(progress)) {
+  if (!Number.isFinite(progress)) {
     return 0;
   }
 
-  return (progress / target) * 100;
+  return clampPercent(progress);
 };
 
 const renderOverallProgress = (kpis) => {
@@ -156,7 +162,7 @@ const renderOverallProgress = (kpis) => {
     return;
   }
 
-  const total = kpis.reduce((sum, kpi) => sum + calcKpiProgress(kpi), 0);
+  const total = kpis.reduce((sum, kpi) => sum + displayProgress(kpi), 0);
   const average = total / kpis.length;
   const safeAverage = clampPercent(average);
 
@@ -185,28 +191,32 @@ const renderKgiMeta = (kgiData) => {
   `;
 };
 
-const loadKpis = async () => {
-  const kpisQuery = query(getKpisRef(), orderBy("createdAt", "desc"));
-  const snapshot = await getDocs(kpisQuery);
+const normalizeKpis = (docs) => docs
+  .map((kpiDoc) => ({ id: kpiDoc.id, ...kpiDoc.data() }))
+  .sort((a, b) => {
+    const orderA = Number.isFinite(Number(a.order)) ? Number(a.order) : Number.MAX_SAFE_INTEGER;
+    const orderB = Number.isFinite(Number(b.order)) ? Number(b.order) : Number.MAX_SAFE_INTEGER;
 
+    if (orderA !== orderB) {
+      return orderA - orderB;
+    }
+
+    return 0;
+  });
+
+const renderKpiTable = (kpis) => {
   kpiTableBody.innerHTML = "";
-
-  if (snapshot.empty) {
-    kpiTable.hidden = true;
-    renderOverallProgress([]);
-    setKpiStatus("KPIはまだありません。上のフォームから追加してください。");
-    return;
-  }
-
-  const kpis = snapshot.docs.map((kpiDoc) => ({ id: kpiDoc.id, ...kpiDoc.data() }));
 
   kpis.forEach((kpi) => {
     const row = document.createElement("tr");
-    const progressPercent = clampPercent(calcKpiProgress(kpi));
+    const progressPercent = displayProgress(kpi);
+    const deadline = displayDeadline(kpi.deadline);
+    const remaining = calcRemainingDays(deadline === "未設定" ? "" : deadline);
 
     row.innerHTML = `
       <td>${kpi.name ?? ""}</td>
-      <td>${kpi.progress ?? 0} / ${kpi.target ?? 0}</td>
+      <td>${displayDescription(kpi.description)}</td>
+      <td>${kpi.kpiType === "action" ? "action" : "result"}</td>
       <td class="kpi-progress-cell">
         <div class="progress-wrap">
           <div class="progress-bar" aria-label="${kpi.name ?? "KPI"}の進捗バー">
@@ -215,54 +225,69 @@ const loadKpis = async () => {
           <p class="progress-label">${formatPercent(progressPercent)}</p>
         </div>
       </td>
-      <td>
-        <div class="progress-cell">
-          <input class="progress-input" type="number" value="${kpi.progress ?? 0}" />
-          <button class="button save-progress-button" type="button" data-kpi-id="${kpi.id}">進捗保存</button>
-        </div>
-      </td>
-      <td>${formatDate(kpi.updatedAt ?? kpi.createdAt)}</td>
+      <td>${deadline}</td>
+      <td class="${remaining.isOverdue ? "overdue-text" : ""}">${remaining.remainingText}</td>
     `;
 
     kpiTableBody.appendChild(row);
   });
+};
 
+const loadKpis = async () => {
+  const snapshot = await getDocs(getKpisRef());
+
+  if (snapshot.empty) {
+    kpiTableBody.innerHTML = "";
+    kpiTable.hidden = true;
+    renderOverallProgress([]);
+    setKpiStatus("KPIがまだありません。上のフォームから追加してください。");
+    return;
+  }
+
+  const kpis = normalizeKpis(snapshot.docs);
+  renderKpiTable(kpis);
   renderOverallProgress(kpis);
   kpiTable.hidden = false;
   setKpiStatus(`${snapshot.size}件のKPIを表示しています。`);
 };
 
-const validateNumber = (value) => Number.isFinite(Number(value));
-
 addKpiButton.addEventListener("click", async () => {
   const name = kpiNameInput.value.trim();
-  const target = Number(kpiTargetInput.value);
-  const progress = Number(kpiProgressInput.value);
+  const description = kpiDescriptionInput.value.trim();
+  const kpiType = kpiTypeInput.value === "action" ? "action" : "result";
+  const deadline = kpiDeadlineInput.value.trim();
 
   if (!name) {
     alert("KPI名を入力してください。");
     return;
   }
 
-  if (!validateNumber(kpiTargetInput.value) || !validateNumber(kpiProgressInput.value)) {
-    alert("目標値と進捗は数値で入力してください。");
-    return;
-  }
-
   addKpiButton.disabled = true;
 
   try {
+    const existingSnapshot = await getDocs(getKpisRef());
+
     await addDoc(getKpisRef(), {
       name,
-      target,
-      progress,
+      description,
+      kpiType,
+      progressType: "task_based",
+      target: 100,
+      current: 0,
+      unit: "%",
+      deadline,
+      progress: 0,
       createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp()
+      updatedAt: serverTimestamp(),
+      status: "active",
+      priority: 2,
+      order: existingSnapshot.size
     });
 
     kpiNameInput.value = "";
-    kpiTargetInput.value = "";
-    kpiProgressInput.value = "0";
+    kpiDescriptionInput.value = "";
+    kpiTypeInput.value = "result";
+    kpiDeadlineInput.value = "";
 
     await loadKpis();
   } catch (error) {
@@ -271,40 +296,6 @@ addKpiButton.addEventListener("click", async () => {
     setKpiStatus("KPIの保存に失敗しました。Firestoreルールを確認してください。", true);
   } finally {
     addKpiButton.disabled = false;
-  }
-});
-
-kpiTableBody.addEventListener("click", async (event) => {
-  const button = event.target.closest(".save-progress-button");
-
-  if (!button) {
-    return;
-  }
-
-  const cell = button.closest(".progress-cell");
-  const input = cell?.querySelector(".progress-input");
-  const progress = Number(input?.value);
-
-  if (!Number.isFinite(progress)) {
-    alert("進捗は数値で入力してください。");
-    return;
-  }
-
-  button.disabled = true;
-
-  try {
-    const kpiRef = doc(db, "kgis", kgiId, "kpis", button.dataset.kpiId);
-    await updateDoc(kpiRef, {
-      progress,
-      updatedAt: serverTimestamp()
-    });
-
-    await loadKpis();
-  } catch (error) {
-    console.error(error);
-    setKpiStatus("進捗の更新に失敗しました。", true);
-  } finally {
-    button.disabled = false;
   }
 });
 
