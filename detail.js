@@ -145,16 +145,47 @@ const displayDescription = (description) => {
   return trimmed || "-";
 };
 
-const normalizeTaskStatus = (status) => {
-  if (status === "doing" || status === "done") {
-    return status;
+const parsePositiveNumber = (value, fallback = 0) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+};
+
+const normalizeTaskType = (type) => {
+  if (type === "repeatable") {
+    return "repeatable";
   }
-  return "todo";
+  return "one_time";
 };
 
 const displayTaskPriority = (priority) => {
   const parsed = Number(priority);
   return Number.isFinite(parsed) ? parsed : 2;
+};
+
+const getTaskProgressValue = (task) => parsePositiveNumber(task.progressValue, 0);
+
+const getTaskCompletedCount = (task) => {
+  const completedCount = parsePositiveNumber(task.completedCount, 0);
+  return Math.floor(completedCount);
+};
+
+const getTaskIsCompleted = (task) => {
+  if (typeof task.isCompleted === "boolean") {
+    return task.isCompleted;
+  }
+
+  return task.status === "done";
+};
+
+const getTaskContribution = (task) => {
+  const taskType = normalizeTaskType(task.type);
+  const progressValue = getTaskProgressValue(task);
+
+  if (taskType === "repeatable") {
+    return getTaskCompletedCount(task) * progressValue;
+  }
+
+  return getTaskIsCompleted(task) ? progressValue : 0;
 };
 
 const displayProgress = (kpi) => {
@@ -234,36 +265,32 @@ const normalizeTasks = (docs) => docs
     return 0;
   });
 
-const calculateProgressFromTasks = (tasks) => {
-  if (tasks.length === 0) {
+const calculateCurrentValueFromTasks = (tasks) => tasks
+  .reduce((sum, task) => sum + getTaskContribution(task), 0);
+
+const calculateProgressFromCurrentValue = (kpi, currentValue) => {
+  const target = parsePositiveNumber(kpi.target, 100);
+
+  if (target <= 0) {
     return 0;
   }
 
-  const doneCount = tasks.filter((task) => normalizeTaskStatus(task.status) === "done").length;
-  return Math.round((doneCount / tasks.length) * 100);
+  return clampPercent(Math.round((currentValue / target) * 100));
 };
 
-const resolveKpiProgress = (kpi, tasks) => {
-  const progress = Number(kpi.progress);
-
-  if (Number.isFinite(progress)) {
-    return clampPercent(Math.round(progress));
-  }
-
-  return calculateProgressFromTasks(tasks);
-};
-
-const syncKpiProgressFromTasks = async (kpiId) => {
+const syncKpiProgressFromTasks = async (kpiId, kpiDataForTarget) => {
   const tasksSnapshot = await getDocs(getTasksRef(kpiId));
   const tasks = normalizeTasks(tasksSnapshot.docs);
-  const progress = calculateProgressFromTasks(tasks);
+  const currentValue = calculateCurrentValueFromTasks(tasks);
+  const progress = calculateProgressFromCurrentValue(kpiDataForTarget, currentValue);
 
   await updateDoc(getKpiRef(kpiId), {
+    currentValue,
     progress,
     updatedAt: serverTimestamp()
   });
 
-  return progress;
+  return { currentValue, progress };
 };
 
 const renderTaskRows = (kpiId, tasks) => {
@@ -274,21 +301,24 @@ const renderTaskRows = (kpiId, tasks) => {
   const taskRows = tasks.map((task) => {
     const taskTitle = task.title ?? "";
     const taskDescription = displayDescription(task.description);
-    const taskStatus = normalizeTaskStatus(task.status);
+    const taskType = normalizeTaskType(task.type);
     const taskPriority = displayTaskPriority(task.priority);
     const taskDeadline = displayDeadline(task.deadline);
     const taskRemaining = calcRemainingDays(taskDeadline === "未設定" ? "" : taskDeadline);
+    const progressValue = getTaskProgressValue(task);
+    const isCompleted = getTaskIsCompleted(task);
+    const completedCount = getTaskCompletedCount(task);
 
     return `
       <tr>
         <td>${taskTitle}</td>
         <td>${taskDescription}</td>
+        <td>${taskType}</td>
+        <td>${progressValue}</td>
         <td>
-          <select class="task-status-select" data-kpi-id="${kpiId}" data-task-id="${task.id}" aria-label="${taskTitle || "Task"}の状態">
-            <option value="todo" ${taskStatus === "todo" ? "selected" : ""}>todo</option>
-            <option value="doing" ${taskStatus === "doing" ? "selected" : ""}>doing</option>
-            <option value="done" ${taskStatus === "done" ? "selected" : ""}>done</option>
-          </select>
+          ${taskType === "one_time"
+    ? `<label><input type="checkbox" class="task-completion-input" data-kpi-id="${kpiId}" data-task-id="${task.id}" data-task-type="one_time" ${isCompleted ? "checked" : ""} /> 完了</label>`
+    : `<input type="number" min="0" step="1" class="task-completion-input" data-kpi-id="${kpiId}" data-task-id="${task.id}" data-task-type="repeatable" value="${completedCount}" aria-label="${taskTitle || "Task"}の完了回数" />`}
         </td>
         <td>${taskDeadline}</td>
         <td class="${taskRemaining.isOverdue ? "overdue-text" : ""}">${taskRemaining.remainingText}</td>
@@ -303,7 +333,9 @@ const renderTaskRows = (kpiId, tasks) => {
         <tr>
           <th>Task名</th>
           <th>補足説明</th>
-          <th>状態</th>
+          <th>タイプ</th>
+          <th>進捗値</th>
+          <th>達成入力</th>
           <th>期限</th>
           <th>残り日数</th>
           <th>優先度</th>
@@ -324,11 +356,13 @@ const renderKpiTable = (kpis) => {
     const progressPercent = displayProgress(kpi);
     const deadline = displayDeadline(kpi.deadline);
     const remaining = calcRemainingDays(deadline === "未設定" ? "" : deadline);
+    const currentValue = parsePositiveNumber(kpi.currentValue, 0);
 
     row.innerHTML = `
       <td>${kpi.name ?? ""}</td>
       <td>${displayDescription(kpi.description)}</td>
       <td>${kpi.kpiType === "action" ? "action" : "result"}</td>
+      <td>${currentValue}</td>
       <td class="kpi-progress-cell">
         <div class="progress-wrap">
           <div class="progress-bar" aria-label="${kpi.name ?? "KPI"}の進捗バー">
@@ -345,7 +379,7 @@ const renderKpiTable = (kpis) => {
     const tasks = Array.isArray(kpi.tasks) ? kpi.tasks : [];
     taskPanelRow.className = "task-panel-row";
     taskPanelRow.innerHTML = `
-      <td colspan="6">
+      <td colspan="7">
         <div class="task-panel">
           <h3 class="task-panel-title">Task</h3>
           <form class="task-form" data-kpi-id="${kpi.id}">
@@ -357,6 +391,17 @@ const renderKpiTable = (kpis) => {
               <label>
                 補足説明
                 <input name="description" type="text" placeholder="任意" />
+              </label>
+              <label>
+                タイプ
+                <select name="type" class="task-type-select">
+                  <option value="one_time">one_time</option>
+                  <option value="repeatable">repeatable</option>
+                </select>
+              </label>
+              <label>
+                進捗値
+                <input name="progressValue" type="number" min="0" step="1" value="1" required />
               </label>
               <label>
                 期限
@@ -397,10 +442,12 @@ const loadKpis = async () => {
     kpis.map(async (kpi) => {
       const taskSnapshot = await getDocs(getTasksRef(kpi.id));
       const tasks = normalizeTasks(taskSnapshot.docs);
+      const currentValue = calculateCurrentValueFromTasks(tasks);
 
       return {
         ...kpi,
-        progress: resolveKpiProgress(kpi, tasks),
+        currentValue,
+        progress: calculateProgressFromCurrentValue(kpi, currentValue),
         tasks
       };
     })
@@ -434,8 +481,8 @@ addKpiButton.addEventListener("click", async () => {
       kpiType,
       progressType: "task_based",
       target: 100,
-      current: 0,
-      unit: "%",
+      currentValue: 0,
+      unit: "pt",
       deadline,
       progress: 0,
       createdAt: serverTimestamp(),
@@ -475,6 +522,8 @@ kpiTableBody.addEventListener("submit", async (event) => {
   const deadline = String(formData.get("deadline") ?? "").trim();
   const priorityInput = Number(formData.get("priority"));
   const priority = Number.isFinite(priorityInput) ? priorityInput : 2;
+  const taskType = normalizeTaskType(String(formData.get("type") ?? "one_time"));
+  const progressValue = parsePositiveNumber(formData.get("progressValue"), 1);
 
   if (!kpiTargetId || !title) {
     alert("Task名を入力してください。");
@@ -488,21 +537,31 @@ kpiTableBody.addEventListener("submit", async (event) => {
 
   try {
     const taskSnapshot = await getDocs(getTasksRef(kpiTargetId));
-
-    await addDoc(getTasksRef(kpiTargetId), {
+    const taskPayload = {
       title,
       description,
-      status: "todo",
+      kpiId: kpiTargetId,
+      type: taskType,
+      progressValue,
       deadline,
       priority,
       order: taskSnapshot.size,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
-      completedAt: null,
       isSuggestedByAI: false
-    });
+    };
 
-    await syncKpiProgressFromTasks(kpiTargetId);
+    if (taskType === "repeatable") {
+      taskPayload.completedCount = 0;
+    } else {
+      taskPayload.isCompleted = false;
+    }
+
+    await addDoc(getTasksRef(kpiTargetId), taskPayload);
+
+    const kpiSnapshot = await getDoc(getKpiRef(kpiTargetId));
+    const kpiData = kpiSnapshot.exists() ? kpiSnapshot.data() : { target: 100 };
+    await syncKpiProgressFromTasks(kpiTargetId, kpiData);
     await loadKpis();
   } catch (error) {
     console.error(error);
@@ -516,37 +575,46 @@ kpiTableBody.addEventListener("submit", async (event) => {
 });
 
 kpiTableBody.addEventListener("change", async (event) => {
-  const select = event.target.closest(".task-status-select");
+  const input = event.target.closest(".task-completion-input");
 
-  if (!select) {
+  if (!input) {
     return;
   }
 
-  const kpiTargetId = select.dataset.kpiId;
-  const taskId = select.dataset.taskId;
-  const status = normalizeTaskStatus(select.value);
+  const kpiTargetId = input.dataset.kpiId;
+  const taskId = input.dataset.taskId;
+  const taskType = normalizeTaskType(input.dataset.taskType);
 
   if (!kpiTargetId || !taskId) {
     return;
   }
 
-  select.disabled = true;
+  input.disabled = true;
 
   try {
-    await updateDoc(doc(db, "kgis", kgiId, "kpis", kpiTargetId, "tasks", taskId), {
-      status,
-      updatedAt: serverTimestamp(),
-      completedAt: status === "done" ? serverTimestamp() : null
-    });
+    const updatePayload = {
+      updatedAt: serverTimestamp()
+    };
 
-    await syncKpiProgressFromTasks(kpiTargetId);
+    if (taskType === "repeatable") {
+      updatePayload.completedCount = parsePositiveNumber(input.value, 0);
+    } else {
+      updatePayload.isCompleted = Boolean(input.checked);
+      updatePayload.completedAt = input.checked ? serverTimestamp() : null;
+    }
+
+    await updateDoc(doc(db, "kgis", kgiId, "kpis", kpiTargetId, "tasks", taskId), updatePayload);
+
+    const kpiSnapshot = await getDoc(getKpiRef(kpiTargetId));
+    const kpiData = kpiSnapshot.exists() ? kpiSnapshot.data() : { target: 100 };
+    await syncKpiProgressFromTasks(kpiTargetId, kpiData);
     await loadKpis();
   } catch (error) {
     console.error(error);
-    alert("Task状態の更新に失敗しました。");
-    setKpiStatus("Task状態の更新に失敗しました。", true);
+    alert("Task達成値の更新に失敗しました。");
+    setKpiStatus("Task達成値の更新に失敗しました。", true);
   } finally {
-    select.disabled = false;
+    input.disabled = false;
   }
 });
 
