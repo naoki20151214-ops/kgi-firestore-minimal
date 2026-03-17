@@ -174,6 +174,10 @@ const getTaskIsCompleted = (task) => {
     return task.isCompleted;
   }
 
+  if (typeof task.isCompleted === "string") {
+    return task.isCompleted === "true";
+  }
+
   if (typeof task.completed === "boolean") {
     return task.completed;
   }
@@ -182,18 +186,39 @@ const getTaskIsCompleted = (task) => {
     return task.completionStatus === "completed";
   }
 
-  return task.status === "done";
+  return task.status === "done" || task.status === "completed";
 };
 
-const getTaskContribution = (task) => {
+const calculateTaskContributedValue = (task) => {
   const taskType = normalizeTaskType(task.type);
   const progressValue = getTaskProgressValue(task);
 
   if (taskType === "repeatable") {
-    return getTaskCompletedCount(task) * progressValue;
+    const contributedValue = getTaskCompletedCount(task) * progressValue;
+    console.log("[task contributedValue]", {
+      id: task.id ?? "",
+      title: task.title ?? "",
+      type: taskType,
+      isCompleted: getTaskIsCompleted(task),
+      progressValue,
+      contributedValue
+    });
+    return contributedValue;
   }
 
-  return getTaskIsCompleted(task) ? progressValue : 0;
+  const isCompleted = getTaskIsCompleted(task);
+  const contributedValue = isCompleted ? Number(task.progressValue || 0) : 0;
+
+  console.log("[task contributedValue]", {
+    id: task.id ?? "",
+    title: task.title ?? "",
+    type: taskType,
+    isCompleted,
+    progressValue,
+    contributedValue
+  });
+
+  return contributedValue;
 };
 
 const displayProgress = (kpi) => {
@@ -274,7 +299,7 @@ const normalizeTasks = (docs) => docs
   });
 
 const calculateCurrentValueFromTasks = (tasks) => tasks
-  .reduce((sum, task) => sum + getTaskContribution(task), 0);
+  .reduce((sum, task) => sum + calculateTaskContributedValue(task), 0);
 
 const calculateProgressFromCurrentValue = (kpi, currentValue) => {
   const target = parsePositiveNumber(kpi.target ?? kpi.targetValue, 100);
@@ -291,6 +316,12 @@ const syncKpiProgressFromTasks = async (kpiId, kpiDataForTarget) => {
   const tasks = normalizeTasks(tasksSnapshot.docs);
   const currentValue = calculateCurrentValueFromTasks(tasks);
   const progress = calculateProgressFromCurrentValue(kpiDataForTarget, currentValue);
+
+  console.log("[kpi aggregation]", {
+    kpiId,
+    relatedTaskCount: tasks.length,
+    summedContributedValue: currentValue
+  });
 
   await updateDoc(getKpiRef(kpiId), {
     currentValue,
@@ -314,7 +345,7 @@ const renderTaskRows = (kpiId, tasks) => {
     const taskPriority = displayTaskPriority(task.priority);
     const taskDeadline = displayDeadline(task.deadline);
     const taskRemaining = calcRemainingDays(taskDeadline === "未設定" ? "" : taskDeadline);
-    const contributedValue = getTaskContribution(task);
+    const contributedValue = calculateTaskContributedValue(task);
     const isCompleted = getTaskIsCompleted(task);
     const completedCount = getTaskCompletedCount(task);
 
@@ -449,14 +480,14 @@ const loadKpis = async () => {
   const kpis = normalizeKpis(snapshot.docs);
   const kpisWithTasks = await Promise.all(
     kpis.map(async (kpi) => {
+      const synced = await syncKpiProgressFromTasks(kpi.id, kpi);
       const taskSnapshot = await getDocs(getTasksRef(kpi.id));
       const tasks = normalizeTasks(taskSnapshot.docs);
-      const currentValue = calculateCurrentValueFromTasks(tasks);
 
       return {
         ...kpi,
-        currentValue,
-        progress: calculateProgressFromCurrentValue(kpi, currentValue),
+        currentValue: synced.currentValue,
+        progress: synced.progress,
         tasks
       };
     })
