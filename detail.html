@@ -197,6 +197,44 @@
         min-width: 160px;
       }
 
+      .task-panel-row td {
+        background: #f8fafc;
+      }
+
+      .task-panel {
+        display: grid;
+        gap: 12px;
+      }
+
+      .task-panel-title {
+        margin: 0;
+        font-size: 1rem;
+      }
+
+      .task-form {
+        display: grid;
+        gap: 10px;
+      }
+
+      .task-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 8px;
+      }
+
+      .task-grid label {
+        display: grid;
+        gap: 6px;
+      }
+
+      .task-add-button {
+        width: fit-content;
+      }
+
+      .task-table th {
+        background: #f1f5f9;
+      }
+
       @media (max-width: 640px) {
         body {
           padding: 12px;
@@ -218,6 +256,10 @@
         td {
           padding: 8px 6px;
           font-size: 0.9rem;
+        }
+
+        .task-grid {
+          grid-template-columns: 1fr;
         }
       }
     </style>
