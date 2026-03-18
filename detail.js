@@ -137,8 +137,6 @@ let nextActionStepError = "";
 let nextActionSteps = [];
 let currentNextAction = null;
 let latestNextActionStepRequestKey = "";
-const NEXT_ACTION_STEP_CACHE_STORAGE_KEY = "kgi-detail-next-action-step-cache";
-let nextActionStepCache = new Map();
 
 const emptyAiSuggestions = () => ({
   resultKpis: [],
@@ -948,8 +946,8 @@ const getTaskActionableStatus = (task) => {
 
 const FALLBACK_NEXT_ACTION_STEPS = [
   "タスク内容を読み直す",
-  "必要な作業を3つに分解する",
-  "最初の1つをすぐ実行する"
+  "必要な作業を3つに分ける",
+  "最初の1つをすぐ始める"
 ];
 
 const sanitizeNextActionSteps = (steps) => {
@@ -1013,7 +1011,7 @@ const renderNextAction = (nextAction) => {
   const stepContent = nextActionStepLoading
     ? '<p class="hint">小ステップを準備中...</p>'
     : nextActionStepError
-      ? `<div><p class="hint error">小ステップの生成に失敗しました。代替ステップを表示しています。</p>${fallbackStepListMarkup}</div>`
+      ? `<div><p class="hint">${nextActionStepError}</p>${fallbackStepListMarkup}</div>`
       : nextActionSteps.length > 0
         ? `<ol class="next-action-step-list">${nextActionSteps.map((step) => `<li>${step}</li>`).join("")}</ol>`
         : fallbackStepListMarkup;
@@ -1044,104 +1042,141 @@ const renderNextAction = (nextAction) => {
   `;
 };
 
-const buildNextActionStepRequestKey = (nextAction) => {
-  if (!nextAction?.task?.id) {
-    return "";
-  }
+const hashNextActionStepContext = (...parts) => parts
+  .map((part) => typeof part === "string" ? part.trim() : "")
+  .join("|")
+  .split("")
+  .reduce((hash, char) => ((hash * 31) + char.charCodeAt(0)) % 1000000007, 7)
+  .toString(16);
 
-  return JSON.stringify({
-    taskId: nextAction.task.id,
-    updatedAt: JSON.stringify(nextAction.task.updatedAt ?? null),
-    status: getTaskActionableStatus(nextAction.task)
-  });
+const buildNextActionReflectionSignature = (recentReflections) => JSON.stringify(
+  Array.isArray(recentReflections)
+    ? recentReflections.map((reflection) => ({
+      taskTitle: typeof reflection?.taskTitle === "string" ? reflection.taskTitle.trim() : "",
+      result: typeof reflection?.result === "string" ? reflection.result : "",
+      comment: typeof reflection?.comment === "string" ? reflection.comment.trim() : ""
+    }))
+    : []
+);
+
+const buildNextActionStepCacheContext = (nextAction, recentReflections = []) => {
+  const taskId = typeof nextAction?.task?.id === "string" ? nextAction.task.id : "";
+  const taskTitle = typeof nextAction?.task?.title === "string" ? nextAction.task.title.trim() : "";
+  const taskDescription = typeof nextAction?.task?.description === "string" ? nextAction.task.description.trim() : "";
+  const reflectionSignature = buildNextActionReflectionSignature(recentReflections);
+  const simpleHash = hashNextActionStepContext(taskTitle, taskDescription, reflectionSignature);
+
+  return {
+    taskId,
+    taskTitle,
+    taskDescription,
+    reflectionSignature,
+    simpleHash,
+    requestKey: taskId ? `${taskId}:${simpleHash}` : "",
+    storageKey: taskId ? `nextActionMiniSteps:${taskId}:${simpleHash}` : ""
+  };
 };
 
-const loadNextActionStepCache = () => {
+const buildNextActionStepRequestKey = (nextAction, recentReflections = buildRecentReflections(latestRenderedKpis, { preferredKpiId: nextAction?.kpiId, limit: 5 })) => {
+  const cacheContext = buildNextActionStepCacheContext(nextAction, recentReflections);
+  return cacheContext.requestKey;
+};
+
+
+const isFallbackNextActionSteps = (steps) => {
+  const normalizedSteps = sanitizeNextActionSteps(steps);
+  return normalizedSteps.length === FALLBACK_NEXT_ACTION_STEPS.length
+    && normalizedSteps.every((step, index) => step === FALLBACK_NEXT_ACTION_STEPS[index]);
+};
+
+const readCachedNextActionSteps = ({ storageKey, taskId }) => {
+  if (!storageKey || !taskId) {
+    return null;
+  }
+
   try {
-    const raw = window.sessionStorage.getItem(NEXT_ACTION_STEP_CACHE_STORAGE_KEY);
+    const raw = window.sessionStorage.getItem(storageKey);
 
     if (!raw) {
-      nextActionStepCache = new Map();
-      return;
+      console.log("[next-action-steps] cache miss", { taskId, storageKey });
+      return null;
     }
 
     const parsed = JSON.parse(raw);
-    const entries = Array.isArray(parsed) ? parsed : [];
-    nextActionStepCache = new Map(entries.filter((entry) => Array.isArray(entry) && typeof entry[0] === "string"));
+    const steps = sanitizeNextActionSteps(parsed?.steps);
+
+    if (parsed?.taskId !== taskId || steps.length < 3) {
+      console.log("[next-action-steps] cache miss", { taskId, storageKey, reason: "invalid_payload" });
+      return null;
+    }
+
+    console.log("[next-action-steps] cache hit", { taskId, storageKey });
+    return {
+      taskId,
+      steps,
+      updatedAt: typeof parsed?.updatedAt === "number" ? parsed.updatedAt : Date.now()
+    };
   } catch (error) {
-    console.error("Failed to restore next action step cache", error);
-    nextActionStepCache = new Map();
+    console.error("Failed to read next action steps cache", error);
+    return null;
   }
 };
 
-const persistNextActionStepCache = () => {
+const writeCachedNextActionSteps = ({ storageKey, taskId, steps }) => {
+  const normalizedSteps = sanitizeNextActionSteps(steps);
+
+  if (!storageKey || !taskId || normalizedSteps.length < 3) {
+    return;
+  }
+
   try {
-    window.sessionStorage.setItem(
-      NEXT_ACTION_STEP_CACHE_STORAGE_KEY,
-      JSON.stringify(Array.from(nextActionStepCache.entries()))
-    );
+    window.sessionStorage.setItem(storageKey, JSON.stringify({
+      taskId,
+      steps: normalizedSteps,
+      updatedAt: Date.now()
+    }));
+    console.log("[next-action-steps] cache write", { taskId, storageKey, stepsCount: normalizedSteps.length });
   } catch (error) {
     console.error("Failed to persist next action step cache", error);
   }
 };
 
-const readCachedNextActionSteps = (taskId, requestKey) => {
-  if (!taskId || !requestKey) {
-    return [];
-  }
-
-  const cached = nextActionStepCache.get(taskId);
-
-  if (!cached || cached.requestKey !== requestKey || !Array.isArray(cached.steps)) {
-    return [];
-  }
-
-  return sanitizeNextActionSteps(cached.steps);
-};
-
-const writeCachedNextActionSteps = (taskId, requestKey, steps) => {
-  const normalizedSteps = sanitizeNextActionSteps(steps);
-
-  if (!taskId || !requestKey || normalizedSteps.length === 0) {
-    return;
-  }
-
-  nextActionStepCache.set(taskId, {
-    requestKey,
-    steps: normalizedSteps
-  });
-  persistNextActionStepCache();
-};
-
 const generateNextActionSteps = async (nextAction) => {
+  const recentReflections = buildRecentReflections(latestRenderedKpis, { preferredKpiId: nextAction?.kpiId, limit: 5 });
+  const cacheContext = buildNextActionStepCacheContext(nextAction, recentReflections);
+  const { requestKey, storageKey, taskId } = cacheContext;
+
   if (!nextAction?.task?.title || !nextAction?.kpiName) {
+    const fallbackSteps = getFallbackNextActionSteps("missing_task_context");
+    if (storageKey && taskId) {
+      writeCachedNextActionSteps({ storageKey, taskId, steps: fallbackSteps });
+    }
     setNextActionState({
       nextAction,
       stepLoading: false,
-      stepError: "",
-      steps: getFallbackNextActionSteps("missing_task_context")
+      stepError: "代替ステップを表示しています。",
+      steps: fallbackSteps
     });
     renderNextAction();
     return;
   }
 
-  const requestKey = buildNextActionStepRequestKey(nextAction);
-  const taskId = typeof nextAction?.task?.id === "string" ? nextAction.task.id : "";
-  const cachedSteps = readCachedNextActionSteps(taskId, requestKey);
+  const cached = readCachedNextActionSteps({ storageKey, taskId });
 
-  if (cachedSteps.length > 0) {
+  if (cached?.steps?.length >= 3) {
     latestNextActionStepRequestKey = requestKey;
     setNextActionState({
       nextAction,
       stepLoading: false,
-      stepError: "",
-      steps: cachedSteps
+      stepError: isFallbackNextActionSteps(cached.steps) ? "代替ステップを表示しています。" : "",
+      steps: cached.steps
     });
     renderNextAction();
     return;
   }
 
   if (requestKey && latestNextActionStepRequestKey === requestKey && (nextActionStepLoading || nextActionSteps.length > 0 || nextActionStepError)) {
+    console.log("[next-action-steps] skip duplicate request", { taskId, requestKey });
     renderNextAction();
     return;
   }
@@ -1155,6 +1190,8 @@ const generateNextActionSteps = async (nextAction) => {
   });
   renderNextAction();
 
+  console.log("[next-action-steps] api call", { taskId, requestKey, willCallApi: true });
+
   try {
     const response = await fetch("/api/generate-next-action-steps", {
       method: "POST",
@@ -1165,7 +1202,7 @@ const generateNextActionSteps = async (nextAction) => {
         taskTitle: nextAction.task.title ?? "",
         taskDescription: nextAction.task.description ?? "",
         kpiName: nextAction.kpiName ?? "",
-        recentReflections: buildRecentReflections(latestRenderedKpis, { preferredKpiId: nextAction.kpiId, limit: 5 })
+        recentReflections
       })
     });
 
@@ -1180,24 +1217,24 @@ const generateNextActionSteps = async (nextAction) => {
       }
     }
 
-    if (!response.ok) {
-      const apiErrorMessage = typeof data?.error === "string" && data.error.trim()
-        ? data.error.trim()
-        : responseText.trim() || `HTTP ${response.status}`;
-      throw new Error(apiErrorMessage);
-    }
-
     if (latestNextActionStepRequestKey !== requestKey) {
       return;
     }
 
     const nextSteps = sanitizeNextActionSteps(data?.steps);
-    const resolvedSteps = nextSteps.length >= 3 ? nextSteps : getFallbackNextActionSteps("api_missing_steps");
-    writeCachedNextActionSteps(taskId, requestKey, resolvedSteps);
+    const resolvedSteps = nextSteps.length >= 3 ? nextSteps : getFallbackNextActionSteps(response.ok ? "api_missing_steps" : `http_${response.status}`);
+    const fallbackMessage = isFallbackNextActionSteps(resolvedSteps)
+      ? "小ステップの自動生成に失敗したため、代替ステップを表示しています。"
+      : "";
+
+    if (storageKey && taskId) {
+      writeCachedNextActionSteps({ storageKey, taskId, steps: resolvedSteps });
+    }
+
     setNextActionState({
       nextAction,
       stepLoading: false,
-      stepError: nextSteps.length >= 3 ? "" : "AI応答が不完全だったため代替ステップを表示しています",
+      stepError: fallbackMessage,
       steps: resolvedSteps
     });
   } catch (error) {
@@ -1207,11 +1244,15 @@ const generateNextActionSteps = async (nextAction) => {
       return;
     }
 
+    const fallbackSteps = getFallbackNextActionSteps("fetch_error");
+    if (storageKey && taskId) {
+      writeCachedNextActionSteps({ storageKey, taskId, steps: fallbackSteps });
+    }
     setNextActionState({
       nextAction,
       stepLoading: false,
-      stepError: error instanceof Error && error.message ? error.message : "Unexpected server error",
-      steps: getFallbackNextActionSteps("fetch_error")
+      stepError: "小ステップの自動生成に失敗したため、代替ステップを表示しています。",
+      steps: fallbackSteps
     });
   }
 
@@ -2822,7 +2863,6 @@ const initializeDetailPage = async () => {
   setDebugSummary(`取得したid: ${kgiId}`);
   restoreAiSuggestions();
   restoreSubKgiSavedState();
-  loadNextActionStepCache();
   renderAiSuggestions();
 
   try {
