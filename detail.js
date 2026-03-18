@@ -856,11 +856,24 @@ generateAiKpisButton?.addEventListener("click", async () => {
       body: JSON.stringify({ goal })
     });
 
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
+    const responseText = await response.text();
+    let data = null;
+
+    if (responseText) {
+      try {
+        data = JSON.parse(responseText);
+      } catch (parseError) {
+        console.error("Failed to parse /api/generate-kpis response as JSON", parseError, responseText);
+      }
     }
 
-    const data = await response.json();
+    if (!response.ok) {
+      const apiErrorMessage = typeof data?.error === "string" && data.error.trim()
+        ? data.error.trim()
+        : responseText.trim() || `HTTP ${response.status}`;
+      throw new Error(apiErrorMessage);
+    }
+
     aiHasGenerated = true;
     aiSuggestions = {
       resultKpis: Array.isArray(data?.resultKpis) ? data.resultKpis : [],
@@ -871,7 +884,8 @@ generateAiKpisButton?.addEventListener("click", async () => {
     renderAiSuggestions();
   } catch (error) {
     console.error(error);
-    setAiError("KPI案の生成に失敗しました");
+    const errorMessage = error instanceof Error && error.message ? error.message : "Unexpected server error";
+    setAiError(`KPI案の生成に失敗しました: ${errorMessage}`);
     resetAiSuggestions();
   } finally {
     setAiLoading(false);
