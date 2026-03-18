@@ -1,23 +1,6 @@
 const OPENAI_API_URL = "https://api.openai.com/v1/responses";
 
-const SYSTEM_PROMPT = `あなたはタスクを実行するための「今すぐやる小ステップ」を生成するAIです。
-
-制約:
-- 必ず3〜5個のステップを出す
-- 各ステップは1行で具体的に書く
-- 抽象表現は禁止
-- 実行可能な行動のみ
-- JSONのみ出力する
-- 空は禁止
-
-出力形式:
-{
-  "steps": [
-    "ステップ1",
-    "ステップ2",
-    "ステップ3"
-  ]
-}`;
+const SYSTEM_PROMPT = `あなたは「今すぐやる小ステップ」生成AIです。必ずJSONのみを返してください。必ず {"steps":["...","...","..."]} 形式にし、steps は3〜5件の具体的な日本語ステップを入れてください。空配列は禁止です。迷っても一般的な実行ステップを最低3件返してください。`;
 
 const STEP_RESPONSE_SCHEMA = {
   name: "generate_next_action_steps_response",
@@ -38,6 +21,14 @@ const STEP_RESPONSE_SCHEMA = {
     }
   }
 };
+
+const COMMENT_DIFFICULTY_KEYWORDS = ["難しい", "分からない", "わからない", "専門用語", "大変"];
+const MAX_ADAPTATION_HINTS = 5;
+const FALLBACK_STEPS = [
+  "タスク内容を読み直す",
+  "必要な作業を3つに分ける",
+  "最初の1つをすぐ始める"
+];
 
 const isNonEmptyString = (value) => typeof value === "string" && value.trim().length > 0;
 const isValidReflectionResult = (value) => (
@@ -63,8 +54,36 @@ const getRequestBody = (req) => {
   return req.body;
 };
 
-const COMMENT_DIFFICULTY_KEYWORDS = ["難しい", "分からない", "わからない", "専門用語", "大変"];
-const MAX_ADAPTATION_HINTS = 5;
+const sendJson = (res, status, body) => {
+  res.statusCode = status;
+  res.setHeader("Content-Type", "application/json; charset=utf-8");
+  res.end(JSON.stringify(body));
+};
+
+const normalizeRecentReflections = (value) => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((item) => {
+      const taskTitle = typeof item?.taskTitle === "string" ? item.taskTitle.trim() : "";
+      const comment = typeof item?.comment === "string" ? item.comment.trim() : "";
+      const result = item?.result;
+
+      if (!taskTitle || !isValidReflectionResult(result)) {
+        return null;
+      }
+
+      return {
+        taskTitle,
+        result,
+        comment
+      };
+    })
+    .filter(Boolean)
+    .slice(0, 5);
+};
 
 const isCommentDifficult = (comment) => COMMENT_DIFFICULTY_KEYWORDS.some((keyword) => comment.includes(keyword));
 
@@ -98,17 +117,16 @@ const buildAdaptationHints = (recentReflections) => {
 
 const buildStepPrompt = ({ kpiName, taskTitle, taskDescription, adaptationHints }) => JSON.stringify({
   kpiName,
-  task: {
-    title: taskTitle,
-    description: taskDescription || "未設定"
-  },
+  taskTitle,
+  taskDescription: taskDescription || "未設定",
   adaptationHints,
-  output: {
-    steps: "3-5件",
-    language: "ja",
-    duration: "5-15分",
-    style: "短く具体的"
-  }
+  rules: [
+    "JSON only",
+    "steps を必ず返す",
+    "3〜5件",
+    "空配列禁止",
+    "各stepは短く具体的な日本語"
+  ]
 });
 
 const extractOutputText = (responseData) => {
@@ -135,25 +153,9 @@ const extractOutputText = (responseData) => {
   return "";
 };
 
-const sendJson = (res, status, body) => {
-  res.statusCode = status;
-  res.setHeader("Content-Type", "application/json; charset=utf-8");
-  res.end(JSON.stringify(body));
-};
-
-const FALLBACK_STEPS = [
-  "タスク内容を読み直す",
-  "必要な作業を3つに分解する",
-  "最初の1つをすぐ実行する"
-];
-
-const removeJsonCodeFence = (value) => {
-  if (typeof value !== "string") {
-    return "";
-  }
-
-  return value.replace(/```json\s*/gi, "").replace(/```/g, "").trim();
-};
+const removeJsonCodeFence = (value) => typeof value === "string"
+  ? value.replace(/```json\s*/gi, "").replace(/```/g, "").trim()
+  : "";
 
 const extractJsonObjectString = (value) => {
   const sanitized = removeJsonCodeFence(value);
@@ -167,36 +169,6 @@ const extractJsonObjectString = (value) => {
   return sanitized.slice(firstBraceIndex, lastBraceIndex + 1);
 };
 
-const getFallbackSteps = (reason) => {
-  console.warn("[generate-next-action-steps] using fallback steps", { reason, fallbackSteps: FALLBACK_STEPS });
-  return FALLBACK_STEPS.slice();
-};
-
-const normalizeRecentReflections = (value) => {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-
-  return value
-    .map((item) => {
-      const taskTitle = typeof item?.taskTitle === "string" ? item.taskTitle.trim() : "";
-      const comment = typeof item?.comment === "string" ? item.comment.trim() : "";
-      const result = item?.result;
-
-      if (!taskTitle || !isValidReflectionResult(result)) {
-        return null;
-      }
-
-      return {
-        taskTitle,
-        result,
-        comment
-      };
-    })
-    .filter(Boolean)
-    .slice(0, 5);
-};
-
 const sanitizeSteps = (steps) => {
   if (!Array.isArray(steps)) {
     return [];
@@ -208,17 +180,39 @@ const sanitizeSteps = (steps) => {
     .slice(0, 5);
 };
 
+const isSameStepSet = (steps) => steps.length === FALLBACK_STEPS.length && steps.every((step, index) => step === FALLBACK_STEPS[index]);
+
+const getFallbackResult = (reason) => {
+  console.warn("[generate-next-action-steps] fallback enabled", {
+    endpoint: "generate-next-action-steps",
+    reason,
+    usedFallback: true,
+    returnedStepsCount: FALLBACK_STEPS.length
+  });
+
+  return {
+    steps: FALLBACK_STEPS.slice(),
+    usedFallback: true,
+    reason
+  };
+};
+
 const parseStepsFromOutputText = (outputText) => {
-  console.log("[generate-next-action-steps] raw AI response", outputText);
+  console.log("[generate-next-action-steps] raw response status", {
+    endpoint: "generate-next-action-steps",
+    hasRawResponse: Boolean(outputText && outputText.trim())
+  });
 
   if (!outputText || !outputText.trim()) {
-    return getFallbackSteps("empty_response");
+    console.log("[generate-next-action-steps] parse result", { endpoint: "generate-next-action-steps", parseSucceeded: false, reason: "empty_response" });
+    return getFallbackResult("empty_response");
   }
 
   const jsonText = extractJsonObjectString(outputText);
 
   if (!jsonText) {
-    return getFallbackSteps("json_not_found");
+    console.log("[generate-next-action-steps] parse result", { endpoint: "generate-next-action-steps", parseSucceeded: false, reason: "json_not_found" });
+    return getFallbackResult("json_not_found");
   }
 
   try {
@@ -226,13 +220,24 @@ const parseStepsFromOutputText = (outputText) => {
     const steps = sanitizeSteps(parsedResponse?.steps);
 
     if (steps.length < 3) {
-      return getFallbackSteps("steps_missing_or_too_short");
+      console.log("[generate-next-action-steps] parse result", { endpoint: "generate-next-action-steps", parseSucceeded: false, reason: "steps_missing_or_empty" });
+      return getFallbackResult("steps_missing_or_empty");
     }
 
-    return steps;
+    console.log("[generate-next-action-steps] parse result", { endpoint: "generate-next-action-steps", parseSucceeded: true, reason: "ok" });
+    return {
+      steps,
+      usedFallback: isSameStepSet(steps),
+      reason: "ok"
+    };
   } catch (error) {
-    console.error("[generate-next-action-steps] parse error", error);
-    return getFallbackSteps("json_parse_error");
+    console.error("[generate-next-action-steps] parse error", {
+      endpoint: "generate-next-action-steps",
+      parseSucceeded: false,
+      reason: "json_parse_error",
+      error
+    });
+    return getFallbackResult("json_parse_error");
   }
 };
 
@@ -255,6 +260,10 @@ module.exports = async function handler(req, res) {
   const recentReflections = normalizeRecentReflections(requestBody?.recentReflections);
   const adaptationHints = buildAdaptationHints(recentReflections);
 
+  if (!requestBody) {
+    return sendJson(res, 400, { error: "Invalid JSON body" });
+  }
+
   if (!isNonEmptyString(taskTitle) || !isNonEmptyString(kpiName)) {
     return sendJson(res, 400, {
       error: "Invalid request body. Expected JSON with taskTitle, taskDescription, kpiName."
@@ -268,7 +277,13 @@ module.exports = async function handler(req, res) {
       taskDescription,
       adaptationHints
     });
-    console.log("[generate-next-action-steps] request", { rawReflectionsCount: recentReflections.length, adaptationHintsCount: adaptationHints.length, promptChars: SYSTEM_PROMPT.length + promptText.length });
+    console.log("[generate-next-action-steps] request", {
+      endpoint: "generate-next-action-steps",
+      rawReflectionsCount: recentReflections.length,
+      adaptationHintsCount: adaptationHints.length,
+      promptChars: SYSTEM_PROMPT.length + promptText.length
+    });
+
     const openAiResponse = await fetch(OPENAI_API_URL, {
       method: "POST",
       headers: {
@@ -302,19 +317,43 @@ module.exports = async function handler(req, res) {
     });
 
     if (!openAiResponse.ok) {
-      console.log("[generate-next-action-steps] response", { success: false, status: openAiResponse.status });
-      return sendJson(res, 502, { error: "OpenAI API request failed" });
+      console.error("[generate-next-action-steps] upstream error", {
+        endpoint: "generate-next-action-steps",
+        status: openAiResponse.status
+      });
+      const fallback = getFallbackResult(`upstream_status_${openAiResponse.status}`);
+      console.log("[generate-next-action-steps] response", {
+        endpoint: "generate-next-action-steps",
+        parseSucceeded: false,
+        usedFallback: fallback.usedFallback,
+        returnedStepsCount: fallback.steps.length
+      });
+      return sendJson(res, 200, { steps: fallback.steps });
     }
 
     const responseData = await openAiResponse.json();
     const outputText = extractOutputText(responseData);
-    const steps = parseStepsFromOutputText(outputText);
+    const parsed = parseStepsFromOutputText(outputText);
 
-    console.log("[generate-next-action-steps] response", { success: true, stepCount: steps.length, usedFallback: steps.every((step, index) => step === FALLBACK_STEPS[index]) });
-    return sendJson(res, 200, { steps });
+    console.log("[generate-next-action-steps] response", {
+      endpoint: "generate-next-action-steps",
+      parseSucceeded: parsed.reason === "ok",
+      usedFallback: parsed.usedFallback,
+      returnedStepsCount: parsed.steps.length
+    });
+    return sendJson(res, 200, { steps: parsed.steps });
   } catch (error) {
-    console.log("[generate-next-action-steps] response", { success: false });
-    console.error("[generate-next-action-steps] Unexpected server error", error);
-    return sendJson(res, 500, { error: "Unexpected server error" });
+    console.error("[generate-next-action-steps] unexpected error", {
+      endpoint: "generate-next-action-steps",
+      error
+    });
+    const fallback = getFallbackResult("unexpected_server_error");
+    console.log("[generate-next-action-steps] response", {
+      endpoint: "generate-next-action-steps",
+      parseSucceeded: false,
+      usedFallback: fallback.usedFallback,
+      returnedStepsCount: fallback.steps.length
+    });
+    return sendJson(res, 200, { steps: fallback.steps });
   }
 };
