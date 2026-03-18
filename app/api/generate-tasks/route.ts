@@ -51,6 +51,14 @@ const TASK_RESPONSE_SCHEMA = {
   }
 } as const;
 
+type ReflectionResult = "as_planned" | "harder_than_expected" | "needs_improvement" | "could_not_do";
+
+type RecentReflection = {
+  taskTitle?: unknown;
+  result?: unknown;
+  comment?: unknown;
+};
+
 type TaskRequest = {
   kgiName?: string;
   kgiGoalText?: string;
@@ -58,6 +66,7 @@ type TaskRequest = {
   kpiDescription?: string;
   kpiType?: "result" | "action";
   targetValue?: number;
+  recentReflections?: RecentReflection[];
 };
 
 type TaskItem = {
@@ -66,6 +75,12 @@ type TaskItem = {
   type: "one_time";
   progressValue: 1;
   priority: number;
+};
+
+type NormalizedReflection = {
+  taskTitle: string;
+  result: ReflectionResult;
+  comment: string;
 };
 
 const extractOutputText = (responseData: any) => {
@@ -93,6 +108,79 @@ const extractOutputText = (responseData: any) => {
 };
 
 const isNonEmptyString = (value: unknown): value is string => typeof value === "string" && value.trim().length > 0;
+const isValidReflectionResult = (value: unknown): value is ReflectionResult => (
+  value === "as_planned"
+  || value === "harder_than_expected"
+  || value === "needs_improvement"
+  || value === "could_not_do"
+);
+
+const normalizeRecentReflections = (value: unknown): NormalizedReflection[] => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((item) => {
+      const taskTitle = typeof item?.taskTitle === "string" ? item.taskTitle.trim() : "";
+      const comment = typeof item?.comment === "string" ? item.comment.trim() : "";
+      const result = item?.result;
+
+      if (!taskTitle || !isValidReflectionResult(result)) {
+        return null;
+      }
+
+      return {
+        taskTitle,
+        result,
+        comment
+      };
+    })
+    .filter((item): item is NormalizedReflection => Boolean(item))
+    .slice(0, 5);
+};
+
+const buildReflectionGuidance = (recentReflections: NormalizedReflection[]) => {
+  if (recentReflections.length === 0) {
+    return "";
+  }
+
+  const summaryLines = recentReflections.map((reflection, index) => {
+    const commentText = reflection.comment ? ` / コメント: ${reflection.comment}` : "";
+    return `${index + 1}. Task: ${reflection.taskTitle} / 結果: ${reflection.result}${commentText}`;
+  });
+
+  const adaptiveRules = new Set<string>();
+
+  recentReflections.forEach((reflection) => {
+    if (reflection.result === "harder_than_expected") {
+      adaptiveRules.add("- 思ったより大変だったTaskがあるため、専門用語を減らし、必要な説明を補い、Taskをより細かく分解し、一度に求める作業量を減らすこと。");
+    }
+
+    if (reflection.result === "could_not_do") {
+      adaptiveRules.add("- できなかったTaskがあるため、次の提案の難易度を1段下げ、最初の一歩をさらに小さくし、準備タスクから提案すること。");
+    }
+
+    if (reflection.result === "as_planned") {
+      adaptiveRules.add("- 予定通りできたTaskもあるため、過度に簡単にしすぎず、現状の進めやすさは維持すること。");
+    }
+
+    if (reflection.result === "needs_improvement") {
+      adaptiveRules.add("- やり方を見直したいTaskがあるため、同種のTaskは維持しつつ、構成や順番を改善し、抽象度を下げること。");
+    }
+  });
+
+  return [
+    "過去の振り返りから分かっていること:",
+    ...summaryLines,
+    "",
+    "これらを考慮して、次の提案では以下を守ること:",
+    ...Array.from(adaptiveRules),
+    "- 専門用語を避けるか、使う場合は短く意味を添えること。",
+    "- より具体的で、1回で着手できる小さい行動にすること。",
+    "- 難しすぎる提案を避け、必要なら準備ステップから始めること。"
+  ].join("\n");
+};
 
 const isValidTask = (value: any): value is TaskItem => (
   value
@@ -120,6 +208,8 @@ export async function POST(request: Request) {
   const kpiDescription = typeof body?.kpiDescription === "string" ? body.kpiDescription.trim() : "";
   const kpiType = body?.kpiType;
   const targetValue = Number(body?.targetValue);
+  const recentReflections = normalizeRecentReflections(body?.recentReflections);
+  const reflectionGuidance = buildReflectionGuidance(recentReflections);
 
   if (!kgiName || !kpiName || (kpiType !== "result" && kpiType !== "action") || !Number.isFinite(targetValue)) {
     return NextResponse.json({
@@ -152,8 +242,9 @@ export async function POST(request: Request) {
                 `KPI説明: ${kpiDescription || "未設定"}`,
                 `KPIタイプ: ${kpiType}`,
                 `KPI目標値: ${targetValue}`,
+                reflectionGuidance,
                 "指定のJSONスキーマに厳密に従ってTask候補のみ返してください。"
-              ].join("\n")
+              ].filter(Boolean).join("\n")
             }]
           }
         ],
