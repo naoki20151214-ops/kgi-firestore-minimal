@@ -130,6 +130,13 @@ window.addEventListener("unhandledrejection", (event) => {
 let db;
 let kgiId = "";
 let currentKgiData = null;
+let nextActionLoading = false;
+let nextActionError = "";
+let nextActionStepLoading = false;
+let nextActionStepError = "";
+let nextActionSteps = [];
+let currentNextAction = null;
+let latestNextActionStepRequestKey = "";
 
 const emptyAiSuggestions = () => ({
   resultKpis: [],
@@ -316,6 +323,15 @@ const resetKpiSection = () => {
   kpiTableBody.innerHTML = "";
   kpiTable.hidden = true;
   renderOverallProgress([]);
+  latestNextActionStepRequestKey = "";
+  setNextActionState({
+    nextAction: null,
+    loading: false,
+    error: "",
+    stepLoading: false,
+    stepError: "",
+    steps: []
+  });
   renderNextAction(null);
 };
 
@@ -785,28 +801,215 @@ const selectNextAction = (kpis) => {
   return candidates[0];
 };
 
+const getTaskStatusLabel = (status) => {
+  if (status === "doing") {
+    return "実行中";
+  }
+
+  if (status === "done") {
+    return "完了";
+  }
+
+  return "未着手";
+};
+
+const getTaskStatusClassName = (status) => {
+  if (status === "doing") {
+    return "doing";
+  }
+
+  if (status === "done") {
+    return "done";
+  }
+
+  return "todo";
+};
+
+const getTaskActionableStatus = (task) => {
+  const rawStatus = typeof task?.status === "string" ? task.status.trim().toLowerCase() : "";
+
+  if (rawStatus === "doing") {
+    return "doing";
+  }
+
+  if (rawStatus === "done" || rawStatus === "completed") {
+    return "done";
+  }
+
+  return getTaskIsCompleted(task) ? "done" : "todo";
+};
+
+const setNextActionState = ({
+  nextAction = currentNextAction,
+  loading = nextActionLoading,
+  error = nextActionError,
+  stepLoading = nextActionStepLoading,
+  stepError = nextActionStepError,
+  steps = nextActionSteps
+} = {}) => {
+  currentNextAction = nextAction ?? null;
+  nextActionLoading = Boolean(loading);
+  nextActionError = typeof error === "string" ? error : "";
+  nextActionStepLoading = Boolean(stepLoading);
+  nextActionStepError = typeof stepError === "string" ? stepError : "";
+  nextActionSteps = Array.isArray(steps) ? steps : [];
+};
+
 const renderNextAction = (nextAction) => {
   if (!nextActionContainer) {
     return;
   }
 
-  if (!nextAction) {
+  if (nextAction !== undefined) {
+    currentNextAction = nextAction ?? null;
+  }
+
+  if (!currentNextAction) {
     nextActionContainer.innerHTML = '<p class="next-action-empty">今やるべき未完了Taskはありません</p>';
     return;
   }
 
-  const { task, kpiName } = nextAction;
+  const { task, kpiName } = currentNextAction;
   const deadline = displayDeadline(task.deadline);
   const remaining = calcRemainingDays(deadline === "未設定" ? "" : deadline);
+  const taskStatus = getTaskActionableStatus(task);
+  const canStart = taskStatus === "todo" && !getTaskIsCompleted(task) && !nextActionLoading;
+  const canComplete = (taskStatus === "todo" || taskStatus === "doing") && !getTaskIsCompleted(task) && !nextActionLoading;
+  const loadingMarkup = nextActionLoading
+    ? '<p class="next-action-inline-status">更新中...</p>'
+    : taskStatus === "doing"
+      ? '<p class="next-action-inline-status">実行中です。完了したら「完了する」を押してください。</p>'
+      : "";
+  const stepContent = nextActionStepLoading
+    ? '<p class="hint">小ステップを準備中...</p>'
+    : nextActionStepError
+      ? '<p class="hint error">小ステップの生成に失敗しました</p>'
+      : nextActionSteps.length > 0
+        ? `<ol class="next-action-step-list">${nextActionSteps.map((step) => `<li>${step}</li>`).join("")}</ol>`
+        : '<p class="hint">小ステップを表示できませんでした</p>';
+  const errorMarkup = nextActionError
+    ? `<p class="hint error">${nextActionError}</p>`
+    : "";
 
   nextActionContainer.innerHTML = `
+    ${errorMarkup}
     <p class="next-action-title">${task.title ?? "-"}</p>
     <div class="row"><strong>補足説明</strong><span>${displayDescription(task.description)}</span></div>
     <div class="row"><strong>所属KPI名</strong><span>${kpiName || "-"}</span></div>
     <div class="row"><strong>優先度</strong><span>${displayTaskPriority(task.priority)}</span></div>
     <div class="row"><strong>期限</strong><span>${deadline}</span></div>
     <div class="row"><strong>残り日数</strong><span class="${remaining.isOverdue ? "overdue-text" : ""}">${remaining.remainingText}</span></div>
+    <div class="row"><strong>状態</strong><span class="next-action-status-row"><span class="status-badge ${getTaskStatusClassName(taskStatus)}">${getTaskStatusLabel(taskStatus)}</span></span></div>
+    <div class="next-action-actions">
+      ${canStart ? '<button class="button" type="button" data-next-action-action="start">開始する</button>' : ""}
+      ${canComplete ? '<button class="button success" type="button" data-next-action-action="complete">完了する</button>' : ""}
+      ${taskStatus === "doing" ? '<span class="status-badge doing">実行中</span>' : ""}
+    </div>
+    ${loadingMarkup}
+    <div class="next-action-step-panel">
+      <h3 class="next-action-step-title">今すぐやる小ステップ</h3>
+      ${stepContent}
+    </div>
   `;
+};
+
+const buildNextActionStepRequestKey = (nextAction) => {
+  if (!nextAction?.task?.id) {
+    return "";
+  }
+
+  return JSON.stringify({
+    taskId: nextAction.task.id,
+    updatedAt: JSON.stringify(nextAction.task.updatedAt ?? null),
+    status: getTaskActionableStatus(nextAction.task)
+  });
+};
+
+const generateNextActionSteps = async (nextAction) => {
+  if (!nextAction?.task?.title || !nextAction?.kpiName) {
+    setNextActionState({
+      nextAction,
+      stepLoading: false,
+      stepError: "",
+      steps: []
+    });
+    renderNextAction();
+    return;
+  }
+
+  const requestKey = buildNextActionStepRequestKey(nextAction);
+
+  if (requestKey && latestNextActionStepRequestKey === requestKey && (nextActionStepLoading || nextActionSteps.length > 0 || nextActionStepError)) {
+    renderNextAction();
+    return;
+  }
+
+  latestNextActionStepRequestKey = requestKey;
+  setNextActionState({
+    nextAction,
+    stepLoading: true,
+    stepError: "",
+    steps: []
+  });
+  renderNextAction();
+
+  try {
+    const response = await fetch("/api/generate-next-action-steps", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        taskTitle: nextAction.task.title ?? "",
+        taskDescription: nextAction.task.description ?? "",
+        kpiName: nextAction.kpiName ?? ""
+      })
+    });
+
+    const responseText = await response.text();
+    let data = null;
+
+    if (responseText) {
+      try {
+        data = JSON.parse(responseText);
+      } catch (parseError) {
+        console.error("Failed to parse /api/generate-next-action-steps response as JSON", parseError, responseText);
+      }
+    }
+
+    if (!response.ok) {
+      const apiErrorMessage = typeof data?.error === "string" && data.error.trim()
+        ? data.error.trim()
+        : responseText.trim() || `HTTP ${response.status}`;
+      throw new Error(apiErrorMessage);
+    }
+
+    if (latestNextActionStepRequestKey !== requestKey) {
+      return;
+    }
+
+    setNextActionState({
+      nextAction,
+      stepLoading: false,
+      stepError: "",
+      steps: Array.isArray(data?.steps) ? data.steps.slice(0, 3) : []
+    });
+  } catch (error) {
+    console.error(error);
+
+    if (latestNextActionStepRequestKey !== requestKey) {
+      return;
+    }
+
+    setNextActionState({
+      nextAction,
+      stepLoading: false,
+      stepError: error instanceof Error && error.message ? error.message : "Unexpected server error",
+      steps: []
+    });
+  }
+
+  renderNextAction();
 };
 
 const getTaskProgressValue = (task) => parsePositiveNumber(task.progressValue, 0);
@@ -1214,6 +1417,15 @@ const loadKpis = async () => {
     existingKpiKeys = new Set();
     taskAiSavedByKpiId = {};
     taskAiSavingByKpiId = {};
+    latestNextActionStepRequestKey = "";
+    setNextActionState({
+      nextAction: null,
+      loading: false,
+      error: "",
+      stepLoading: false,
+      stepError: "",
+      steps: []
+    });
     renderNextAction(null);
     renderAiSuggestions();
     setKpiStatus("KPIがまだありません。上のフォームから追加してください。");
@@ -1265,9 +1477,42 @@ const loadKpis = async () => {
   );
   updateDebugPanel(kpisWithTasks.map((kpi) => kpi.debug));
 
+  const nextAction = selectNextAction(kpisWithTasks);
+
   renderKpiTable(kpisWithTasks);
   renderOverallProgress(kpisWithTasks);
-  renderNextAction(selectNextAction(kpisWithTasks));
+
+  if (!nextAction) {
+    latestNextActionStepRequestKey = "";
+    setNextActionState({
+      nextAction: null,
+      loading: false,
+      error: "",
+      stepLoading: false,
+      stepError: "",
+      steps: []
+    });
+    renderNextAction(null);
+  } else {
+    const currentKey = buildNextActionStepRequestKey(currentNextAction);
+    const nextKey = buildNextActionStepRequestKey(nextAction);
+    const shouldRegenerateSteps = currentKey !== nextKey;
+
+    setNextActionState({
+      nextAction,
+      loading: false,
+      error: "",
+      stepLoading: shouldRegenerateSteps ? false : nextActionStepLoading,
+      stepError: shouldRegenerateSteps ? "" : nextActionStepError,
+      steps: shouldRegenerateSteps ? [] : nextActionSteps
+    });
+    renderNextAction();
+
+    if (shouldRegenerateSteps) {
+      await generateNextActionSteps(nextAction);
+    }
+  }
+
   renderAiSuggestions();
   kpiTable.hidden = false;
   setKpiStatus(`${snapshot.size}件のKPIを表示しています。`);
@@ -1685,6 +1930,7 @@ kpiTableBody.addEventListener("submit", async (event) => {
       description,
       kpiId: kpiTargetId,
       type: taskType,
+      status: "todo",
       progressValue,
       deadline,
       priority,
@@ -1720,6 +1966,110 @@ kpiTableBody.addEventListener("submit", async (event) => {
   }
 });
 
+nextActionContainer?.addEventListener("click", async (event) => {
+  const button = event.target instanceof HTMLElement ? event.target.closest("[data-next-action-action]") : null;
+
+  if (!(button instanceof HTMLButtonElement) || !currentNextAction || nextActionLoading) {
+    return;
+  }
+
+  const action = button.dataset.nextActionAction;
+  const taskId = currentNextAction.task?.id;
+  const kpiTargetId = currentNextAction.kpiId;
+
+  if (!taskId || !kpiTargetId || (action !== "start" && action !== "complete")) {
+    return;
+  }
+
+  setNextActionState({
+    loading: true,
+    error: ""
+  });
+  renderNextAction();
+
+  try {
+    const nowTimestamp = serverTimestamp();
+    const updatePayload = {
+      updatedAt: nowTimestamp
+    };
+
+    if (action === "start") {
+      updatePayload.status = "doing";
+      updatePayload.isCompleted = false;
+      updatePayload.completedAt = null;
+    } else {
+      updatePayload.status = "done";
+      updatePayload.isCompleted = true;
+      updatePayload.completedAt = nowTimestamp;
+      updatePayload.contributedValue = 1;
+      updatePayload.progressValue = 1;
+    }
+
+    await updateDoc(doc(getKpisRef(), kpiTargetId, "tasks", taskId), updatePayload);
+
+    latestRenderedKpis = latestRenderedKpis.map((kpi) => {
+      if (kpi.id !== kpiTargetId) {
+        return kpi;
+      }
+
+      const tasks = Array.isArray(kpi.tasks)
+        ? kpi.tasks.map((task) => {
+          if (task.id !== taskId) {
+            return task;
+          }
+
+          return {
+            ...task,
+            status: action === "start" ? "doing" : "done",
+            isCompleted: action === "complete",
+            completedAt: action === "complete" ? new Date().toISOString() : null,
+            updatedAt: new Date().toISOString(),
+            contributedValue: action === "complete" ? 1 : task.contributedValue,
+            progressValue: action === "complete" ? 1 : task.progressValue
+          };
+        })
+        : [];
+
+      return {
+        ...kpi,
+        tasks
+      };
+    });
+
+    renderKpiTable(latestRenderedKpis);
+    const immediateNextAction = selectNextAction(latestRenderedKpis);
+    const shouldRegenerateSteps = buildNextActionStepRequestKey(currentNextAction) !== buildNextActionStepRequestKey(immediateNextAction);
+
+    setNextActionState({
+      nextAction: immediateNextAction,
+      loading: false,
+      error: "",
+      stepLoading: shouldRegenerateSteps ? false : nextActionStepLoading,
+      stepError: shouldRegenerateSteps ? "" : nextActionStepError,
+      steps: shouldRegenerateSteps ? [] : nextActionSteps
+    });
+    renderNextAction();
+
+    if (shouldRegenerateSteps && immediateNextAction) {
+      generateNextActionSteps(immediateNextAction);
+    }
+
+    const kpiSnapshot = await getDoc(getKpiRef(kpiTargetId));
+    const kpiData = kpiSnapshot.exists() ? kpiSnapshot.data() : { target: 100 };
+    await syncKpiProgressFromTasks(kpiTargetId, kpiData);
+    await loadKpis();
+  } catch (error) {
+    console.error(error);
+    setNextActionState({
+      loading: false,
+      error: action === "start"
+        ? "Next Action の開始に失敗しました"
+        : "Next Action の完了に失敗しました"
+    });
+    renderNextAction();
+  }
+});
+
 kpiTableBody.addEventListener("change", async (event) => {
   const input = event.target.closest(".task-completion-input");
 
@@ -1746,6 +2096,7 @@ kpiTableBody.addEventListener("change", async (event) => {
       updatePayload.completedCount = parsePositiveNumber(input.value, 0);
     } else {
       const isCompleted = Boolean(input.checked);
+      updatePayload.status = isCompleted ? "done" : "todo";
       updatePayload.isCompleted = isCompleted;
       updatePayload.contributedValue = isCompleted ? 1 : 0;
       updatePayload.progressValue = isCompleted ? 1 : 0;
