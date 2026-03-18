@@ -2,25 +2,7 @@ import { NextResponse } from "next/server";
 
 const OPENAI_API_URL = "https://api.openai.com/v1/responses";
 
-const SYSTEM_PROMPT = `あなたはプロジェクト管理と実行分解の専門家です。
-与えられたKGIとKPIから、そのKPIを前に進めるための具体的で実行可能なTaskだけを作成してください。
-
-ルール:
-- Taskは行動レベルまで分解する
-- 曖昧な表現を避ける
-- 大きすぎる目標ではなく、1回で着手できる単位にする
-- KPI達成と因果関係のあるTaskにする
-- 3〜7件出す
-- 日本語で返す
-- 出力は必ずJSONのみ
-- 各Taskは以下の形式:
-  {
-    "title": "...",
-    "description": "...",
-    "type": "one_time",
-    "progressValue": 1,
-    "priority": 1
-  }`;
+const SYSTEM_PROMPT = `あなたはプロジェクト管理の専門家です。KGI/KPIに直結する実行可能なTaskを日本語JSONのみで返してください。`;
 
 const TASK_RESPONSE_SCHEMA = {
   name: "generate_tasks_response",
@@ -140,47 +122,75 @@ const normalizeRecentReflections = (value: unknown): NormalizedReflection[] => {
     .slice(0, 5);
 };
 
-const buildReflectionGuidance = (recentReflections: NormalizedReflection[]) => {
-  if (recentReflections.length === 0) {
-    return "";
-  }
+const COMMENT_DIFFICULTY_KEYWORDS = ["難しい", "分からない", "わからない", "専門用語", "大変"];
+const MAX_ADAPTATION_HINTS = 5;
 
-  const summaryLines = recentReflections.map((reflection, index) => {
-    const commentText = reflection.comment ? ` / コメント: ${reflection.comment}` : "";
-    return `${index + 1}. Task: ${reflection.taskTitle} / 結果: ${reflection.result}${commentText}`;
-  });
+const isCommentDifficult = (comment: string) => COMMENT_DIFFICULTY_KEYWORDS.some((keyword) => comment.includes(keyword));
 
-  const adaptiveRules = new Set<string>();
+const buildAdaptationHints = (recentReflections: NormalizedReflection[]) => {
+  const hintSet = new Set<string>();
 
   recentReflections.forEach((reflection) => {
-    if (reflection.result === "harder_than_expected") {
-      adaptiveRules.add("- 思ったより大変だったTaskがあるため、専門用語を減らし、必要な説明を補い、Taskをより細かく分解し、一度に求める作業量を減らすこと。");
+    const comment = typeof reflection?.comment === "string" ? reflection.comment.trim() : "";
+    const result = reflection?.result;
+    const hasDifficultySignal = result === "harder_than_expected" || isCommentDifficult(comment);
+
+    if (hasDifficultySignal) {
+      hintSet.add("専門用語を減らす");
+      hintSet.add("小さなステップに分ける");
+      hintSet.add("説明を増やす");
     }
 
-    if (reflection.result === "could_not_do") {
-      adaptiveRules.add("- できなかったTaskがあるため、次の提案の難易度を1段下げ、最初の一歩をさらに小さくし、準備タスクから提案すること。");
+    if (result === "could_not_do") {
+      hintSet.add("準備タスクから始める");
+      hintSet.add("一度に要求する作業量を減らす");
     }
 
-    if (reflection.result === "as_planned") {
-      adaptiveRules.add("- 予定通りできたTaskもあるため、過度に簡単にしすぎず、現状の進めやすさは維持すること。");
-    }
-
-    if (reflection.result === "needs_improvement") {
-      adaptiveRules.add("- やり方を見直したいTaskがあるため、同種のTaskは維持しつつ、構成や順番を改善し、抽象度を下げること。");
+    if (result === "needs_improvement") {
+      hintSet.add("順番を明確にする");
+      hintSet.add("曖昧な表現を避ける");
     }
   });
 
-  return [
-    "過去の振り返りから分かっていること:",
-    ...summaryLines,
-    "",
-    "これらを考慮して、次の提案では以下を守ること:",
-    ...Array.from(adaptiveRules),
-    "- 専門用語を避けるか、使う場合は短く意味を添えること。",
-    "- より具体的で、1回で着手できる小さい行動にすること。",
-    "- 難しすぎる提案を避け、必要なら準備ステップから始めること。"
-  ].join("\n");
+  return Array.from(hintSet).slice(0, MAX_ADAPTATION_HINTS);
 };
+
+const buildTaskPrompt = ({
+  kgiName,
+  kgiGoalText,
+  kpiName,
+  kpiDescription,
+  kpiType,
+  targetValue,
+  adaptationHints
+}: {
+  kgiName: string;
+  kgiGoalText: string;
+  kpiName: string;
+  kpiDescription: string;
+  kpiType: "result" | "action";
+  targetValue: number;
+  adaptationHints: string[];
+}) => JSON.stringify({
+  kgi: {
+    name: kgiName,
+    goal: kgiGoalText || "未設定"
+  },
+  kpi: {
+    name: kpiName,
+    description: kpiDescription || "未設定",
+    type: kpiType,
+    targetValue
+  },
+  adaptationHints,
+  output: {
+    tasks: "3-7件",
+    language: "ja",
+    type: "one_time",
+    progressValue: 1,
+    priorityRange: [1, 3]
+  }
+});
 
 const isValidTask = (value: any): value is TaskItem => (
   value
@@ -209,7 +219,7 @@ export async function POST(request: Request) {
   const kpiType = body?.kpiType;
   const targetValue = Number(body?.targetValue);
   const recentReflections = normalizeRecentReflections(body?.recentReflections);
-  const reflectionGuidance = buildReflectionGuidance(recentReflections);
+  const adaptationHints = buildAdaptationHints(recentReflections);
 
   if (!kgiName || !kpiName || (kpiType !== "result" && kpiType !== "action") || !Number.isFinite(targetValue)) {
     return NextResponse.json({
@@ -218,6 +228,16 @@ export async function POST(request: Request) {
   }
 
   try {
+    const promptText = buildTaskPrompt({
+      kgiName,
+      kgiGoalText,
+      kpiName,
+      kpiDescription,
+      kpiType,
+      targetValue,
+      adaptationHints
+    });
+    console.log("[generate-tasks] request", { rawReflectionsCount: recentReflections.length, adaptationHintsCount: adaptationHints.length, promptChars: SYSTEM_PROMPT.length + promptText.length });
     const openAiResponse = await fetch(OPENAI_API_URL, {
       method: "POST",
       headers: {
@@ -226,6 +246,8 @@ export async function POST(request: Request) {
       },
       body: JSON.stringify({
         model: "gpt-5-mini",
+        prompt_cache_key: `generate-tasks:${kgiName}:${kpiName}:${kpiType}:${targetValue}`,
+        prompt_cache_retention: "24h",
         input: [
           {
             role: "system",
@@ -235,16 +257,7 @@ export async function POST(request: Request) {
             role: "user",
             content: [{
               type: "input_text",
-              text: [
-                `KGI名: ${kgiName}`,
-                `KGIゴール説明: ${kgiGoalText || "未設定"}`,
-                `KPI名: ${kpiName}`,
-                `KPI説明: ${kpiDescription || "未設定"}`,
-                `KPIタイプ: ${kpiType}`,
-                `KPI目標値: ${targetValue}`,
-                reflectionGuidance,
-                "指定のJSONスキーマに厳密に従ってTask候補のみ返してください。"
-              ].filter(Boolean).join("\n")
+              text: promptText
             }]
           }
         ],
@@ -258,6 +271,7 @@ export async function POST(request: Request) {
     });
 
     if (!openAiResponse.ok) {
+      console.log("[generate-tasks] response", { success: false, status: openAiResponse.status });
       return NextResponse.json({ error: "OpenAI API request failed" }, { status: 502 });
     }
 
@@ -274,16 +288,18 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Failed to parse Task JSON" }, { status: 500 });
     }
 
-    return NextResponse.json({
-      tasks: parsed.tasks.map((task) => ({
-        title: task.title.trim(),
-        description: task.description.trim(),
-        type: "one_time" as const,
-        progressValue: 1 as const,
-        priority: Number(task.priority)
-      }))
-    });
+    const tasks = parsed.tasks.map((task) => ({
+      title: task.title.trim(),
+      description: task.description.trim(),
+      type: "one_time" as const,
+      progressValue: 1 as const,
+      priority: Number(task.priority)
+    }));
+
+    console.log("[generate-tasks] response", { success: true, taskCount: tasks.length });
+    return NextResponse.json({ tasks });
   } catch (error) {
+    console.log("[generate-tasks] response", { success: false });
     console.error("[app/api/generate-tasks] Unexpected server error", error);
     return NextResponse.json({ error: "Unexpected server error" }, { status: 500 });
   }

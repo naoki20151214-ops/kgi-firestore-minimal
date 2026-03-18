@@ -137,6 +137,8 @@ let nextActionStepError = "";
 let nextActionSteps = [];
 let currentNextAction = null;
 let latestNextActionStepRequestKey = "";
+const NEXT_ACTION_STEP_CACHE_STORAGE_KEY = "kgi-detail-next-action-step-cache";
+let nextActionStepCache = new Map();
 
 const emptyAiSuggestions = () => ({
   resultKpis: [],
@@ -933,6 +935,61 @@ const buildNextActionStepRequestKey = (nextAction) => {
   });
 };
 
+const loadNextActionStepCache = () => {
+  try {
+    const raw = window.sessionStorage.getItem(NEXT_ACTION_STEP_CACHE_STORAGE_KEY);
+
+    if (!raw) {
+      nextActionStepCache = new Map();
+      return;
+    }
+
+    const parsed = JSON.parse(raw);
+    const entries = Array.isArray(parsed) ? parsed : [];
+    nextActionStepCache = new Map(entries.filter((entry) => Array.isArray(entry) && typeof entry[0] === "string"));
+  } catch (error) {
+    console.error("Failed to restore next action step cache", error);
+    nextActionStepCache = new Map();
+  }
+};
+
+const persistNextActionStepCache = () => {
+  try {
+    window.sessionStorage.setItem(
+      NEXT_ACTION_STEP_CACHE_STORAGE_KEY,
+      JSON.stringify(Array.from(nextActionStepCache.entries()))
+    );
+  } catch (error) {
+    console.error("Failed to persist next action step cache", error);
+  }
+};
+
+const readCachedNextActionSteps = (taskId, requestKey) => {
+  if (!taskId || !requestKey) {
+    return [];
+  }
+
+  const cached = nextActionStepCache.get(taskId);
+
+  if (!cached || cached.requestKey !== requestKey || !Array.isArray(cached.steps)) {
+    return [];
+  }
+
+  return cached.steps.slice(0, 3);
+};
+
+const writeCachedNextActionSteps = (taskId, requestKey, steps) => {
+  if (!taskId || !requestKey || !Array.isArray(steps) || steps.length === 0) {
+    return;
+  }
+
+  nextActionStepCache.set(taskId, {
+    requestKey,
+    steps: steps.slice(0, 3)
+  });
+  persistNextActionStepCache();
+};
+
 const generateNextActionSteps = async (nextAction) => {
   if (!nextAction?.task?.title || !nextAction?.kpiName) {
     setNextActionState({
@@ -946,6 +1003,20 @@ const generateNextActionSteps = async (nextAction) => {
   }
 
   const requestKey = buildNextActionStepRequestKey(nextAction);
+  const taskId = typeof nextAction?.task?.id === "string" ? nextAction.task.id : "";
+  const cachedSteps = readCachedNextActionSteps(taskId, requestKey);
+
+  if (cachedSteps.length > 0) {
+    latestNextActionStepRequestKey = requestKey;
+    setNextActionState({
+      nextAction,
+      stepLoading: false,
+      stepError: "",
+      steps: cachedSteps
+    });
+    renderNextAction();
+    return;
+  }
 
   if (requestKey && latestNextActionStepRequestKey === requestKey && (nextActionStepLoading || nextActionSteps.length > 0 || nextActionStepError)) {
     renderNextAction();
@@ -997,11 +1068,13 @@ const generateNextActionSteps = async (nextAction) => {
       return;
     }
 
+    const nextSteps = Array.isArray(data?.steps) ? data.steps.slice(0, 3) : [];
+    writeCachedNextActionSteps(taskId, requestKey, nextSteps);
     setNextActionState({
       nextAction,
       stepLoading: false,
       stepError: "",
-      steps: Array.isArray(data?.steps) ? data.steps.slice(0, 3) : []
+      steps: nextSteps
     });
   } catch (error) {
     console.error(error);
@@ -1096,7 +1169,6 @@ const getReflectionSortTime = (task) => {
 
 const buildRecentReflections = (kpis, options = {}) => {
   const preferredKpiId = typeof options?.preferredKpiId === "string" ? options.preferredKpiId : "";
-  const limit = Number.isFinite(Number(options?.limit)) ? Math.max(1, Number(options.limit)) : 5;
   const normalizedKpis = Array.isArray(kpis) ? kpis : [];
   const matchedReflections = [];
   const fallbackReflections = [];
@@ -1132,13 +1204,11 @@ const buildRecentReflections = (kpis, options = {}) => {
   });
 
   const sortByLatest = (items) => items.sort((left, right) => right.sortTime - left.sortTime);
-  const sortedMatched = sortByLatest(matchedReflections);
-  const sortedFallback = sortByLatest(fallbackReflections);
-  const merged = preferredKpiId
-    ? [...sortedMatched, ...sortedFallback]
-    : sortedFallback;
+  const primaryReflections = sortByLatest(matchedReflections).slice(0, 3);
+  const fallbackLimit = primaryReflections.length > 0 ? 0 : 2;
+  const secondaryReflections = sortByLatest(fallbackReflections).slice(0, fallbackLimit);
 
-  return merged.slice(0, limit).map(({ taskTitle, result, comment }) => ({
+  return [...primaryReflections, ...secondaryReflections].map(({ taskTitle, result, comment }) => ({
     taskTitle,
     result,
     comment
@@ -2539,6 +2609,7 @@ const initializeDetailPage = async () => {
   setDebugSummary(`取得したid: ${kgiId}`);
   restoreAiSuggestions();
   restoreSubKgiSavedState();
+  loadNextActionStepCache();
   renderAiSuggestions();
 
   try {
