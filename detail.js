@@ -22,6 +22,13 @@ const addKpiButton = document.getElementById("addKpiButton");
 const overallProgressValue = document.getElementById("overallProgressValue");
 const overallProgressFill = document.getElementById("overallProgressFill");
 const overallProgressCaption = document.getElementById("overallProgressCaption");
+const generateAiKpisButton = document.getElementById("generateAiKpisButton");
+const aiLoadingText = document.getElementById("aiLoadingText");
+const aiErrorText = document.getElementById("aiErrorText");
+const aiSuggestionsContainer = document.getElementById("aiSuggestions");
+const resultKpiSuggestions = document.getElementById("resultKpiSuggestions");
+const actionKpiSuggestions = document.getElementById("actionKpiSuggestions");
+const subKgiSuggestions = document.getElementById("subKgiSuggestions");
 const debugPanel = document.getElementById("debugPanel");
 const debugPanelContent = document.getElementById("debugPanelContent");
 
@@ -77,6 +84,19 @@ updateDebugPanel([]);
 
 let db;
 let kgiId;
+let currentKgiData = null;
+
+const emptyAiSuggestions = () => ({
+  resultKpis: [],
+  actionKpis: [],
+  subKgiCandidates: []
+});
+
+let aiLoading = false;
+let aiError = "";
+let aiHasGenerated = false;
+let aiSuggestions = emptyAiSuggestions();
+renderAiSuggestions();
 
 const setStatus = (message, isError = false) => {
   statusText.textContent = message;
@@ -86,6 +106,93 @@ const setStatus = (message, isError = false) => {
 const setKpiStatus = (message, isError = false) => {
   kpiStatusText.textContent = message;
   kpiStatusText.classList.toggle("error", isError);
+};
+
+
+const displaySuggestionText = (value) => {
+  if (typeof value !== "string") {
+    return "-";
+  }
+
+  const trimmed = value.trim();
+  return trimmed || "-";
+};
+
+const setAiLoading = (nextLoading) => {
+  aiLoading = nextLoading;
+  if (generateAiKpisButton) {
+    generateAiKpisButton.disabled = nextLoading;
+  }
+  if (aiLoadingText) {
+    aiLoadingText.hidden = !nextLoading;
+  }
+};
+
+const setAiError = (message = "") => {
+  aiError = message;
+  if (!aiErrorText) {
+    return;
+  }
+
+  aiErrorText.textContent = message;
+  aiErrorText.hidden = !message;
+};
+
+const renderSuggestionList = (items, container, showTargetValue) => {
+  if (!container) {
+    return;
+  }
+
+  if (!Array.isArray(items) || items.length === 0) {
+    container.innerHTML = '<p class="hint">候補なし</p>';
+    return;
+  }
+
+  const listMarkup = items.map((item) => {
+    const title = displaySuggestionText(item?.title);
+    const description = displaySuggestionText(item?.description);
+    const targetValue = showTargetValue
+      ? `<span class="ai-suggestion-meta">目標値: ${Number.isFinite(Number(item?.targetValue)) ? Number(item.targetValue) : "-"}</span>`
+      : "";
+
+    return `
+      <li class="ai-suggestion-item">
+        <strong>${title}</strong>
+        <span class="ai-suggestion-meta">説明: ${description}</span>
+        ${targetValue}
+      </li>
+    `;
+  }).join("");
+
+  container.innerHTML = `<ul class="ai-suggestion-list">${listMarkup}</ul>`;
+};
+
+const renderAiSuggestions = () => {
+  if (!aiSuggestionsContainer) {
+    return;
+  }
+
+  aiSuggestionsContainer.hidden = !aiHasGenerated;
+  renderSuggestionList(aiSuggestions.resultKpis, resultKpiSuggestions, true);
+  renderSuggestionList(aiSuggestions.actionKpis, actionKpiSuggestions, true);
+  renderSuggestionList(aiSuggestions.subKgiCandidates, subKgiSuggestions, false);
+};
+
+const resetAiSuggestions = () => {
+  aiHasGenerated = false;
+  aiSuggestions = emptyAiSuggestions();
+  renderAiSuggestions();
+};
+
+const buildGoalForAi = (kgiData) => {
+  const name = typeof kgiData?.name === "string" ? kgiData.name.trim() : "";
+  const goalText = typeof kgiData?.goalText === "string" ? kgiData.goalText.trim() : "";
+
+  if (goalText) {
+    return `${name} / ${goalText}`;
+  }
+
+  return name;
 };
 
 const formatDate = (value) => {
@@ -307,6 +414,7 @@ const getTasksRef = (kpiId) => collection(db, "kgis", kgiId, "kpis", kpiId, "tas
 const getKpiRef = (kpiId) => doc(db, "kgis", kgiId, "kpis", kpiId);
 
 const renderKgiMeta = (kgiData) => {
+  currentKgiData = kgiData ?? null;
   const deadline = displayDeadline(kgiData.deadline);
   const deadlineInfo = calcRemainingDays(deadline === "未設定" ? "" : deadline);
 
@@ -651,6 +759,53 @@ const loadKpis = async () => {
   kpiTable.hidden = false;
   setKpiStatus(`${snapshot.size}件のKPIを表示しています。`);
 };
+
+generateAiKpisButton?.addEventListener("click", async () => {
+  if (aiLoading) {
+    return;
+  }
+
+  const goal = buildGoalForAi(currentKgiData);
+
+  if (!goal) {
+    setAiError("KPI案の生成に必要なKGI情報が不足しています");
+    resetAiSuggestions();
+    return;
+  }
+
+  setAiLoading(true);
+  setAiError("");
+
+  try {
+    const response = await fetch("/api/generate-kpis", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ goal })
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+
+    const data = await response.json();
+    aiHasGenerated = true;
+    aiSuggestions = {
+      resultKpis: Array.isArray(data?.resultKpis) ? data.resultKpis : [],
+      actionKpis: Array.isArray(data?.actionKpis) ? data.actionKpis : [],
+      subKgiCandidates: Array.isArray(data?.subKgiCandidates) ? data.subKgiCandidates : []
+    };
+    setAiError("");
+    renderAiSuggestions();
+  } catch (error) {
+    console.error(error);
+    setAiError("KPI案の生成に失敗しました");
+    resetAiSuggestions();
+  } finally {
+    setAiLoading(false);
+  }
+});
 
 addKpiButton.addEventListener("click", async () => {
   const name = kpiNameInput.value.trim();

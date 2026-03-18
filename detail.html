@@ -201,6 +201,57 @@
         background: #f8fafc;
       }
 
+      .ai-actions {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        flex-wrap: wrap;
+        margin-bottom: 12px;
+      }
+
+      .button[disabled] {
+        opacity: 0.7;
+        cursor: wait;
+      }
+
+      .ai-suggestion-groups {
+        display: grid;
+        gap: 12px;
+      }
+
+      .ai-suggestion-group {
+        border: 1px solid #e5e7eb;
+        border-radius: 10px;
+        padding: 12px;
+        background: #f8fafc;
+      }
+
+      .ai-suggestion-group h3 {
+        margin: 0 0 10px;
+        font-size: 1rem;
+      }
+
+      .ai-suggestion-list {
+        margin: 0;
+        padding-left: 18px;
+        display: grid;
+        gap: 10px;
+      }
+
+      .ai-suggestion-item {
+        display: grid;
+        gap: 4px;
+      }
+
+      .ai-suggestion-item strong {
+        font-size: 0.95rem;
+      }
+
+      .ai-suggestion-meta {
+        color: #475569;
+        font-size: 0.92rem;
+      }
+
       .task-panel {
         display: grid;
         gap: 12px;
@@ -340,6 +391,29 @@
           <input id="kpiDeadline" type="date" />
         </div>
         <button id="addKpiButton" class="button" type="button">KPIを保存</button>
+      </section>
+
+      <section class="card">
+        <h2>AIでKPI案を作る</h2>
+        <div class="ai-actions">
+          <button id="generateAiKpisButton" class="button" type="button">AIでKPI案を作る</button>
+          <p id="aiLoadingText" class="hint" hidden>AIがKPI案を作成中...</p>
+        </div>
+        <p id="aiErrorText" class="hint error" hidden></p>
+        <div id="aiSuggestions" class="ai-suggestion-groups" hidden>
+          <section class="ai-suggestion-group">
+            <h3>結果KPI候補</h3>
+            <div id="resultKpiSuggestions"></div>
+          </section>
+          <section class="ai-suggestion-group">
+            <h3>行動KPI候補</h3>
+            <div id="actionKpiSuggestions"></div>
+          </section>
+          <section class="ai-suggestion-group">
+            <h3>サブKGI候補</h3>
+            <div id="subKgiSuggestions"></div>
+          </section>
+        </div>
       </section>
 
       <section class="card">
