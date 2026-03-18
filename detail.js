@@ -946,6 +946,28 @@ const getTaskActionableStatus = (task) => {
   return getTaskIsCompleted(task) ? "done" : "todo";
 };
 
+const FALLBACK_NEXT_ACTION_STEPS = [
+  "タスク内容を読み直す",
+  "必要な作業を3つに分解する",
+  "最初の1つをすぐ実行する"
+];
+
+const sanitizeNextActionSteps = (steps) => {
+  if (!Array.isArray(steps)) {
+    return [];
+  }
+
+  return steps
+    .map((step) => typeof step === "string" ? step.trim() : "")
+    .filter((step) => step.length > 0)
+    .slice(0, 5);
+};
+
+const getFallbackNextActionSteps = (reason) => {
+  console.warn("Using fallback next action steps", { reason, fallbackSteps: FALLBACK_NEXT_ACTION_STEPS });
+  return FALLBACK_NEXT_ACTION_STEPS.slice();
+};
+
 const setNextActionState = ({
   nextAction = currentNextAction,
   loading = nextActionLoading,
@@ -959,7 +981,7 @@ const setNextActionState = ({
   nextActionError = typeof error === "string" ? error : "";
   nextActionStepLoading = Boolean(stepLoading);
   nextActionStepError = typeof stepError === "string" ? stepError : "";
-  nextActionSteps = Array.isArray(steps) ? steps : [];
+  nextActionSteps = sanitizeNextActionSteps(steps);
 };
 
 const renderNextAction = (nextAction) => {
@@ -987,13 +1009,14 @@ const renderNextAction = (nextAction) => {
     : taskStatus === "doing"
       ? '<p class="next-action-inline-status">実行中です。完了したら「完了する」を押してください。</p>'
       : "";
+  const fallbackStepListMarkup = `<ol class="next-action-step-list">${getFallbackNextActionSteps(nextActionStepError ? "render_error" : "render_missing_steps").map((step) => `<li>${step}</li>`).join("")}</ol>`;
   const stepContent = nextActionStepLoading
     ? '<p class="hint">小ステップを準備中...</p>'
     : nextActionStepError
-      ? '<p class="hint error">小ステップの生成に失敗しました</p>'
+      ? `<div><p class="hint error">小ステップの生成に失敗しました。代替ステップを表示しています。</p>${fallbackStepListMarkup}</div>`
       : nextActionSteps.length > 0
         ? `<ol class="next-action-step-list">${nextActionSteps.map((step) => `<li>${step}</li>`).join("")}</ol>`
-        : '<p class="hint">小ステップを表示できませんでした</p>';
+        : fallbackStepListMarkup;
   const errorMarkup = nextActionError
     ? `<p class="hint error">${nextActionError}</p>`
     : "";
@@ -1073,17 +1096,19 @@ const readCachedNextActionSteps = (taskId, requestKey) => {
     return [];
   }
 
-  return cached.steps.slice(0, 3);
+  return sanitizeNextActionSteps(cached.steps);
 };
 
 const writeCachedNextActionSteps = (taskId, requestKey, steps) => {
-  if (!taskId || !requestKey || !Array.isArray(steps) || steps.length === 0) {
+  const normalizedSteps = sanitizeNextActionSteps(steps);
+
+  if (!taskId || !requestKey || normalizedSteps.length === 0) {
     return;
   }
 
   nextActionStepCache.set(taskId, {
     requestKey,
-    steps: steps.slice(0, 3)
+    steps: normalizedSteps
   });
   persistNextActionStepCache();
 };
@@ -1094,7 +1119,7 @@ const generateNextActionSteps = async (nextAction) => {
       nextAction,
       stepLoading: false,
       stepError: "",
-      steps: []
+      steps: getFallbackNextActionSteps("missing_task_context")
     });
     renderNextAction();
     return;
@@ -1166,13 +1191,14 @@ const generateNextActionSteps = async (nextAction) => {
       return;
     }
 
-    const nextSteps = Array.isArray(data?.steps) ? data.steps.slice(0, 3) : [];
-    writeCachedNextActionSteps(taskId, requestKey, nextSteps);
+    const nextSteps = sanitizeNextActionSteps(data?.steps);
+    const resolvedSteps = nextSteps.length >= 3 ? nextSteps : getFallbackNextActionSteps("api_missing_steps");
+    writeCachedNextActionSteps(taskId, requestKey, resolvedSteps);
     setNextActionState({
       nextAction,
       stepLoading: false,
-      stepError: "",
-      steps: nextSteps
+      stepError: nextSteps.length >= 3 ? "" : "AI応答が不完全だったため代替ステップを表示しています",
+      steps: resolvedSteps
     });
   } catch (error) {
     console.error(error);
@@ -1185,7 +1211,7 @@ const generateNextActionSteps = async (nextAction) => {
       nextAction,
       stepLoading: false,
       stepError: error instanceof Error && error.message ? error.message : "Unexpected server error",
-      steps: []
+      steps: getFallbackNextActionSteps("fetch_error")
     });
   }
 
