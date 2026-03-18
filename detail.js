@@ -95,8 +95,34 @@ const setDebugSummary = (...items) => {
   updateDebugPanel(latestDebugState);
 };
 
+const appendDebugSummary = (...items) => {
+  latestDebugSummary = [
+    ...latestDebugSummary,
+    ...items.filter((item) => typeof item === "string" && item.trim().length > 0)
+  ];
+  updateDebugPanel(latestDebugState);
+};
+
+const reportDebugError = (label, error) => {
+  const message = error instanceof Error
+    ? `${error.name}: ${error.message}`
+    : String(error ?? "Unknown error");
+
+  appendDebugSummary(`JS例外: ${label}`, message);
+};
+
 updateDebugPanel([]);
 setDebugSummary("detail.html 初期化中");
+
+window.addEventListener("error", (event) => {
+  reportDebugError(event.filename
+    ? `${event.filename}:${event.lineno ?? 0}`
+    : "window.error", event.error ?? event.message);
+});
+
+window.addEventListener("unhandledrejection", (event) => {
+  reportDebugError("unhandledrejection", event.reason);
+});
 
 let db;
 let kgiId = "";
@@ -112,7 +138,6 @@ let aiLoading = false;
 let aiError = "";
 let aiHasGenerated = false;
 let aiSuggestions = emptyAiSuggestions();
-renderAiSuggestions();
 
 const setStatus = (message, isError = false) => {
   statusText.textContent = message;
@@ -215,6 +240,8 @@ const renderSuggestionList = (items, container, showTargetValue) => {
 
   container.innerHTML = `<ul class="ai-suggestion-list">${listMarkup}</ul>`;
 };
+
+renderAiSuggestions();
 
 const resetAiSuggestions = () => {
   aiHasGenerated = false;
@@ -1065,6 +1092,7 @@ const initializeDetailPage = async () => {
     await loadKpis();
   } catch (error) {
     console.error(error);
+    reportDebugError("initializeDetailPage", error);
     setStatus("KGIの読み込みに失敗しました", true);
     setKpiStatus("KPIを表示できません。", true);
     setDebugSummary(`取得したid: ${kgiId}`, "KGI読み込み失敗");
