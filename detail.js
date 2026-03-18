@@ -1073,7 +1073,7 @@ const buildNextActionStepCacheContext = (nextAction, recentReflections = []) => 
     reflectionSignature,
     simpleHash,
     requestKey: taskId ? `${taskId}:${simpleHash}` : "",
-    storageKey: taskId ? `nextActionMiniSteps:${taskId}:${simpleHash}` : ""
+    storageKey: taskId ? `nextActionMiniSteps:v2:${taskId}:${simpleHash}` : ""
   };
 };
 
@@ -1098,22 +1098,32 @@ const readCachedNextActionSteps = ({ storageKey, taskId }) => {
     const raw = window.sessionStorage.getItem(storageKey);
 
     if (!raw) {
-      console.log("[next-action-steps] cache miss", { taskId, storageKey });
+      console.log("[next-action-steps] cache miss", { taskId, storageKey, cacheSource: "none" });
       return null;
     }
 
     const parsed = JSON.parse(raw);
     const steps = sanitizeNextActionSteps(parsed?.steps);
+    const cacheSource = parsed?.source === "normal" ? "normal" : parsed?.source === "fallback" ? "fallback" : "legacy";
+    const fallbackCached = cacheSource === "fallback" || isFallbackNextActionSteps(steps);
 
     if (parsed?.taskId !== taskId || steps.length < 3) {
-      console.log("[next-action-steps] cache miss", { taskId, storageKey, reason: "invalid_payload" });
+      window.sessionStorage.removeItem(storageKey);
+      console.log("[next-action-steps] cache miss", { taskId, storageKey, cacheSource, reason: "invalid_payload" });
       return null;
     }
 
-    console.log("[next-action-steps] cache hit", { taskId, storageKey });
+    if (fallbackCached) {
+      window.sessionStorage.removeItem(storageKey);
+      console.log("[next-action-steps] cache miss", { taskId, storageKey, cacheSource, reason: "fallback_cache_invalidated" });
+      return null;
+    }
+
+    console.log("[next-action-steps] cache hit", { taskId, storageKey, cacheSource });
     return {
       taskId,
       steps,
+      source: cacheSource,
       updatedAt: typeof parsed?.updatedAt === "number" ? parsed.updatedAt : Date.now()
     };
   } catch (error) {
@@ -1122,10 +1132,22 @@ const readCachedNextActionSteps = ({ storageKey, taskId }) => {
   }
 };
 
-const writeCachedNextActionSteps = ({ storageKey, taskId, steps }) => {
+const writeCachedNextActionSteps = ({ storageKey, taskId, steps, source = "normal" }) => {
   const normalizedSteps = sanitizeNextActionSteps(steps);
+  const cacheSource = source === "fallback" ? "fallback" : "normal";
 
   if (!storageKey || !taskId || normalizedSteps.length < 3) {
+    console.log("[next-action-steps] cache skip", { taskId, storageKey, cacheSource, reason: "invalid_payload" });
+    return;
+  }
+
+  if (cacheSource === "fallback" || isFallbackNextActionSteps(normalizedSteps)) {
+    try {
+      window.sessionStorage.removeItem(storageKey);
+    } catch (error) {
+      console.error("Failed to clear fallback next action step cache", error);
+    }
+    console.log("[next-action-steps] cache skip", { taskId, storageKey, cacheSource, reason: "fallback_not_cached", stepsCount: normalizedSteps.length });
     return;
   }
 
@@ -1133,9 +1155,10 @@ const writeCachedNextActionSteps = ({ storageKey, taskId, steps }) => {
     window.sessionStorage.setItem(storageKey, JSON.stringify({
       taskId,
       steps: normalizedSteps,
+      source: cacheSource,
       updatedAt: Date.now()
     }));
-    console.log("[next-action-steps] cache write", { taskId, storageKey, stepsCount: normalizedSteps.length });
+    console.log("[next-action-steps] cache write", { taskId, storageKey, cacheSource, stepsCount: normalizedSteps.length });
   } catch (error) {
     console.error("Failed to persist next action step cache", error);
   }
@@ -1148,9 +1171,7 @@ const generateNextActionSteps = async (nextAction) => {
 
   if (!nextAction?.task?.title || !nextAction?.kpiName) {
     const fallbackSteps = getFallbackNextActionSteps("missing_task_context");
-    if (storageKey && taskId) {
-      writeCachedNextActionSteps({ storageKey, taskId, steps: fallbackSteps });
-    }
+    console.log("[next-action-steps] api call", { taskId, requestKey, willCallApi: false, reason: "missing_task_context" });
     setNextActionState({
       nextAction,
       stepLoading: false,
@@ -1171,6 +1192,7 @@ const generateNextActionSteps = async (nextAction) => {
       stepError: isFallbackNextActionSteps(cached.steps) ? "代替ステップを表示しています。" : "",
       steps: cached.steps
     });
+    console.log("[next-action-steps] received steps", { taskId, requestKey, stepsCount: cached.steps.length, source: cached.source || "normal", fromCache: true });
     renderNextAction();
     return;
   }
@@ -1190,7 +1212,7 @@ const generateNextActionSteps = async (nextAction) => {
   });
   renderNextAction();
 
-  console.log("[next-action-steps] api call", { taskId, requestKey, willCallApi: true });
+  console.log("[next-action-steps] api call", { taskId, requestKey, willCallApi: true, cacheSource: cached?.source ?? "none" });
 
   try {
     const response = await fetch("/api/generate-next-action-steps", {
@@ -1223,12 +1245,15 @@ const generateNextActionSteps = async (nextAction) => {
 
     const nextSteps = sanitizeNextActionSteps(data?.steps);
     const resolvedSteps = nextSteps.length >= 3 ? nextSteps : getFallbackNextActionSteps(response.ok ? "api_missing_steps" : `http_${response.status}`);
-    const fallbackMessage = isFallbackNextActionSteps(resolvedSteps)
+    const cacheSource = isFallbackNextActionSteps(resolvedSteps) ? "fallback" : "normal";
+    const fallbackMessage = cacheSource === "fallback"
       ? "小ステップの自動生成に失敗したため、代替ステップを表示しています。"
       : "";
 
+    console.log("[next-action-steps] received steps", { taskId, requestKey, stepsCount: resolvedSteps.length, source: cacheSource, fromCache: false, responseOk: response.ok });
+
     if (storageKey && taskId) {
-      writeCachedNextActionSteps({ storageKey, taskId, steps: resolvedSteps });
+      writeCachedNextActionSteps({ storageKey, taskId, steps: resolvedSteps, source: cacheSource });
     }
 
     setNextActionState({
@@ -1245,8 +1270,9 @@ const generateNextActionSteps = async (nextAction) => {
     }
 
     const fallbackSteps = getFallbackNextActionSteps("fetch_error");
+    console.log("[next-action-steps] received steps", { taskId, requestKey, stepsCount: fallbackSteps.length, source: "fallback", fromCache: false, responseOk: false });
     if (storageKey && taskId) {
-      writeCachedNextActionSteps({ storageKey, taskId, steps: fallbackSteps });
+      writeCachedNextActionSteps({ storageKey, taskId, steps: fallbackSteps, source: "fallback" });
     }
     setNextActionState({
       nextAction,

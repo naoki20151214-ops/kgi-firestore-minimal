@@ -1,6 +1,15 @@
 const OPENAI_API_URL = "https://api.openai.com/v1/responses";
 
-const SYSTEM_PROMPT = `あなたは「今すぐやる小ステップ」生成AIです。必ずJSONのみを返してください。必ず {"steps":["...","...","..."]} 形式にし、steps は3〜5件の具体的な日本語ステップを入れてください。空配列は禁止です。迷っても一般的な実行ステップを最低3件返してください。`;
+const SYSTEM_PROMPT = `あなたは実行支援の専門家です。
+与えられたタスクを、今すぐ始められる小ステップに分解してください。
+
+ルール:
+- 1〜3件
+- それぞれ短く、具体的に
+- 5〜15分で着手できる行動にする
+- 曖昧な表現は禁止
+- 出力は JSON のみ
+- 日本語で返す`;
 
 const STEP_RESPONSE_SCHEMA = {
   name: "generate_next_action_steps_response",
@@ -12,8 +21,8 @@ const STEP_RESPONSE_SCHEMA = {
     properties: {
       steps: {
         type: "array",
-        minItems: 3,
-        maxItems: 5,
+        minItems: 1,
+        maxItems: 3,
         items: {
           type: "string"
         }
@@ -125,19 +134,15 @@ const buildStepPrompt = ({
   taskTitle: string;
   taskDescription: string;
   adaptationHints: string[];
-}) => JSON.stringify({
-  kpiName,
-  taskTitle,
-  taskDescription: taskDescription || "未設定",
-  adaptationHints,
-  rules: [
-    "JSON only",
-    "steps を必ず返す",
-    "3〜5件",
-    "空配列禁止",
-    "各stepは短く具体的な日本語"
-  ]
-});
+}) => [
+  `KPI名: ${kpiName}`,
+  `Task名: ${taskTitle}`,
+  `Task補足説明: ${taskDescription || "未設定"}`,
+  adaptationHints.length > 0
+    ? `振り返り反映ヒント: ${adaptationHints.join(" / ")}`
+    : "",
+  "このTaskに今すぐ着手できる小ステップを1〜3件、JSONでのみ返してください。"
+].filter(Boolean).join("\n");
 
 const extractOutputText = (responseData: any) => {
   if (typeof responseData?.output_text === "string" && responseData.output_text.trim()) {
@@ -191,7 +196,7 @@ const sanitizeSteps = (steps: unknown) => {
   return steps
     .map((step) => typeof step === "string" ? step.trim() : "")
     .filter((step) => step.length > 0)
-    .slice(0, 5);
+    .slice(0, 3);
 };
 
 const isSameStepSet = (steps: string[]) => steps.length === FALLBACK_STEPS.length && steps.every((step, index) => step === FALLBACK_STEPS[index]);
@@ -233,7 +238,7 @@ const parseStepsFromOutputText = (outputText: string): StepParseResult => {
     const parsedResponse = JSON.parse(jsonText) as { steps?: unknown };
     const steps = sanitizeSteps(parsedResponse?.steps);
 
-    if (steps.length < 3) {
+    if (steps.length === 0) {
       console.log("[generate-next-action-steps] parse result", { endpoint: "generate-next-action-steps", parseSucceeded: false, reason: "steps_missing_or_empty" });
       return getFallbackResult("steps_missing_or_empty");
     }
@@ -291,7 +296,14 @@ export async function POST(request: Request) {
     });
     console.log("[generate-next-action-steps] request", {
       endpoint: "generate-next-action-steps",
+      rawInputPayload: {
+        taskTitle,
+        taskDescription,
+        kpiName,
+        recentReflections
+      },
       rawReflectionsCount: recentReflections.length,
+      adaptationHints,
       adaptationHintsCount: adaptationHints.length,
       promptChars: SYSTEM_PROMPT.length + promptText.length
     });
@@ -303,8 +315,6 @@ export async function POST(request: Request) {
       },
       body: JSON.stringify({
         model: "gpt-5-mini",
-        prompt_cache_key: `generate-next-action-steps:${kpiName}:${taskTitle}`,
-        prompt_cache_retention: "24h",
         input: [
           {
             role: "system",
@@ -330,7 +340,13 @@ export async function POST(request: Request) {
     if (!openAiResponse.ok) {
       console.error("[generate-next-action-steps] upstream error", {
         endpoint: "generate-next-action-steps",
-        status: openAiResponse.status
+        status: openAiResponse.status,
+        rawInputPayload: {
+          taskTitle,
+          taskDescription,
+          kpiName,
+          recentReflections
+        }
       });
       const fallback = getFallbackResult(`upstream_status_${openAiResponse.status}`);
       console.log("[generate-next-action-steps] response", {
