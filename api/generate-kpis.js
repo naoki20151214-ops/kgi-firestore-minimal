@@ -1,22 +1,3 @@
-import { NextResponse } from "next/server";
-
-type KpiItem = {
-  title: string;
-  description: string;
-  targetValue: number;
-};
-
-type SubKgiCandidate = {
-  title: string;
-  description: string;
-};
-
-type GenerateKpisResponse = {
-  resultKpis: KpiItem[];
-  actionKpis: KpiItem[];
-  subKgiCandidates: SubKgiCandidate[];
-};
-
 const OPENAI_API_URL = "https://api.openai.com/v1/responses";
 
 const SYSTEM_PROMPT = `あなたはKPI設計の専門家です。
@@ -89,17 +70,16 @@ const KPI_RESPONSE_SCHEMA = {
       }
     }
   }
-} as const;
+};
 
-const isNonEmptyString = (value: unknown): value is string =>
-  typeof value === "string" && value.trim().length > 0;
+const isNonEmptyString = (value) => typeof value === "string" && value.trim().length > 0;
 
-const isValidKpiItem = (value: unknown): value is KpiItem => {
+const isValidKpiItem = (value) => {
   if (!value || typeof value !== "object") {
     return false;
   }
 
-  const { title, description, targetValue } = value as Record<string, unknown>;
+  const { title, description, targetValue } = value;
 
   return (
     isNonEmptyString(title) &&
@@ -110,27 +90,21 @@ const isValidKpiItem = (value: unknown): value is KpiItem => {
   );
 };
 
-const isValidSubKgiCandidate = (value: unknown): value is SubKgiCandidate => {
+const isValidSubKgiCandidate = (value) => {
   if (!value || typeof value !== "object") {
     return false;
   }
 
-  const { title, description } = value as Record<string, unknown>;
-
+  const { title, description } = value;
   return isNonEmptyString(title) && isNonEmptyString(description);
 };
 
-const isValidGenerateKpisResponse = (
-  value: unknown
-): value is GenerateKpisResponse => {
+const isValidGenerateKpisResponse = (value) => {
   if (!value || typeof value !== "object") {
     return false;
   }
 
-  const { resultKpis, actionKpis, subKgiCandidates } = value as Record<
-    string,
-    unknown
-  >;
+  const { resultKpis, actionKpis, subKgiCandidates } = value;
 
   if (!Array.isArray(resultKpis) || !Array.isArray(actionKpis) || !Array.isArray(subKgiCandidates)) {
     return false;
@@ -155,24 +129,77 @@ const isValidGenerateKpisResponse = (
   );
 };
 
-export async function POST(request: Request) {
+const getRequestBody = (req) => {
+  if (!req.body) {
+    return null;
+  }
+
+  if (typeof req.body === "string") {
+    try {
+      return JSON.parse(req.body);
+    } catch {
+      return null;
+    }
+  }
+
+  return req.body;
+};
+
+const extractOutputText = (responseData) => {
+  if (typeof responseData?.output_text === "string" && responseData.output_text.trim()) {
+    return responseData.output_text.trim();
+  }
+
+  if (!Array.isArray(responseData?.output)) {
+    return "";
+  }
+
+  for (const outputItem of responseData.output) {
+    if (!Array.isArray(outputItem?.content)) {
+      continue;
+    }
+
+    for (const contentItem of outputItem.content) {
+      if (contentItem?.type === "output_text" && typeof contentItem.text === "string" && contentItem.text.trim()) {
+        return contentItem.text.trim();
+      }
+    }
+  }
+
+  return "";
+};
+
+const sendJson = (res, status, body) => {
+  res.statusCode = status;
+  res.setHeader("Content-Type", "application/json; charset=utf-8");
+  res.end(JSON.stringify(body));
+};
+
+module.exports = async function handler(req, res) {
+  if (req.method !== "POST") {
+    res.setHeader("Allow", "POST");
+    return sendJson(res, 405, { error: "Method Not Allowed" });
+  }
+
   const apiKey = process.env.OPENAI_API_KEY;
 
   if (!apiKey) {
-    return NextResponse.json(
-      { error: "OPENAI_API_KEY is not configured." },
-      { status: 500 }
-    );
+    console.error("[generate-kpis] OPENAI_API_KEY is missing", {
+      hasOpenAiApiKey: false
+    });
+    return sendJson(res, 500, { error: "OPENAI_API_KEY is missing" });
   }
 
-  const requestBody = await request.json().catch(() => null);
+  const requestBody = getRequestBody(req);
   const goal = typeof requestBody?.goal === "string" ? requestBody.goal.trim() : "";
 
   if (!goal) {
-    return NextResponse.json(
-      { error: 'Invalid request body. Expected JSON: { "goal": "string" }.' },
-      { status: 400 }
-    );
+    console.error("[generate-kpis] Invalid request body", {
+      requestBody
+    });
+    return sendJson(res, 400, {
+      error: 'Invalid request body. Expected JSON: { "goal": "string" }.'
+    });
   }
 
   try {
@@ -209,48 +236,47 @@ export async function POST(request: Request) {
     });
 
     if (!openAiResponse.ok) {
-      return NextResponse.json(
-        { error: "Failed to generate KPI candidates." },
-        { status: 500 }
-      );
+      const errorText = await openAiResponse.text().catch(() => "");
+      console.error("[generate-kpis] OpenAI API request failed", {
+        status: openAiResponse.status,
+        statusText: openAiResponse.statusText,
+        body: errorText
+      });
+      return sendJson(res, 502, { error: "OpenAI API request failed" });
     }
 
-    const responseData = (await openAiResponse.json()) as {
-      output_text?: unknown;
-    };
+    const responseData = await openAiResponse.json();
+    const outputText = extractOutputText(responseData);
 
-    if (typeof responseData.output_text !== "string" || responseData.output_text.trim().length === 0) {
-      return NextResponse.json(
-        { error: "Failed to parse OpenAI response as JSON." },
-        { status: 500 }
-      );
+    if (!outputText) {
+      console.error("[generate-kpis] Failed to extract JSON text from OpenAI response", {
+        responseData
+      });
+      return sendJson(res, 500, { error: "Failed to parse KPI JSON" });
     }
 
-    let parsedResponse: unknown;
+    let parsedResponse;
 
     try {
-      parsedResponse = JSON.parse(responseData.output_text);
-    } catch {
-      return NextResponse.json(
-        { error: "Failed to parse OpenAI response as JSON." },
-        { status: 500 }
-      );
+      parsedResponse = JSON.parse(outputText);
+    } catch (error) {
+      console.error("[generate-kpis] JSON parse failed", {
+        error,
+        outputText
+      });
+      return sendJson(res, 500, { error: "Failed to parse KPI JSON" });
     }
 
     if (!isValidGenerateKpisResponse(parsedResponse)) {
-      return NextResponse.json(
-        { error: "OpenAI response did not match the expected schema." },
-        { status: 500 }
-      );
+      console.error("[generate-kpis] Parsed KPI JSON did not match expected schema", {
+        parsedResponse
+      });
+      return sendJson(res, 500, { error: "Failed to parse KPI JSON" });
     }
 
-    return NextResponse.json(parsedResponse, { status: 200 });
+    return sendJson(res, 200, parsedResponse);
   } catch (error) {
-    console.error("generate-kpis route error", error);
-
-    return NextResponse.json(
-      { error: "Failed to generate KPI candidates." },
-      { status: 500 }
-    );
+    console.error("[generate-kpis] Unexpected server error", error);
+    return sendJson(res, 500, { error: "Unexpected server error" });
   }
 }
