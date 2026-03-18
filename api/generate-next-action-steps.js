@@ -1,6 +1,23 @@
 const OPENAI_API_URL = "https://api.openai.com/v1/responses";
 
-const SYSTEM_PROMPT = `あなたは実行支援の専門家です。与えられたTaskを今すぐ始められる小ステップへ分解し、日本語JSONのみ返してください。`;
+const SYSTEM_PROMPT = `あなたはタスクを実行するための「今すぐやる小ステップ」を生成するAIです。
+
+制約:
+- 必ず3〜5個のステップを出す
+- 各ステップは1行で具体的に書く
+- 抽象表現は禁止
+- 実行可能な行動のみ
+- JSONのみ出力する
+- 空は禁止
+
+出力形式:
+{
+  "steps": [
+    "ステップ1",
+    "ステップ2",
+    "ステップ3"
+  ]
+}`;
 
 const STEP_RESPONSE_SCHEMA = {
   name: "generate_next_action_steps_response",
@@ -12,8 +29,8 @@ const STEP_RESPONSE_SCHEMA = {
     properties: {
       steps: {
         type: "array",
-        minItems: 1,
-        maxItems: 3,
+        minItems: 3,
+        maxItems: 5,
         items: {
           type: "string"
         }
@@ -87,7 +104,7 @@ const buildStepPrompt = ({ kpiName, taskTitle, taskDescription, adaptationHints 
   },
   adaptationHints,
   output: {
-    steps: "1-3件",
+    steps: "3-5件",
     language: "ja",
     duration: "5-15分",
     style: "短く具体的"
@@ -124,6 +141,37 @@ const sendJson = (res, status, body) => {
   res.end(JSON.stringify(body));
 };
 
+const FALLBACK_STEPS = [
+  "タスク内容を読み直す",
+  "必要な作業を3つに分解する",
+  "最初の1つをすぐ実行する"
+];
+
+const removeJsonCodeFence = (value) => {
+  if (typeof value !== "string") {
+    return "";
+  }
+
+  return value.replace(/```json\s*/gi, "").replace(/```/g, "").trim();
+};
+
+const extractJsonObjectString = (value) => {
+  const sanitized = removeJsonCodeFence(value);
+  const firstBraceIndex = sanitized.indexOf("{");
+  const lastBraceIndex = sanitized.lastIndexOf("}");
+
+  if (firstBraceIndex === -1 || lastBraceIndex === -1 || lastBraceIndex < firstBraceIndex) {
+    return "";
+  }
+
+  return sanitized.slice(firstBraceIndex, lastBraceIndex + 1);
+};
+
+const getFallbackSteps = (reason) => {
+  console.warn("[generate-next-action-steps] using fallback steps", { reason, fallbackSteps: FALLBACK_STEPS });
+  return FALLBACK_STEPS.slice();
+};
+
 const normalizeRecentReflections = (value) => {
   if (!Array.isArray(value)) {
     return [];
@@ -157,7 +205,35 @@ const sanitizeSteps = (steps) => {
   return steps
     .map((step) => typeof step === "string" ? step.trim() : "")
     .filter((step) => step.length > 0)
-    .slice(0, 3);
+    .slice(0, 5);
+};
+
+const parseStepsFromOutputText = (outputText) => {
+  console.log("[generate-next-action-steps] raw AI response", outputText);
+
+  if (!outputText || !outputText.trim()) {
+    return getFallbackSteps("empty_response");
+  }
+
+  const jsonText = extractJsonObjectString(outputText);
+
+  if (!jsonText) {
+    return getFallbackSteps("json_not_found");
+  }
+
+  try {
+    const parsedResponse = JSON.parse(jsonText);
+    const steps = sanitizeSteps(parsedResponse?.steps);
+
+    if (steps.length < 3) {
+      return getFallbackSteps("steps_missing_or_too_short");
+    }
+
+    return steps;
+  } catch (error) {
+    console.error("[generate-next-action-steps] parse error", error);
+    return getFallbackSteps("json_parse_error");
+  }
 };
 
 module.exports = async function handler(req, res) {
@@ -232,19 +308,9 @@ module.exports = async function handler(req, res) {
 
     const responseData = await openAiResponse.json();
     const outputText = extractOutputText(responseData);
+    const steps = parseStepsFromOutputText(outputText);
 
-    if (!outputText) {
-      return sendJson(res, 500, { error: "Failed to parse next action step JSON" });
-    }
-
-    const parsedResponse = JSON.parse(outputText);
-    const steps = sanitizeSteps(parsedResponse?.steps);
-
-    if (steps.length === 0 || steps.length > 3) {
-      return sendJson(res, 500, { error: "Failed to parse next action step JSON" });
-    }
-
-    console.log("[generate-next-action-steps] response", { success: true, stepCount: steps.length });
+    console.log("[generate-next-action-steps] response", { success: true, stepCount: steps.length, usedFallback: steps.every((step, index) => step === FALLBACK_STEPS[index]) });
     return sendJson(res, 200, { steps });
   } catch (error) {
     console.log("[generate-next-action-steps] response", { success: false });
