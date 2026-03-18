@@ -32,6 +32,12 @@ const STEP_RESPONSE_SCHEMA = {
 };
 
 const isNonEmptyString = (value) => typeof value === "string" && value.trim().length > 0;
+const isValidReflectionResult = (value) => (
+  value === "as_planned"
+  || value === "harder_than_expected"
+  || value === "needs_improvement"
+  || value === "could_not_do"
+);
 
 const getRequestBody = (req) => {
   if (!req.body) {
@@ -79,6 +85,73 @@ const sendJson = (res, status, body) => {
   res.end(JSON.stringify(body));
 };
 
+const normalizeRecentReflections = (value) => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((item) => {
+      const taskTitle = typeof item?.taskTitle === "string" ? item.taskTitle.trim() : "";
+      const comment = typeof item?.comment === "string" ? item.comment.trim() : "";
+      const result = item?.result;
+
+      if (!taskTitle || !isValidReflectionResult(result)) {
+        return null;
+      }
+
+      return {
+        taskTitle,
+        result,
+        comment
+      };
+    })
+    .filter(Boolean)
+    .slice(0, 5);
+};
+
+const buildReflectionGuidance = (recentReflections) => {
+  if (!recentReflections.length) {
+    return "";
+  }
+
+  const summaryLines = recentReflections.map((reflection, index) => {
+    const commentText = reflection.comment ? ` / コメント: ${reflection.comment}` : "";
+    return `${index + 1}. Task: ${reflection.taskTitle} / 結果: ${reflection.result}${commentText}`;
+  });
+
+  const adaptiveRules = new Set();
+
+  recentReflections.forEach((reflection) => {
+    if (reflection.result === "harder_than_expected") {
+      adaptiveRules.add("- 難しかった履歴があるため、専門用語を減らし、短い説明を補い、ステップをさらに小さく分けること。");
+    }
+
+    if (reflection.result === "could_not_do") {
+      adaptiveRules.add("- できなかった履歴があるため、難易度を1段下げ、最初の一歩をさらに小さくし、準備から始めること。");
+    }
+
+    if (reflection.result === "as_planned") {
+      adaptiveRules.add("- 予定通り進められた履歴もあるため、過度に簡単にしすぎず、着手しやすさを維持すること。");
+    }
+
+    if (reflection.result === "needs_improvement") {
+      adaptiveRules.add("- やり方の見直しが必要だった履歴があるため、順番や構成を改善し、抽象的な表現を減らすこと。");
+    }
+  });
+
+  return [
+    "過去の振り返りから分かっていること:",
+    ...summaryLines,
+    "",
+    "これらを考慮して、次の小ステップ提案では以下を守ること:",
+    ...Array.from(adaptiveRules),
+    "- 専門用語を避けるか、使う場合は短く意味を添えること。",
+    "- より具体的で、今すぐ始められる5〜15分の行動にすること。",
+    "- 難しすぎる提案を避け、必要なら準備ステップから始めること。"
+  ].join("\n");
+};
+
 const sanitizeSteps = (steps) => {
   if (!Array.isArray(steps)) {
     return [];
@@ -106,6 +179,8 @@ module.exports = async function handler(req, res) {
   const taskTitle = typeof requestBody?.taskTitle === "string" ? requestBody.taskTitle.trim() : "";
   const taskDescription = typeof requestBody?.taskDescription === "string" ? requestBody.taskDescription.trim() : "";
   const kpiName = typeof requestBody?.kpiName === "string" ? requestBody.kpiName.trim() : "";
+  const recentReflections = normalizeRecentReflections(requestBody?.recentReflections);
+  const reflectionGuidance = buildReflectionGuidance(recentReflections);
 
   if (!isNonEmptyString(taskTitle) || !isNonEmptyString(kpiName)) {
     return sendJson(res, 400, {
@@ -135,8 +210,9 @@ module.exports = async function handler(req, res) {
                 `KPI名: ${kpiName}`,
                 `Task名: ${taskTitle}`,
                 `Task補足説明: ${taskDescription || "未設定"}`,
+                reflectionGuidance,
                 "このTaskに今すぐ着手できる小ステップを1〜3件、JSONでのみ返してください。"
-              ].join("\n")
+              ].filter(Boolean).join("\n")
             }]
           }
         ],

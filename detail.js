@@ -536,6 +536,7 @@ const renderTaskSuggestionList = (kpi) => {
         >AIでTask案を作る</button>
         ${loadingMarkup}
       </div>
+      <p class="hint">過去の振り返りを反映して提案しています。</p>
       ${errorMarkup}
       <div class="task-ai-suggestions">${listMarkup}</div>
     </div>
@@ -969,7 +970,8 @@ const generateNextActionSteps = async (nextAction) => {
       body: JSON.stringify({
         taskTitle: nextAction.task.title ?? "",
         taskDescription: nextAction.task.description ?? "",
-        kpiName: nextAction.kpiName ?? ""
+        kpiName: nextAction.kpiName ?? "",
+        recentReflections: buildRecentReflections(latestRenderedKpis, { preferredKpiId: nextAction.kpiId, limit: 5 })
       })
     });
 
@@ -1056,6 +1058,92 @@ const normalizeTaskCheckResult = (task) => {
 const getTaskCheckComment = (task) => typeof task?.checkComment === "string" ? task.checkComment : "";
 
 const getTaskCheckRecordedAt = (task) => task?.checkRecordedAt ?? null;
+
+const getComparableTimestamp = (value) => {
+  if (value && typeof value.toDate === "function") {
+    return value.toDate().getTime();
+  }
+
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return value.getTime();
+  }
+
+  if (typeof value === "string" || typeof value === "number") {
+    const parsed = new Date(value);
+    if (!Number.isNaN(parsed.getTime())) {
+      return parsed.getTime();
+    }
+  }
+
+  return 0;
+};
+
+const getReflectionSortTime = (task) => {
+  const recordedAt = getComparableTimestamp(task?.checkRecordedAt ?? null);
+
+  if (recordedAt > 0) {
+    return recordedAt;
+  }
+
+  const updatedAt = getComparableTimestamp(task?.updatedAt ?? null);
+
+  if (updatedAt > 0) {
+    return updatedAt;
+  }
+
+  return getComparableTimestamp(task?.createdAt ?? null);
+};
+
+const buildRecentReflections = (kpis, options = {}) => {
+  const preferredKpiId = typeof options?.preferredKpiId === "string" ? options.preferredKpiId : "";
+  const limit = Number.isFinite(Number(options?.limit)) ? Math.max(1, Number(options.limit)) : 5;
+  const normalizedKpis = Array.isArray(kpis) ? kpis : [];
+  const matchedReflections = [];
+  const fallbackReflections = [];
+
+  normalizedKpis.forEach((kpi) => {
+    const tasks = Array.isArray(kpi?.tasks) ? kpi.tasks : [];
+
+    tasks.forEach((task) => {
+      const result = normalizeTaskCheckResult(task);
+
+      if (!getTaskIsCompleted(task) || normalizeTaskCheckStatus(task) !== "checked" || !result) {
+        return;
+      }
+
+      const reflection = {
+        taskTitle: typeof task?.title === "string" ? task.title.trim() : "",
+        result,
+        comment: getTaskCheckComment(task).trim(),
+        sortTime: getReflectionSortTime(task)
+      };
+
+      if (!reflection.taskTitle) {
+        return;
+      }
+
+      if (preferredKpiId && kpi?.id === preferredKpiId) {
+        matchedReflections.push(reflection);
+        return;
+      }
+
+      fallbackReflections.push(reflection);
+    });
+  });
+
+  const sortByLatest = (items) => items.sort((left, right) => right.sortTime - left.sortTime);
+  const sortedMatched = sortByLatest(matchedReflections);
+  const sortedFallback = sortByLatest(fallbackReflections);
+  const merged = preferredKpiId
+    ? [...sortedMatched, ...sortedFallback]
+    : sortedFallback;
+
+  return merged.slice(0, limit).map(({ taskTitle, result, comment }) => ({
+    taskTitle,
+    result,
+    comment
+  }));
+};
 
 const isTaskCheckAvailable = (task) => getTaskIsCompleted(task);
 
@@ -1938,7 +2026,8 @@ kpiTableBody.addEventListener("click", async (event) => {
           kpiName,
           kpiDescription: kpiDescription === "-" ? "" : kpiDescription,
           kpiType,
-          targetValue
+          targetValue,
+          recentReflections: buildRecentReflections(latestRenderedKpis, { preferredKpiId: kpiTargetId, limit: 5 })
         })
       });
 
