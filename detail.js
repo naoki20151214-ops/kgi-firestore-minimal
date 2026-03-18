@@ -145,6 +145,12 @@ let existingKpiKeys = new Set();
 let subKgiSavingIds = new Set();
 let subKgiSavedIds = new Set();
 let subKgiSaveError = "";
+let taskAiLoadingByKpiId = {};
+let taskAiErrorByKpiId = {};
+let taskAiSuggestionsByKpiId = {};
+let taskAiSavedByKpiId = {};
+let taskAiSavingByKpiId = {};
+let latestRenderedKpis = [];
 const getAiSuggestionStorageKey = () => kgiId ? `kgi-detail-ai-suggestions:${kgiId}` : "";
 const getSubKgiSavedStorageKey = () => kgiId ? `kgi-detail-subkgi-saved:${kgiId}` : "";
 
@@ -278,7 +284,6 @@ const renderSubKgiSuggestionList = (items, container) => {
   container.innerHTML = `${errorMarkup}<ul class="ai-suggestion-list">${listMarkup}</ul>`;
 };
 
-
 const setStatus = (message, isError = false) => {
   statusText.textContent = message;
   statusText.classList.toggle("error", isError);
@@ -380,6 +385,137 @@ const buildSuggestionPayload = (item, fallbackType) => ({
   target: normalizeSuggestionTarget(item?.targetValue),
   type: normalizeSuggestionType(item?.type, fallbackType)
 });
+
+const buildTaskSuggestionKey = (item) => JSON.stringify({
+  title: displaySuggestionText(item?.title),
+  description: displaySuggestionText(item?.description),
+  priority: Number.isFinite(Number(item?.priority)) ? Number(item.priority) : 2,
+  type: item?.type === "one_time" ? "one_time" : "one_time",
+  progressValue: Number.isFinite(Number(item?.progressValue)) ? Number(item.progressValue) : 1
+});
+
+const ensureTaskAiSavedSet = (kpiTargetId) => {
+  if (!(taskAiSavedByKpiId[kpiTargetId] instanceof Set)) {
+    taskAiSavedByKpiId[kpiTargetId] = new Set();
+  }
+
+  return taskAiSavedByKpiId[kpiTargetId];
+};
+
+const ensureTaskAiSavingSet = (kpiTargetId) => {
+  if (!(taskAiSavingByKpiId[kpiTargetId] instanceof Set)) {
+    taskAiSavingByKpiId[kpiTargetId] = new Set();
+  }
+
+  return taskAiSavingByKpiId[kpiTargetId];
+};
+
+const setTaskAiLoading = (kpiTargetId, isLoading) => {
+  taskAiLoadingByKpiId = {
+    ...taskAiLoadingByKpiId,
+    [kpiTargetId]: isLoading
+  };
+};
+
+const setTaskAiError = (kpiTargetId, message = "") => {
+  taskAiErrorByKpiId = {
+    ...taskAiErrorByKpiId,
+    [kpiTargetId]: message
+  };
+};
+
+const setTaskAiSuggestions = (kpiTargetId, suggestions) => {
+  taskAiSuggestionsByKpiId = {
+    ...taskAiSuggestionsByKpiId,
+    [kpiTargetId]: Array.isArray(suggestions) ? suggestions : []
+  };
+};
+
+const hydrateTaskAiSavedStateFromTasks = (kpis) => {
+  const nextSavedState = {};
+
+  kpis.forEach((kpi) => {
+    const savedSet = ensureTaskAiSavedSet(kpi.id);
+    const nextSavedSet = new Set(savedSet);
+    const tasks = Array.isArray(kpi.tasks) ? kpi.tasks : [];
+
+    tasks.forEach((task) => {
+      if (task?.isSuggestedByAI) {
+        nextSavedSet.add(buildTaskSuggestionKey(task));
+      }
+    });
+
+    nextSavedState[kpi.id] = nextSavedSet;
+  });
+
+  taskAiSavedByKpiId = nextSavedState;
+};
+
+const renderTaskSuggestionList = (kpi) => {
+  const suggestions = Array.isArray(taskAiSuggestionsByKpiId[kpi.id]) ? taskAiSuggestionsByKpiId[kpi.id] : [];
+  const isLoading = Boolean(taskAiLoadingByKpiId[kpi.id]);
+  const errorMessage = taskAiErrorByKpiId[kpi.id] ?? "";
+  const savedSet = ensureTaskAiSavedSet(kpi.id);
+  const savingSet = ensureTaskAiSavingSet(kpi.id);
+
+  const loadingMarkup = isLoading
+    ? '<p class="hint">AIがTask案を作成中...</p>'
+    : "";
+  const errorMarkup = errorMessage
+    ? `<p class="hint error">${errorMessage}</p>`
+    : "";
+
+  let listMarkup = "";
+
+  if (!isLoading && suggestions.length === 0) {
+    listMarkup = '<p class="hint">候補なし</p>';
+  } else if (suggestions.length > 0) {
+    const itemsMarkup = suggestions.map((item) => {
+      const suggestionKey = buildTaskSuggestionKey(item);
+      const isSaved = savedSet.has(suggestionKey);
+      const isSaving = savingSet.has(suggestionKey);
+      const title = displaySuggestionText(item?.title);
+      const description = displaySuggestionText(item?.description);
+      const priority = Number.isFinite(Number(item?.priority)) ? Number(item.priority) : 2;
+      const buttonLabel = isSaved ? "追加済み" : isSaving ? "追加中..." : "＋追加";
+
+      return `
+        <li class="ai-suggestion-item">
+          <div class="ai-suggestion-head">
+            <strong>${title}</strong>
+            <button
+              class="button ai-add-button task-ai-add-button"
+              type="button"
+              data-task-suggestion='${JSON.stringify(item).replace(/'/g, "&#39;")}'
+              data-kpi-id="${kpi.id}"
+              ${isSaved || isSaving ? "disabled" : ""}
+            >${buttonLabel}</button>
+          </div>
+          <span class="ai-suggestion-meta">説明: ${description}</span>
+          <span class="ai-suggestion-meta">優先度: ${priority}</span>
+        </li>
+      `;
+    }).join("");
+
+    listMarkup = `<ul class="ai-suggestion-list">${itemsMarkup}</ul>`;
+  }
+
+  return `
+    <div class="task-ai-panel">
+      <div class="ai-actions task-ai-actions">
+        <button
+          class="button"
+          type="button"
+          data-task-ai-generate="${kpi.id}"
+          ${isLoading ? "disabled" : ""}
+        >AIでTask案を作る</button>
+        ${loadingMarkup}
+      </div>
+      ${errorMarkup}
+      <div class="task-ai-suggestions">${listMarkup}</div>
+    </div>
+  `;
+};
 
 const renderSuggestionList = (items, container, fallbackType, showTargetValue, allowAddButton) => {
   if (!container) {
@@ -886,6 +1022,7 @@ const renderTaskRows = (kpiIdForTask, tasks) => {
 };
 
 const renderKpiTable = (kpis) => {
+  latestRenderedKpis = Array.isArray(kpis) ? kpis : [];
   kpiTableBody.innerHTML = "";
 
   kpis.forEach((kpi) => {
@@ -951,6 +1088,7 @@ const renderKpiTable = (kpis) => {
             </div>
             <button class="button task-add-button" type="submit">Taskを追加</button>
           </form>
+          ${renderTaskSuggestionList(kpi)}
           <div class="task-list-wrap">
             ${renderTaskRows(kpi.id, tasks)}
           </div>
@@ -963,14 +1101,21 @@ const renderKpiTable = (kpis) => {
   });
 };
 
+const rerenderCurrentKpis = () => {
+  renderKpiTable(latestRenderedKpis);
+};
+
 const loadKpis = async () => {
   const snapshot = await getDocs(getKpisQuery());
 
   if (snapshot.empty) {
     kpiTableBody.innerHTML = "";
+    latestRenderedKpis = [];
     kpiTable.hidden = true;
     renderOverallProgress([]);
     existingKpiKeys = new Set();
+    taskAiSavedByKpiId = {};
+    taskAiSavingByKpiId = {};
     renderAiSuggestions();
     setKpiStatus("KPIがまだありません。上のフォームから追加してください。");
     setDebugSummary(`KGI読み込み成功: ${kgiId}`, "KPI 0件", "Task 0件");
@@ -1010,6 +1155,8 @@ const loadKpis = async () => {
       };
     })
   );
+
+  hydrateTaskAiSavedStateFromTasks(kpisWithTasks);
 
   const totalTaskCount = kpisWithTasks.reduce((sum, kpi) => sum + (Array.isArray(kpi.tasks) ? kpi.tasks.length : 0), 0);
   setDebugSummary(
@@ -1253,6 +1400,153 @@ addKpiButton.addEventListener("click", async () => {
   }
 });
 
+kpiTableBody.addEventListener("click", async (event) => {
+  const generateButton = event.target instanceof HTMLElement ? event.target.closest("[data-task-ai-generate]") : null;
+  const addButton = event.target instanceof HTMLElement ? event.target.closest(".task-ai-add-button") : null;
+
+  if (!(generateButton instanceof HTMLButtonElement) && !(addButton instanceof HTMLButtonElement)) {
+    return;
+  }
+
+  if (generateButton instanceof HTMLButtonElement) {
+    const kpiTargetId = generateButton.dataset.taskAiGenerate;
+
+    if (!kpiTargetId || taskAiLoadingByKpiId[kpiTargetId]) {
+      return;
+    }
+
+    const kpiForAi = latestRenderedKpis.find((item) => item.id === kpiTargetId);
+    const kpiName = typeof kpiForAi?.name === "string" ? kpiForAi.name.trim() : "";
+    const kpiDescription = typeof kpiForAi?.description === "string" ? kpiForAi.description.trim() : "";
+    const kpiType = kpiForAi?.kpiType === "action" ? "action" : "result";
+    const targetValue = parsePositiveNumber(kpiForAi?.targetValue ?? kpiForAi?.target, 0);
+
+    if (!currentKgiData?.name || !kpiName) {
+      setTaskAiError(kpiTargetId, "Task案の生成に必要なKGIまたはKPI情報が不足しています。");
+      rerenderCurrentKpis();
+      return;
+    }
+
+    setTaskAiLoading(kpiTargetId, true);
+    setTaskAiError(kpiTargetId, "");
+    rerenderCurrentKpis();
+
+    try {
+      const response = await fetch("/api/generate-tasks", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          kgiName: currentKgiData.name ?? "",
+          kgiGoalText: currentKgiData.goalText ?? "",
+          kpiName,
+          kpiDescription: kpiDescription === "-" ? "" : kpiDescription,
+          kpiType,
+          targetValue
+        })
+      });
+
+      const responseText = await response.text();
+      let data = null;
+
+      if (responseText) {
+        try {
+          data = JSON.parse(responseText);
+        } catch (parseError) {
+          console.error("Failed to parse /api/generate-tasks response as JSON", parseError, responseText);
+        }
+      }
+
+      if (!response.ok) {
+        const apiErrorMessage = typeof data?.error === "string" && data.error.trim()
+          ? data.error.trim()
+          : responseText.trim() || `HTTP ${response.status}`;
+        throw new Error(apiErrorMessage);
+      }
+
+      const nextSuggestions = Array.isArray(data?.tasks) ? data.tasks : [];
+      setTaskAiSuggestions(kpiTargetId, nextSuggestions);
+      setTaskAiError(kpiTargetId, "");
+    } catch (error) {
+      console.error(error);
+      const errorMessage = error instanceof Error && error.message ? error.message : "Unexpected server error";
+      setTaskAiSuggestions(kpiTargetId, []);
+      setTaskAiError(kpiTargetId, `Task案の生成に失敗しました: ${errorMessage}`);
+    } finally {
+      setTaskAiLoading(kpiTargetId, false);
+      await loadKpis();
+    }
+
+    return;
+  }
+
+  if (addButton instanceof HTMLButtonElement) {
+    const kpiTargetId = addButton.dataset.kpiId;
+    const rawSuggestion = addButton.dataset.taskSuggestion;
+
+    if (!kpiTargetId || !rawSuggestion) {
+      return;
+    }
+
+    let suggestion;
+
+    try {
+      suggestion = JSON.parse(rawSuggestion);
+    } catch (error) {
+      console.error(error);
+      setTaskAiError(kpiTargetId, "Task候補データの読み込みに失敗しました。");
+      await loadKpis();
+      return;
+    }
+
+    const suggestionKey = buildTaskSuggestionKey(suggestion);
+    const savedSet = ensureTaskAiSavedSet(kpiTargetId);
+    const savingSet = ensureTaskAiSavingSet(kpiTargetId);
+
+    if (savedSet.has(suggestionKey) || savingSet.has(suggestionKey)) {
+      return;
+    }
+
+    savingSet.add(suggestionKey);
+    setTaskAiError(kpiTargetId, "");
+    rerenderCurrentKpis();
+
+    try {
+      const taskSnapshot = await getDocs(getTasksRef(kpiTargetId));
+
+      await addDoc(getTasksRef(kpiTargetId), {
+        title: displaySuggestionText(suggestion?.title) === "-" ? "" : displaySuggestionText(suggestion?.title),
+        description: displaySuggestionText(suggestion?.description) === "-" ? "" : displaySuggestionText(suggestion?.description),
+        status: "todo",
+        deadline: "",
+        priority: Number.isFinite(Number(suggestion?.priority)) ? Number(suggestion.priority) : 2,
+        order: taskSnapshot.size,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+        completedAt: null,
+        isSuggestedByAI: true,
+        type: "one_time",
+        progressValue: 1,
+        contributedValue: 0,
+        isCompleted: false,
+        kpiId: kpiTargetId
+      });
+
+      savedSet.add(suggestionKey);
+      const kpiSnapshot = await getDoc(getKpiRef(kpiTargetId));
+      const kpiData = kpiSnapshot.exists() ? kpiSnapshot.data() : { target: 100 };
+      await syncKpiProgressFromTasks(kpiTargetId, kpiData);
+    } catch (error) {
+      console.error(error);
+      setTaskAiError(kpiTargetId, "Task候補の保存に失敗しました。もう一度お試しください。");
+    } finally {
+      savingSet.delete(suggestionKey);
+      await loadKpis();
+    }
+  }
+});
+
 kpiTableBody.addEventListener("submit", async (event) => {
   const form = event.target.closest("form.task-form");
   if (!form) {
@@ -1387,6 +1681,12 @@ const initializeDetailPage = async () => {
   subKgiSavingIds = new Set();
   subKgiSavedIds = new Set();
   subKgiSaveError = "";
+  taskAiLoadingByKpiId = {};
+  taskAiErrorByKpiId = {};
+  taskAiSuggestionsByKpiId = {};
+  taskAiSavedByKpiId = {};
+  taskAiSavingByKpiId = {};
+  latestRenderedKpis = [];
   setAiError("");
   setStatus("読み込み中...");
   setKpiStatus("KPIの読み込み待機中...");
