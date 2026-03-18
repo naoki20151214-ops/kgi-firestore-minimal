@@ -34,7 +34,7 @@ const subKgiSuggestions = document.getElementById("subKgiSuggestions");
 const debugPanel = document.getElementById("debugPanel");
 const debugPanelContent = document.getElementById("debugPanelContent");
 
-const debugMode = true;
+const debugMode = false;
 let latestDebugState = [];
 let latestDebugSummary = [];
 
@@ -142,6 +142,142 @@ let aiError = "";
 let aiHasGenerated = false;
 let aiSuggestions = emptyAiSuggestions();
 let existingKpiKeys = new Set();
+let subKgiSavingIds = new Set();
+let subKgiSavedIds = new Set();
+let subKgiSaveError = "";
+const getAiSuggestionStorageKey = () => kgiId ? `kgi-detail-ai-suggestions:${kgiId}` : "";
+const getSubKgiSavedStorageKey = () => kgiId ? `kgi-detail-subkgi-saved:${kgiId}` : "";
+
+const persistAiSuggestions = () => {
+  const storageKey = getAiSuggestionStorageKey();
+
+  if (!storageKey) {
+    return;
+  }
+
+  try {
+    if (!aiHasGenerated) {
+      window.localStorage.removeItem(storageKey);
+      return;
+    }
+
+    window.localStorage.setItem(storageKey, JSON.stringify(aiSuggestions));
+  } catch (error) {
+    console.error("Failed to persist AI suggestions", error);
+  }
+};
+
+const restoreAiSuggestions = () => {
+  const storageKey = getAiSuggestionStorageKey();
+
+  if (!storageKey) {
+    return;
+  }
+
+  try {
+    const raw = window.localStorage.getItem(storageKey);
+
+    if (!raw) {
+      return;
+    }
+
+    const parsed = JSON.parse(raw);
+    aiSuggestions = {
+      resultKpis: Array.isArray(parsed?.resultKpis) ? parsed.resultKpis : [],
+      actionKpis: Array.isArray(parsed?.actionKpis) ? parsed.actionKpis : [],
+      subKgiCandidates: Array.isArray(parsed?.subKgiCandidates) ? parsed.subKgiCandidates : []
+    };
+    aiHasGenerated = true;
+  } catch (error) {
+    console.error("Failed to restore AI suggestions", error);
+  }
+};
+
+const persistSubKgiSavedState = () => {
+  const storageKey = getSubKgiSavedStorageKey();
+
+  if (!storageKey) {
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(storageKey, JSON.stringify(Array.from(subKgiSavedIds)));
+  } catch (error) {
+    console.error("Failed to persist saved sub KGI state", error);
+  }
+};
+
+const restoreSubKgiSavedState = () => {
+  const storageKey = getSubKgiSavedStorageKey();
+
+  if (!storageKey) {
+    return;
+  }
+
+  try {
+    const raw = window.localStorage.getItem(storageKey);
+    const parsed = raw ? JSON.parse(raw) : [];
+    subKgiSavedIds = new Set(Array.isArray(parsed) ? parsed.filter((item) => typeof item === "string" && item.trim()) : []);
+  } catch (error) {
+    console.error("Failed to restore saved sub KGI state", error);
+    subKgiSavedIds = new Set();
+  }
+};
+
+const buildSubKgiCandidateKey = (item) => JSON.stringify({
+  title: displaySuggestionText(item?.title),
+  description: displaySuggestionText(item?.description),
+  kgiId
+});
+
+const buildSubKgiPayload = (item) => ({
+  title: displaySuggestionText(item?.title) === "-" ? "" : displaySuggestionText(item?.title),
+  description: displaySuggestionText(item?.description) === "-" ? "" : displaySuggestionText(item?.description)
+});
+
+const renderSubKgiSuggestionList = (items, container) => {
+  if (!container) {
+    return;
+  }
+
+  if (!Array.isArray(items) || items.length === 0) {
+    container.innerHTML = '<p class="hint">候補なし</p>';
+    return;
+  }
+
+  const errorMarkup = subKgiSaveError
+    ? `<p class="hint error">${subKgiSaveError}</p>`
+    : "";
+
+  const listMarkup = items.map((item) => {
+    const title = displaySuggestionText(item?.title);
+    const description = displaySuggestionText(item?.description);
+    const payload = buildSubKgiPayload(item);
+    const candidateKey = buildSubKgiCandidateKey(item);
+    const isSaved = subKgiSavedIds.has(candidateKey);
+    const isSaving = subKgiSavingIds.has(candidateKey);
+    const buttonLabel = isSaved ? "追加済み" : isSaving ? "追加中..." : "＋追加";
+
+    return `
+      <li class="ai-suggestion-item">
+        <div class="ai-suggestion-head">
+          <strong>${title}</strong>
+          <button
+            class="button ai-add-button"
+            type="button"
+            data-sub-kgi='${JSON.stringify(payload).replace(/'/g, "&#39;")}'
+            data-sub-kgi-id='${candidateKey.replace(/'/g, "&#39;")}'
+            ${isSaved || isSaving ? "disabled" : ""}
+          >${buttonLabel}</button>
+        </div>
+        <span class="ai-suggestion-meta">説明: ${description}</span>
+      </li>
+    `;
+  }).join("");
+
+  container.innerHTML = `${errorMarkup}<ul class="ai-suggestion-list">${listMarkup}</ul>`;
+};
+
 
 const setStatus = (message, isError = false) => {
   statusText.textContent = message;
@@ -184,7 +320,7 @@ function renderAiSuggestions() {
   aiSuggestionsContainer.hidden = !aiHasGenerated;
   renderSuggestionList(aiSuggestions.resultKpis, resultKpiSuggestions, "result", true, true);
   renderSuggestionList(aiSuggestions.actionKpis, actionKpiSuggestions, "action", true, true);
-  renderSuggestionList(aiSuggestions.subKgiCandidates, subKgiSuggestions, "result", false, false);
+  renderSubKgiSuggestionList(aiSuggestions.subKgiCandidates, subKgiSuggestions);
 }
 
 const displaySuggestionText = (value) => {
@@ -297,6 +433,8 @@ renderAiSuggestions();
 const resetAiSuggestions = () => {
   aiHasGenerated = false;
   aiSuggestions = emptyAiSuggestions();
+  subKgiSaveError = "";
+  persistAiSuggestions();
   renderAiSuggestions();
 };
 
@@ -895,7 +1033,8 @@ aiSuggestionsContainer?.addEventListener("click", async (event) => {
     return;
   }
 
-  const rawSuggestion = button.dataset.suggestion;
+  const isSubKgiButton = Boolean(button.dataset.subKgiId);
+  const rawSuggestion = isSubKgiButton ? button.dataset.subKgi : button.dataset.suggestion;
 
   if (!rawSuggestion) {
     return;
@@ -907,7 +1046,52 @@ aiSuggestionsContainer?.addEventListener("click", async (event) => {
     payload = JSON.parse(rawSuggestion);
   } catch (error) {
     console.error(error);
-    alert("KPI候補データの読み込みに失敗しました。");
+    alert(isSubKgiButton ? "サブKGI候補データの読み込みに失敗しました。" : "KPI候補データの読み込みに失敗しました。");
+    return;
+  }
+
+  if (button.dataset.subKgiId) {
+    const subKgiId = button.dataset.subKgiId;
+
+    if (!payload?.title || !kgiId || !db) {
+      subKgiSaveError = "サブKGI候補を保存するための情報が不足しています。";
+      renderAiSuggestions();
+      return;
+    }
+
+    if (subKgiSavedIds.has(subKgiId) || subKgiSavingIds.has(subKgiId)) {
+      return;
+    }
+
+    subKgiSaveError = "";
+    subKgiSavingIds.add(subKgiId);
+    renderAiSuggestions();
+
+    try {
+      await addDoc(getKgisRef(), {
+        name: payload.title,
+        goalText: payload.description,
+        deadline: "",
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+        status: "active",
+        overallProgress: 0,
+        nextActionText: "",
+        nextActionReason: ""
+      });
+
+      subKgiSavedIds.add(subKgiId);
+      persistSubKgiSavedState();
+      renderAiSuggestions();
+    } catch (error) {
+      console.error(error);
+      subKgiSaveError = "サブKGI候補の保存に失敗しました。もう一度お試しください。";
+      renderAiSuggestions();
+    } finally {
+      subKgiSavingIds.delete(subKgiId);
+      renderAiSuggestions();
+    }
+
     return;
   }
 
@@ -998,12 +1182,14 @@ generateAiKpisButton?.addEventListener("click", async () => {
     }
 
     aiHasGenerated = true;
+    subKgiSaveError = "";
     aiSuggestions = {
       resultKpis: Array.isArray(data?.resultKpis) ? data.resultKpis : [],
       actionKpis: Array.isArray(data?.actionKpis) ? data.actionKpis : [],
       subKgiCandidates: Array.isArray(data?.subKgiCandidates) ? data.subKgiCandidates : []
     };
     setAiError("");
+    persistAiSuggestions();
     renderAiSuggestions();
   } catch (error) {
     console.error(error);
@@ -1196,7 +1382,11 @@ const resolveKgiIdFromUrl = () => {
 const initializeDetailPage = async () => {
   resetKpiSection();
   disableKpiActions();
-  resetAiSuggestions();
+  aiHasGenerated = false;
+  aiSuggestions = emptyAiSuggestions();
+  subKgiSavingIds = new Set();
+  subKgiSavedIds = new Set();
+  subKgiSaveError = "";
   setAiError("");
   setStatus("読み込み中...");
   setKpiStatus("KPIの読み込み待機中...");
@@ -1212,6 +1402,9 @@ const initializeDetailPage = async () => {
   }
 
   setDebugSummary(`取得したid: ${kgiId}`);
+  restoreAiSuggestions();
+  restoreSubKgiSavedState();
+  renderAiSuggestions();
 
   try {
     db = await getDb();
