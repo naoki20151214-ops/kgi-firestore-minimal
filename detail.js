@@ -34,27 +34,21 @@ const debugPanelContent = document.getElementById("debugPanelContent");
 
 const debugMode = true;
 let latestDebugState = [];
+let latestDebugSummary = [];
 
-const updateDebugPanel = (kpiDebugItems = latestDebugState) => {
-  latestDebugState = kpiDebugItems;
-
-  if (!debugPanel || !debugPanelContent) {
+const renderDebugPanelText = () => {
+  if (!debugPanelContent) {
     return;
   }
 
-  if (!debugMode) {
-    debugPanel.hidden = true;
+  const summaryLines = latestDebugSummary.length > 0 ? latestDebugSummary : ["状態情報なし"];
+
+  if (latestDebugState.length === 0) {
+    debugPanelContent.textContent = [...summaryLines, "", "KPI / Task データなし"].join("\n");
     return;
   }
 
-  debugPanel.hidden = false;
-
-  if (kpiDebugItems.length === 0) {
-    debugPanelContent.textContent = "KPI / Task データなし";
-    return;
-  }
-
-  const lines = kpiDebugItems.flatMap((kpiItem, index) => {
+  const lines = latestDebugState.flatMap((kpiItem, index) => {
     const kpiHeader = `KPI ${index + 1}`;
     const kpiLines = [
       kpiHeader,
@@ -74,16 +68,38 @@ const updateDebugPanel = (kpiDebugItems = latestDebugState) => {
       `      contributedValue: ${task.contributedValue}`
     ].join("\n"));
 
-    return [...kpiLines, ...taskLines, ""]; 
+    return [...kpiLines, ...taskLines, ""];
   });
 
-  debugPanelContent.textContent = lines.join("\n").trim();
+  debugPanelContent.textContent = [...summaryLines, "", ...lines].join("\n").trim();
+};
+
+const updateDebugPanel = (kpiDebugItems = latestDebugState) => {
+  latestDebugState = kpiDebugItems;
+
+  if (!debugPanel || !debugPanelContent) {
+    return;
+  }
+
+  if (!debugMode) {
+    debugPanel.hidden = true;
+    return;
+  }
+
+  debugPanel.hidden = false;
+  renderDebugPanelText();
+};
+
+const setDebugSummary = (...items) => {
+  latestDebugSummary = items.filter((item) => typeof item === "string" && item.trim().length > 0);
+  updateDebugPanel(latestDebugState);
 };
 
 updateDebugPanel([]);
+setDebugSummary("detail.html 初期化中");
 
 let db;
-let kgiId;
+let kgiId = "";
 let currentKgiData = null;
 
 const emptyAiSuggestions = () => ({
@@ -108,6 +124,39 @@ const setKpiStatus = (message, isError = false) => {
   kpiStatusText.classList.toggle("error", isError);
 };
 
+const disableKpiActions = () => {
+  addKpiButton.disabled = true;
+  if (generateAiKpisButton) {
+    generateAiKpisButton.disabled = true;
+  }
+};
+
+const enableKpiActions = () => {
+  addKpiButton.disabled = false;
+  if (generateAiKpisButton) {
+    generateAiKpisButton.disabled = false;
+  }
+};
+
+const resetKpiSection = () => {
+  currentKgiData = null;
+  kgiMeta.hidden = true;
+  kgiMeta.innerHTML = "";
+  kpiTableBody.innerHTML = "";
+  kpiTable.hidden = true;
+  renderOverallProgress([]);
+};
+
+function renderAiSuggestions() {
+  if (!aiSuggestionsContainer) {
+    return;
+  }
+
+  aiSuggestionsContainer.hidden = !aiHasGenerated;
+  renderSuggestionList(aiSuggestions.resultKpis, resultKpiSuggestions, true);
+  renderSuggestionList(aiSuggestions.actionKpis, actionKpiSuggestions, true);
+  renderSuggestionList(aiSuggestions.subKgiCandidates, subKgiSuggestions, false);
+}
 
 const displaySuggestionText = (value) => {
   if (typeof value !== "string") {
@@ -121,7 +170,7 @@ const displaySuggestionText = (value) => {
 const setAiLoading = (nextLoading) => {
   aiLoading = nextLoading;
   if (generateAiKpisButton) {
-    generateAiKpisButton.disabled = nextLoading;
+    generateAiKpisButton.disabled = nextLoading || !currentKgiData;
   }
   if (aiLoadingText) {
     aiLoadingText.hidden = !nextLoading;
@@ -165,17 +214,6 @@ const renderSuggestionList = (items, container, showTargetValue) => {
   }).join("");
 
   container.innerHTML = `<ul class="ai-suggestion-list">${listMarkup}</ul>`;
-};
-
-const renderAiSuggestions = () => {
-  if (!aiSuggestionsContainer) {
-    return;
-  }
-
-  aiSuggestionsContainer.hidden = !aiHasGenerated;
-  renderSuggestionList(aiSuggestions.resultKpis, resultKpiSuggestions, true);
-  renderSuggestionList(aiSuggestions.actionKpis, actionKpiSuggestions, true);
-  renderSuggestionList(aiSuggestions.subKgiCandidates, subKgiSuggestions, false);
 };
 
 const resetAiSuggestions = () => {
@@ -407,11 +445,11 @@ const renderOverallProgress = (kpis) => {
   overallProgressCaption.textContent = `${kpis.length}件のKPI平均`;
 };
 
-const getKpisRef = () => collection(db, "kgis", kgiId, "kpis");
-
-const getTasksRef = (kpiId) => collection(db, "kgis", kgiId, "kpis", kpiId, "tasks");
-
-const getKpiRef = (kpiId) => doc(db, "kgis", kgiId, "kpis", kpiId);
+const getKgisRef = () => collection(db, "kgis");
+const getKgiRef = () => doc(getKgisRef(), kgiId);
+const getKpisRef = () => collection(getKgiRef(), "kpis");
+const getTasksRef = (kpiId) => collection(getKgiRef(), "kpis", kpiId, "tasks");
+const getKpiRef = (kpiId) => doc(getKgiRef(), "kpis", kpiId);
 
 const renderKgiMeta = (kgiData) => {
   currentKgiData = kgiData ?? null;
@@ -457,7 +495,6 @@ const normalizeTasks = (docs) => docs
 
     return 0;
   });
-
 
 const getOneTimeTaskContribution = (task) => {
   const isCompleted = getTaskIsCompleted(task);
@@ -521,8 +558,8 @@ const calculateProgressFromCurrentValue = (kpi, currentValue) => {
   return clampPercent(Math.round((currentValue / target) * 100));
 };
 
-const syncKpiProgressFromTasks = async (kpiId, kpiDataForTarget) => {
-  const tasksSnapshot = await getDocs(getTasksRef(kpiId));
+const syncKpiProgressFromTasks = async (kpiIdForTask, kpiDataForTarget) => {
+  const tasksSnapshot = await getDocs(getTasksRef(kpiIdForTask));
   const tasks = normalizeTasks(tasksSnapshot.docs);
 
   await Promise.all(tasks.map(async (task) => {
@@ -539,7 +576,7 @@ const syncKpiProgressFromTasks = async (kpiId, kpiDataForTarget) => {
       return;
     }
 
-    await updateDoc(doc(db, "kgis", kgiId, "kpis", kpiId, "tasks", task.id), {
+    await updateDoc(doc(getKgiRef(), "kpis", kpiIdForTask, "tasks", task.id), {
       contributedValue: normalized.contributedValue,
       progressValue: normalized.progressValue,
       updatedAt: serverTimestamp()
@@ -561,12 +598,12 @@ const syncKpiProgressFromTasks = async (kpiId, kpiDataForTarget) => {
     : calculateProgressFromCurrentValue(kpiDataForTarget, currentValue);
 
   console.log("[kpi aggregation]", {
-    kpiId,
+    kpiId: kpiIdForTask,
     relatedTaskCount: tasks.length,
     summedContributedValue: currentValue
   });
 
-  await updateDoc(getKpiRef(kpiId), {
+  await updateDoc(getKpiRef(kpiIdForTask), {
     currentValue,
     progress,
     percentage: progress,
@@ -576,7 +613,7 @@ const syncKpiProgressFromTasks = async (kpiId, kpiDataForTarget) => {
   return { currentValue, progress, tasks };
 };
 
-const renderTaskRows = (kpiId, tasks) => {
+const renderTaskRows = (kpiIdForTask, tasks) => {
   if (tasks.length === 0) {
     return '<p class="hint">Taskがまだありません。</p>';
   }
@@ -600,8 +637,8 @@ const renderTaskRows = (kpiId, tasks) => {
         <td>${contributedValue}</td>
         <td>
           ${taskType === "one_time"
-    ? `<label><input type="checkbox" class="task-completion-input" data-kpi-id="${kpiId}" data-task-id="${task.id}" data-task-type="one_time" ${isCompleted ? "checked" : ""} /> 完了</label>`
-    : `<input type="number" min="0" step="1" class="task-completion-input" data-kpi-id="${kpiId}" data-task-id="${task.id}" data-task-type="repeatable" value="${completedCount}" aria-label="${taskTitle || "Task"}の完了回数" />`}
+    ? `<label><input type="checkbox" class="task-completion-input" data-kpi-id="${kpiIdForTask}" data-task-id="${task.id}" data-task-type="one_time" ${isCompleted ? "checked" : ""} /> 完了</label>`
+    : `<input type="number" min="0" step="1" class="task-completion-input" data-kpi-id="${kpiIdForTask}" data-task-id="${task.id}" data-task-type="repeatable" value="${completedCount}" aria-label="${taskTitle || "Task"}の完了回数" />`}
         </td>
         <td>${taskDeadline}</td>
         <td class="${taskRemaining.isOverdue ? "overdue-text" : ""}">${taskRemaining.remainingText}</td>
@@ -717,6 +754,7 @@ const loadKpis = async () => {
     kpiTable.hidden = true;
     renderOverallProgress([]);
     setKpiStatus("KPIがまだありません。上のフォームから追加してください。");
+    setDebugSummary(`KGI読み込み成功: ${kgiId}`, "KPI 0件", "Task 0件");
     updateDebugPanel([]);
     return;
   }
@@ -752,6 +790,12 @@ const loadKpis = async () => {
     })
   );
 
+  const totalTaskCount = kpisWithTasks.reduce((sum, kpi) => sum + (Array.isArray(kpi.tasks) ? kpi.tasks.length : 0), 0);
+  setDebugSummary(
+    `KGI読み込み成功: ${kgiId}`,
+    totalTaskCount === 0 ? "Task 0件" : `Task ${totalTaskCount}件`,
+    `KPI ${kpisWithTasks.length}件`
+  );
   updateDebugPanel(kpisWithTasks.map((kpi) => kpi.debug));
 
   renderKpiTable(kpisWithTasks);
@@ -960,7 +1004,7 @@ kpiTableBody.addEventListener("change", async (event) => {
       updatePayload.completedAt = isCompleted ? serverTimestamp() : null;
     }
 
-    await updateDoc(doc(db, "kgis", kgiId, "kpis", kpiTargetId, "tasks", taskId), updatePayload);
+    await updateDoc(doc(getKgiRef(), "kpis", kpiTargetId, "tasks", taskId), updatePayload);
 
     const kpiSnapshot = await getDoc(getKpiRef(kpiTargetId));
     const kpiData = kpiSnapshot.exists() ? kpiSnapshot.data() : { target: 100 };
@@ -975,37 +1019,57 @@ kpiTableBody.addEventListener("change", async (event) => {
   }
 });
 
-(async () => {
-  const params = new URLSearchParams(location.search);
-  kgiId = params.get("id");
+const resolveKgiIdFromUrl = () => {
+  const params = new URLSearchParams(window.location.search);
+  const rawId = params.get("id");
+  return typeof rawId === "string" ? rawId.trim() : "";
+};
+
+const initializeDetailPage = async () => {
+  resetKpiSection();
+  disableKpiActions();
+  resetAiSuggestions();
+  setAiError("");
+  setStatus("読み込み中...");
+  setKpiStatus("KPIの読み込み待機中...");
+
+  kgiId = resolveKgiIdFromUrl();
 
   if (!kgiId) {
-    setStatus("URLにKGI IDがありません。list.htmlから開いてください。", true);
-    addKpiButton.disabled = true;
+    setStatus("KGI ID が指定されていません", true);
     setKpiStatus("KPIを表示できません。", true);
+    setDebugSummary("id なし");
+    updateDebugPanel([]);
     return;
   }
+
+  setDebugSummary(`取得したid: ${kgiId}`);
 
   try {
     db = await getDb();
 
-    const kgiRef = doc(db, "kgis", kgiId);
-    const kgiSnapshot = await getDoc(kgiRef);
+    const kgiSnapshot = await getDoc(getKgiRef());
 
     if (!kgiSnapshot.exists()) {
-      setStatus("指定されたKGIが見つかりません。", true);
-      addKpiButton.disabled = true;
+      setStatus("KGIが見つかりません", true);
       setKpiStatus("KPIを表示できません。", true);
+      setDebugSummary(`取得したid: ${kgiId}`, "KGIなし");
+      updateDebugPanel([]);
       return;
     }
 
     renderKgiMeta(kgiSnapshot.data());
-    setStatus("KGIを読み込みました。");
+    enableKpiActions();
+    setStatus("KGI詳細を表示しています。");
+    setDebugSummary(`取得したid: ${kgiId}`, "KGI読み込み成功");
     await loadKpis();
   } catch (error) {
     console.error(error);
-    setStatus("KGI詳細の読み込みに失敗しました。", true);
-    addKpiButton.disabled = true;
-    setKpiStatus("KPIの読み込みに失敗しました。", true);
+    setStatus("KGIの読み込みに失敗しました", true);
+    setKpiStatus("KPIを表示できません。", true);
+    setDebugSummary(`取得したid: ${kgiId}`, "KGI読み込み失敗");
+    updateDebugPanel([]);
   }
-})();
+};
+
+initializeDetailPage();
