@@ -89,6 +89,11 @@
         color: #1d4ed8;
       }
 
+      .status-badge.ready {
+        background: #ede9fe;
+        color: #6d28d9;
+      }
+
       .status-badge.done {
         background: #dcfce7;
         color: #15803d;
@@ -406,6 +411,37 @@
 
       .task-table th {
         background: #f1f5f9;
+      }
+
+      .task-ticket-meta {
+        display: grid;
+        gap: 6px;
+        min-width: 220px;
+      }
+
+      .task-ticket-meta div {
+        display: grid;
+        gap: 2px;
+      }
+
+      .task-ticket-meta strong {
+        color: #334155;
+        font-size: 0.85rem;
+      }
+
+      .task-ticket-meta span {
+        color: #475569;
+        word-break: break-word;
+      }
+
+      .task-ticket-status-cell {
+        display: grid;
+        gap: 8px;
+        min-width: 148px;
+      }
+
+      .task-ticket-status-select {
+        min-width: 132px;
       }
 
       .task-ai-panel {

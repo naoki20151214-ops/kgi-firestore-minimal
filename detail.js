@@ -772,6 +772,98 @@ const getComparableDeadline = (deadline) => {
   return parsed ? parsed.getTime() : Number.MAX_SAFE_INTEGER;
 };
 
+const TASK_TICKET_STATUS_OPTIONS = [
+  { value: "backlog", label: "未整理" },
+  { value: "ready", label: "着手可能" },
+  { value: "doing", label: "進行中" },
+  { value: "done", label: "完了" }
+];
+
+const getTaskAssignee = (task) => typeof task?.assignee === "string" ? task.assignee.trim() : "";
+
+const getTaskDueDate = (task) => {
+  if (typeof task?.dueDate === "string" && task.dueDate.trim()) {
+    return task.dueDate.trim();
+  }
+
+  if (typeof task?.deadline === "string" && task.deadline.trim()) {
+    return task.deadline.trim();
+  }
+
+  return "";
+};
+
+const getTaskDoneDefinition = (task) => typeof task?.doneDefinition === "string" ? task.doneDefinition.trim() : "";
+
+const getTaskTicketNote = (task) => typeof task?.ticketNote === "string" ? task.ticketNote.trim() : "";
+
+const normalizeTaskTicketStatus = (task) => {
+  const rawStatus = typeof task?.ticketStatus === "string" ? task.ticketStatus.trim().toLowerCase() : "";
+
+  if (TASK_TICKET_STATUS_OPTIONS.some((option) => option.value === rawStatus)) {
+    return rawStatus;
+  }
+
+  const actionableStatus = getTaskActionableStatus(task);
+
+  if (actionableStatus === "doing") {
+    return "doing";
+  }
+
+  if (actionableStatus === "done") {
+    return "done";
+  }
+
+  return "backlog";
+};
+
+const getTaskTicketStatusLabel = (status) => TASK_TICKET_STATUS_OPTIONS
+  .find((option) => option.value === status)?.label ?? "未整理";
+
+const getTaskTicketStatusClassName = (status) => {
+  if (status === "ready") {
+    return "ready";
+  }
+
+  return getTaskStatusClassName(status);
+};
+
+const getTaskDisplayValue = (value) => value || "-";
+
+const buildTaskTicketFields = (task = {}) => ({
+  assignee: getTaskAssignee(task),
+  dueDate: getTaskDueDate(task),
+  doneDefinition: getTaskDoneDefinition(task),
+  ticketStatus: normalizeTaskTicketStatus(task),
+  ticketNote: getTaskTicketNote(task)
+});
+
+const buildTaskTicketStatusUpdate = (ticketStatus) => {
+  const normalizedTicketStatus = TASK_TICKET_STATUS_OPTIONS.some((option) => option.value === ticketStatus)
+    ? ticketStatus
+    : "backlog";
+  const updatePayload = {
+    ticketStatus: normalizedTicketStatus,
+    updatedAt: serverTimestamp()
+  };
+
+  if (normalizedTicketStatus === "doing") {
+    updatePayload.status = "doing";
+    updatePayload.isCompleted = false;
+    updatePayload.completedAt = null;
+  } else if (normalizedTicketStatus === "done") {
+    updatePayload.status = "done";
+    updatePayload.isCompleted = true;
+    updatePayload.completedAt = serverTimestamp();
+  } else {
+    updatePayload.status = "todo";
+    updatePayload.isCompleted = false;
+    updatePayload.completedAt = null;
+  }
+
+  return updatePayload;
+};
+
 const selectNextAction = (kpis) => {
   const candidates = (Array.isArray(kpis) ? kpis : []).flatMap((kpi) => {
     const tasks = Array.isArray(kpi?.tasks) ? kpi.tasks : [];
@@ -782,8 +874,9 @@ const selectNextAction = (kpis) => {
         task,
         kpiId: kpi.id,
         kpiName: kpi.name ?? "",
+        ticketStatusRank: ["doing", "ready", "backlog", "done"].indexOf(normalizeTaskTicketStatus(task)),
         priorityRank: getComparablePriority(task.priority),
-        deadlineRank: getComparableDeadline(task.deadline),
+        deadlineRank: getComparableDeadline(getTaskDueDate(task) || task.deadline),
         createdAtRank: getComparableCreatedAt(task.createdAt)
       }));
   });
@@ -793,6 +886,10 @@ const selectNextAction = (kpis) => {
   }
 
   candidates.sort((a, b) => {
+    if (a.ticketStatusRank !== b.ticketStatusRank) {
+      return a.ticketStatusRank - b.ticketStatusRank;
+    }
+
     if (a.priorityRank !== b.priorityRank) {
       return a.priorityRank - b.priorityRank;
     }
@@ -880,7 +977,7 @@ const renderNextAction = (nextAction) => {
   }
 
   const { task, kpiName } = currentNextAction;
-  const deadline = displayDeadline(task.deadline);
+  const deadline = displayDeadline(getTaskDueDate(task) || task.deadline);
   const remaining = calcRemainingDays(deadline === "未設定" ? "" : deadline);
   const taskStatus = getTaskActionableStatus(task);
   const canStart = taskStatus === "todo" && !getTaskIsCompleted(task) && !nextActionLoading;
@@ -910,6 +1007,7 @@ const renderNextAction = (nextAction) => {
     <div class="row"><strong>期限</strong><span>${deadline}</span></div>
     <div class="row"><strong>残り日数</strong><span class="${remaining.isOverdue ? "overdue-text" : ""}">${remaining.remainingText}</span></div>
     <div class="row"><strong>状態</strong><span class="next-action-status-row"><span class="status-badge ${getTaskStatusClassName(taskStatus)}">${getTaskStatusLabel(taskStatus)}</span></span></div>
+    <div class="row"><strong>チケット状態</strong><span class="next-action-status-row"><span class="status-badge ${getTaskTicketStatusClassName(normalizeTaskTicketStatus(task))}">${getTaskTicketStatusLabel(normalizeTaskTicketStatus(task))}</span></span></div>
     <div class="next-action-actions">
       ${canStart ? '<button class="button" type="button" data-next-action-action="start">開始する</button>' : ""}
       ${canComplete ? '<button class="button success" type="button" data-next-action-action="complete">完了する</button>' : ""}
@@ -1437,7 +1535,7 @@ const normalizeKpis = (docs) => docs
   });
 
 const normalizeTasks = (docs) => docs
-  .map((taskDoc) => ({ id: taskDoc.id, ...taskDoc.data() }))
+  .map((taskDoc) => ({ id: taskDoc.id, ...taskDoc.data(), ...buildTaskTicketFields(taskDoc.data()) }))
   .sort((a, b) => {
     const orderA = Number.isFinite(Number(a.order)) ? Number(a.order) : Number.MAX_SAFE_INTEGER;
     const orderB = Number.isFinite(Number(b.order)) ? Number(b.order) : Number.MAX_SAFE_INTEGER;
@@ -1577,14 +1675,26 @@ const renderTaskRows = (kpiIdForTask, tasks) => {
     const taskType = normalizeTaskType(task.type);
     const taskPriority = displayTaskPriority(task.priority);
     const taskDeadline = displayDeadline(task.deadline);
-    const taskRemaining = calcRemainingDays(taskDeadline === "未設定" ? "" : taskDeadline);
+    const taskDueDate = displayDeadline(getTaskDueDate(task));
+    const taskRemaining = calcRemainingDays(taskDueDate === "未設定" ? (taskDeadline === "未設定" ? "" : task.deadline) : getTaskDueDate(task));
     const contributedValue = calculateTaskContributedValue(task);
     const isCompleted = getTaskIsCompleted(task);
     const completedCount = getTaskCompletedCount(task);
+    const ticketStatus = normalizeTaskTicketStatus(task);
+    const ticketInfoMarkup = `
+      <div class="task-ticket-meta">
+        <div><strong>担当</strong><span>${escapeHtml(getTaskDisplayValue(getTaskAssignee(task)))}</span></div>
+        <div><strong>完了条件</strong><span>${escapeHtml(getTaskDisplayValue(getTaskDoneDefinition(task)))}</span></div>
+        <div><strong>メモ</strong><span>${escapeHtml(getTaskDisplayValue(getTaskTicketNote(task)))}</span></div>
+      </div>
+    `;
+    const ticketStatusOptionsMarkup = TASK_TICKET_STATUS_OPTIONS.map((option) => `
+      <option value="${option.value}" ${ticketStatus === option.value ? "selected" : ""}>${option.label}</option>
+    `).join("");
 
     return `
       <tr>
-        <td>${taskTitle}</td>
+        <td>${escapeHtml(taskTitle || "-")}</td>
         <td>${taskDescription}</td>
         <td>${taskType}</td>
         <td>${contributedValue}</td>
@@ -1594,13 +1704,23 @@ const renderTaskRows = (kpiIdForTask, tasks) => {
     : `<input type="number" min="0" step="1" class="task-completion-input" data-kpi-id="${kpiIdForTask}" data-task-id="${task.id}" data-task-type="repeatable" value="${completedCount}" aria-label="${taskTitle || "Task"}の完了回数" />`}
         </td>
         <td>${taskDeadline}</td>
+        <td>${taskDueDate}</td>
         <td class="${taskRemaining.isOverdue ? "overdue-text" : ""}">${taskRemaining.remainingText}</td>
         <td>${taskPriority}</td>
+        <td>${ticketInfoMarkup}</td>
+        <td>
+          <div class="task-ticket-status-cell">
+            <span class="status-badge ${getTaskTicketStatusClassName(ticketStatus)}">${getTaskTicketStatusLabel(ticketStatus)}</span>
+            <select class="task-ticket-status-select" data-kpi-id="${kpiIdForTask}" data-task-id="${task.id}" aria-label="${escapeHtml(taskTitle || "Task")}のチケット状態">
+              ${ticketStatusOptionsMarkup}
+            </select>
+          </div>
+        </td>
       </tr>
       ${isTaskCheckAvailable(task)
     ? `
         <tr class="task-check-row">
-          <td colspan="8">
+          <td colspan="10">
             ${renderTaskCheckSection(kpiIdForTask, task)}
           </td>
         </tr>
@@ -1619,8 +1739,11 @@ const renderTaskRows = (kpiIdForTask, tasks) => {
           <th>進捗値</th>
           <th>達成入力</th>
           <th>期限</th>
+          <th>チケット期限</th>
           <th>残り日数</th>
           <th>優先度</th>
+          <th>チケット情報</th>
+          <th>チケット状態</th>
         </tr>
       </thead>
       <tbody>
@@ -1693,6 +1816,18 @@ const renderKpiTable = (kpis) => {
               <label>
                 優先度
                 <input name="priority" type="number" min="1" step="1" value="2" />
+              </label>
+              <label>
+                担当
+                <input name="assignee" type="text" placeholder="例: 自分、ナオキ、外注先A" />
+              </label>
+              <label>
+                完了条件
+                <input name="doneDefinition" type="text" placeholder="例: PR作成まで、承認取得まで、初回送信20件完了まで" />
+              </label>
+              <label>
+                メモ
+                <input name="ticketNote" type="text" placeholder="任意" />
               </label>
             </div>
             <button class="button task-add-button" type="submit">Taskを追加</button>
@@ -2174,6 +2309,11 @@ kpiTableBody.addEventListener("click", async (event) => {
         description: displaySuggestionText(suggestion?.description) === "-" ? "" : displaySuggestionText(suggestion?.description),
         status: "todo",
         deadline: "",
+        assignee: "",
+        dueDate: "",
+        doneDefinition: "",
+        ticketStatus: "backlog",
+        ticketNote: "",
         priority: Number.isFinite(Number(suggestion?.priority)) ? Number(suggestion.priority) : 2,
         order: taskSnapshot.size,
         createdAt: serverTimestamp(),
@@ -2220,6 +2360,9 @@ kpiTableBody.addEventListener("submit", async (event) => {
   const deadline = String(formData.get("deadline") ?? "").trim();
   const priorityInput = Number(formData.get("priority"));
   const priority = Number.isFinite(priorityInput) ? priorityInput : 2;
+  const assignee = String(formData.get("assignee") ?? "").trim();
+  const doneDefinition = String(formData.get("doneDefinition") ?? "").trim();
+  const ticketNote = String(formData.get("ticketNote") ?? "").trim();
   const taskType = normalizeTaskType(String(formData.get("type") ?? "one_time"));
   const rawProgressValue = Number(formData.get("progressValue"));
   const progressValue = Number.isFinite(rawProgressValue) && rawProgressValue >= 0
@@ -2246,7 +2389,12 @@ kpiTableBody.addEventListener("submit", async (event) => {
       status: "todo",
       progressValue,
       deadline,
+      dueDate: deadline,
       priority,
+      assignee,
+      doneDefinition,
+      ticketStatus: "backlog",
+      ticketNote,
       order: taskSnapshot.size,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
@@ -2267,6 +2415,7 @@ kpiTableBody.addEventListener("submit", async (event) => {
     }
 
     await addDoc(getTasksRef(kpiTargetId), taskPayload);
+    form.reset();
 
     const kpiSnapshot = await getDoc(getKpiRef(kpiTargetId));
     const kpiData = kpiSnapshot.exists() ? kpiSnapshot.data() : { target: 100 };
@@ -2312,10 +2461,12 @@ nextActionContainer?.addEventListener("click", async (event) => {
 
     if (action === "start") {
       updatePayload.status = "doing";
+      updatePayload.ticketStatus = "doing";
       updatePayload.isCompleted = false;
       updatePayload.completedAt = null;
     } else {
       updatePayload.status = "done";
+      updatePayload.ticketStatus = "done";
       updatePayload.isCompleted = true;
       updatePayload.completedAt = nowTimestamp;
       updatePayload.contributedValue = 1;
@@ -2338,6 +2489,7 @@ nextActionContainer?.addEventListener("click", async (event) => {
           return {
             ...task,
             status: action === "start" ? "doing" : "done",
+            ticketStatus: action === "start" ? "doing" : "done",
             isCompleted: action === "complete",
             completedAt: action === "complete" ? new Date().toISOString() : null,
             updatedAt: new Date().toISOString(),
@@ -2388,6 +2540,40 @@ nextActionContainer?.addEventListener("click", async (event) => {
 });
 
 kpiTableBody.addEventListener("change", async (event) => {
+  const ticketStatusSelect = event.target instanceof HTMLElement
+    ? event.target.closest(".task-ticket-status-select")
+    : null;
+
+  if (ticketStatusSelect instanceof HTMLSelectElement) {
+    const kpiTargetId = ticketStatusSelect.dataset.kpiId;
+    const taskId = ticketStatusSelect.dataset.taskId;
+    const selectedTicketStatus = ticketStatusSelect.value;
+
+    if (!kpiTargetId || !taskId) {
+      return;
+    }
+
+    ticketStatusSelect.disabled = true;
+
+    try {
+      await updateDoc(doc(getKpisRef(), kpiTargetId, "tasks", taskId), buildTaskTicketStatusUpdate(selectedTicketStatus));
+
+      const kpiSnapshot = await getDoc(getKpiRef(kpiTargetId));
+      const kpiData = kpiSnapshot.exists() ? kpiSnapshot.data() : { target: 100 };
+      await syncKpiProgressFromTasks(kpiTargetId, kpiData);
+      await loadKpis();
+    } catch (error) {
+      console.error(error);
+      alert("チケット状態の更新に失敗しました。");
+      setKpiStatus("チケット状態の更新に失敗しました。", true);
+      await loadKpis();
+    } finally {
+      ticketStatusSelect.disabled = false;
+    }
+
+    return;
+  }
+
   const input = event.target.closest(".task-completion-input");
 
   if (!input) {
@@ -2442,6 +2628,7 @@ kpiTableBody.addEventListener("change", async (event) => {
     } else {
       const isCompleted = Boolean(input.checked);
       updatePayload.status = isCompleted ? "done" : "todo";
+      updatePayload.ticketStatus = isCompleted ? "done" : "backlog";
       updatePayload.isCompleted = isCompleted;
       updatePayload.contributedValue = isCompleted ? 1 : 0;
       updatePayload.progressValue = isCompleted ? 1 : 0;
