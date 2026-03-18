@@ -14,6 +14,7 @@ import { getDb } from "./firebase-config.js";
 const statusText = document.getElementById("statusText");
 const kgiMeta = document.getElementById("kgiMeta");
 const kpiStatusText = document.getElementById("kpiStatusText");
+const nextActionContainer = document.getElementById("nextActionContainer");
 const kpiTable = document.getElementById("kpiTable");
 const kpiTableBody = document.getElementById("kpiTableBody");
 const kpiNameInput = document.getElementById("kpiName");
@@ -315,6 +316,7 @@ const resetKpiSection = () => {
   kpiTableBody.innerHTML = "";
   kpiTable.hidden = true;
   renderOverallProgress([]);
+  renderNextAction(null);
 };
 
 function renderAiSuggestions() {
@@ -709,6 +711,102 @@ const normalizeTaskType = (type) => {
 const displayTaskPriority = (priority) => {
   const parsed = Number(priority);
   return Number.isFinite(parsed) ? parsed : 2;
+};
+const getComparablePriority = (priority) => {
+  const parsed = Number(priority);
+
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return Number.MAX_SAFE_INTEGER;
+  }
+
+  return parsed;
+};
+
+const getComparableCreatedAt = (value) => {
+  if (value && typeof value.toDate === "function") {
+    return value.toDate().getTime();
+  }
+
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return value.getTime();
+  }
+
+  if (typeof value === "string" || typeof value === "number") {
+    const parsed = new Date(value);
+    if (!Number.isNaN(parsed.getTime())) {
+      return parsed.getTime();
+    }
+  }
+
+  return Number.MAX_SAFE_INTEGER;
+};
+
+const getComparableDeadline = (deadline) => {
+  const parsed = parseDeadline(deadline);
+  return parsed ? parsed.getTime() : Number.MAX_SAFE_INTEGER;
+};
+
+const selectNextAction = (kpis) => {
+  const candidates = (Array.isArray(kpis) ? kpis : []).flatMap((kpi) => {
+    const tasks = Array.isArray(kpi?.tasks) ? kpi.tasks : [];
+
+    return tasks
+      .filter((task) => !getTaskIsCompleted(task))
+      .map((task) => ({
+        task,
+        kpiId: kpi.id,
+        kpiName: kpi.name ?? "",
+        priorityRank: getComparablePriority(task.priority),
+        deadlineRank: getComparableDeadline(task.deadline),
+        createdAtRank: getComparableCreatedAt(task.createdAt)
+      }));
+  });
+
+  if (candidates.length === 0) {
+    return null;
+  }
+
+  candidates.sort((a, b) => {
+    if (a.priorityRank !== b.priorityRank) {
+      return a.priorityRank - b.priorityRank;
+    }
+
+    if (a.deadlineRank !== b.deadlineRank) {
+      return a.deadlineRank - b.deadlineRank;
+    }
+
+    if (a.createdAtRank !== b.createdAtRank) {
+      return a.createdAtRank - b.createdAtRank;
+    }
+
+    return String(a.task.id ?? "").localeCompare(String(b.task.id ?? ""), "ja");
+  });
+
+  return candidates[0];
+};
+
+const renderNextAction = (nextAction) => {
+  if (!nextActionContainer) {
+    return;
+  }
+
+  if (!nextAction) {
+    nextActionContainer.innerHTML = '<p class="next-action-empty">今やるべき未完了Taskはありません</p>';
+    return;
+  }
+
+  const { task, kpiName } = nextAction;
+  const deadline = displayDeadline(task.deadline);
+  const remaining = calcRemainingDays(deadline === "未設定" ? "" : deadline);
+
+  nextActionContainer.innerHTML = `
+    <p class="next-action-title">${task.title ?? "-"}</p>
+    <div class="row"><strong>補足説明</strong><span>${displayDescription(task.description)}</span></div>
+    <div class="row"><strong>所属KPI名</strong><span>${kpiName || "-"}</span></div>
+    <div class="row"><strong>優先度</strong><span>${displayTaskPriority(task.priority)}</span></div>
+    <div class="row"><strong>期限</strong><span>${deadline}</span></div>
+    <div class="row"><strong>残り日数</strong><span class="${remaining.isOverdue ? "overdue-text" : ""}">${remaining.remainingText}</span></div>
+  `;
 };
 
 const getTaskProgressValue = (task) => parsePositiveNumber(task.progressValue, 0);
@@ -1116,6 +1214,7 @@ const loadKpis = async () => {
     existingKpiKeys = new Set();
     taskAiSavedByKpiId = {};
     taskAiSavingByKpiId = {};
+    renderNextAction(null);
     renderAiSuggestions();
     setKpiStatus("KPIがまだありません。上のフォームから追加してください。");
     setDebugSummary(`KGI読み込み成功: ${kgiId}`, "KPI 0件", "Task 0件");
@@ -1168,6 +1267,7 @@ const loadKpis = async () => {
 
   renderKpiTable(kpisWithTasks);
   renderOverallProgress(kpisWithTasks);
+  renderNextAction(selectNextAction(kpisWithTasks));
   renderAiSuggestions();
   kpiTable.hidden = false;
   setKpiStatus(`${snapshot.size}件のKPIを表示しています。`);
