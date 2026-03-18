@@ -159,8 +159,15 @@ let taskAiSuggestionsByKpiId = {};
 let taskAiSavedByKpiId = {};
 let taskAiSavingByKpiId = {};
 let latestRenderedKpis = [];
+let taskCheckUiState = {};
 const getAiSuggestionStorageKey = () => kgiId ? `kgi-detail-ai-suggestions:${kgiId}` : "";
 const getSubKgiSavedStorageKey = () => kgiId ? `kgi-detail-subkgi-saved:${kgiId}` : "";
+const TASK_CHECK_RESULT_OPTIONS = [
+  { value: "as_planned", label: "予定通りできた" },
+  { value: "harder_than_expected", label: "思ったより大変だった" },
+  { value: "needs_improvement", label: "完了したがやり方を見直したい" },
+  { value: "could_not_do", label: "できなかった" }
+];
 
 const persistAiSuggestions = () => {
   const storageKey = getAiSuggestionStorageKey();
@@ -1039,6 +1046,140 @@ const getTaskIsCompleted = (task) => {
   return task.status === "done" || task.status === "completed";
 };
 
+const normalizeTaskCheckStatus = (task) => task?.checkStatus === "checked" ? "checked" : "not_checked";
+
+const normalizeTaskCheckResult = (task) => {
+  const rawValue = typeof task?.checkResult === "string" ? task.checkResult.trim() : "";
+  return TASK_CHECK_RESULT_OPTIONS.some((option) => option.value === rawValue) ? rawValue : "";
+};
+
+const getTaskCheckComment = (task) => typeof task?.checkComment === "string" ? task.checkComment : "";
+
+const getTaskCheckRecordedAt = (task) => task?.checkRecordedAt ?? null;
+
+const isTaskCheckAvailable = (task) => getTaskIsCompleted(task);
+
+const getTaskCheckUiState = (task) => {
+  const taskId = task?.id ?? "";
+  const storedState = taskCheckUiState[taskId] ?? {};
+  const hasSavedCheck = normalizeTaskCheckStatus(task) === "checked";
+  const baseState = {
+    isEditing: !hasSavedCheck,
+    isSaving: false,
+    error: "",
+    result: normalizeTaskCheckResult(task),
+    comment: getTaskCheckComment(task)
+  };
+
+  return {
+    ...baseState,
+    ...storedState,
+    result: typeof storedState.result === "string" ? storedState.result : baseState.result,
+    comment: typeof storedState.comment === "string" ? storedState.comment : baseState.comment
+  };
+};
+
+const setTaskCheckUiState = (taskId, nextPartialState) => {
+  taskCheckUiState = {
+    ...taskCheckUiState,
+    [taskId]: {
+      ...(taskCheckUiState[taskId] ?? {}),
+      ...nextPartialState
+    }
+  };
+};
+
+const clearTaskCheckUiState = (taskId) => {
+  const nextState = { ...taskCheckUiState };
+  delete nextState[taskId];
+  taskCheckUiState = nextState;
+};
+
+const escapeHtml = (value) => String(value ?? "")
+  .replaceAll("&", "&amp;")
+  .replaceAll("<", "&lt;")
+  .replaceAll(">", "&gt;")
+  .replaceAll('"', "&quot;")
+  .replaceAll("'", "&#39;");
+
+const getTaskCheckResultLabel = (result) => {
+  const matched = TASK_CHECK_RESULT_OPTIONS.find((option) => option.value === result);
+  return matched ? matched.label : "-";
+};
+
+const renderTaskCheckSection = (kpiIdForTask, task) => {
+  if (!isTaskCheckAvailable(task)) {
+    return "";
+  }
+
+  const taskId = task?.id ?? "";
+  const checkStatus = normalizeTaskCheckStatus(task);
+  const savedResult = normalizeTaskCheckResult(task);
+  const savedComment = getTaskCheckComment(task).trim();
+  const recordedAt = getTaskCheckRecordedAt(task);
+  const uiState = getTaskCheckUiState(task);
+  const resultOptionsMarkup = TASK_CHECK_RESULT_OPTIONS.map((option) => `
+    <label class="task-check-option">
+      <input
+        type="radio"
+        name="checkResult-${taskId}"
+        value="${option.value}"
+        ${uiState.result === option.value ? "checked" : ""}
+        ${uiState.isSaving ? "disabled" : ""}
+      />
+      <span>${option.label}</span>
+    </label>
+  `).join("");
+  const errorMarkup = uiState.error
+    ? `<p class="hint error">${escapeHtml(uiState.error)}</p>`
+    : "";
+  const savedMarkup = checkStatus === "checked" && !uiState.isEditing
+    ? `
+      <div class="task-check-saved">
+        <p class="task-check-badge">振り返り済み</p>
+        <div class="task-check-saved-item"><strong>結果</strong><span>${escapeHtml(getTaskCheckResultLabel(savedResult))}</span></div>
+        <div class="task-check-saved-item"><strong>コメント</strong><span>${escapeHtml(savedComment || "（コメントなし）")}</span></div>
+        <div class="task-check-saved-item"><strong>記録日時</strong><span>${escapeHtml(formatDate(recordedAt))}</span></div>
+        <button class="button ghost task-check-edit-button" type="button" data-task-check-edit="${taskId}">編集する</button>
+      </div>
+    `
+    : "";
+  const formMarkup = checkStatus !== "checked" || uiState.isEditing
+    ? `
+      <form class="task-check-form" data-kpi-id="${kpiIdForTask}" data-task-id="${taskId}">
+        <div class="task-check-field">
+          <span class="task-check-label">結果</span>
+          <div class="task-check-options">
+            ${resultOptionsMarkup}
+          </div>
+        </div>
+        <label class="task-check-field">
+          <span class="task-check-label">コメント</span>
+          <textarea
+            name="checkComment"
+            rows="3"
+            placeholder="やってみて気づいたこと・次回の改善点"
+            ${uiState.isSaving ? "disabled" : ""}
+          >${escapeHtml(uiState.comment)}</textarea>
+        </label>
+        <p class="hint">結果は必須です。コメントは空でも保存できます。</p>
+        ${errorMarkup}
+        <div class="task-check-actions">
+          <button class="button" type="submit" ${uiState.isSaving ? "disabled" : ""}>${uiState.isSaving ? "保存中..." : "振り返りを保存"}</button>
+        </div>
+      </form>
+    `
+    : "";
+
+  return `
+    <div class="task-check-panel">
+      <h4 class="task-check-title">振り返り</h4>
+      ${savedMarkup}
+      ${formMarkup}
+    </div>
+  `;
+};
+
 const calculateTaskContributedValue = (task) => {
   const taskType = normalizeTaskType(task.type);
   const progressValue = getTaskProgressValue(task);
@@ -1298,6 +1439,15 @@ const renderTaskRows = (kpiIdForTask, tasks) => {
         <td class="${taskRemaining.isOverdue ? "overdue-text" : ""}">${taskRemaining.remainingText}</td>
         <td>${taskPriority}</td>
       </tr>
+      ${isTaskCheckAvailable(task)
+    ? `
+        <tr class="task-check-row">
+          <td colspan="8">
+            ${renderTaskCheckSection(kpiIdForTask, task)}
+          </td>
+        </tr>
+      `
+    : ""}
     `;
   }).join("");
 
@@ -1875,7 +2025,11 @@ kpiTableBody.addEventListener("click", async (event) => {
         progressValue: 1,
         contributedValue: 0,
         isCompleted: false,
-        kpiId: kpiTargetId
+        kpiId: kpiTargetId,
+        checkStatus: "not_checked",
+        checkComment: "",
+        checkResult: "",
+        checkRecordedAt: null
       });
 
       savedSet.add(suggestionKey);
@@ -1937,7 +2091,11 @@ kpiTableBody.addEventListener("submit", async (event) => {
       order: taskSnapshot.size,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
-      isSuggestedByAI: false
+      isSuggestedByAI: false,
+      checkStatus: "not_checked",
+      checkComment: "",
+      checkResult: "",
+      checkRecordedAt: null
     };
 
     if (taskType === "repeatable") {
@@ -2074,6 +2232,34 @@ kpiTableBody.addEventListener("change", async (event) => {
   const input = event.target.closest(".task-completion-input");
 
   if (!input) {
+    const checkInput = event.target instanceof HTMLElement
+      ? event.target.closest(".task-check-form input[type='radio'], .task-check-form textarea")
+      : null;
+
+    if (!(checkInput instanceof HTMLElement)) {
+      return;
+    }
+
+    const form = checkInput.closest(".task-check-form");
+
+    if (!form) {
+      return;
+    }
+
+    const taskId = form.dataset.taskId;
+
+    if (!taskId) {
+      return;
+    }
+
+    const selectedResult = form.querySelector("input[type='radio']:checked");
+    const commentInput = form.querySelector("textarea[name='checkComment']");
+
+    setTaskCheckUiState(taskId, {
+      result: selectedResult instanceof HTMLInputElement ? selectedResult.value : "",
+      comment: commentInput instanceof HTMLTextAreaElement ? commentInput.value : "",
+      error: ""
+    });
     return;
   }
 
@@ -2118,6 +2304,114 @@ kpiTableBody.addEventListener("change", async (event) => {
   }
 });
 
+kpiTableBody.addEventListener("click", (event) => {
+  const button = event.target instanceof HTMLElement ? event.target.closest("[data-task-check-edit]") : null;
+
+  if (!(button instanceof HTMLButtonElement)) {
+    return;
+  }
+
+  const taskId = button.dataset.taskCheckEdit;
+
+  if (!taskId) {
+    return;
+  }
+
+  setTaskCheckUiState(taskId, {
+    isEditing: true,
+    error: ""
+  });
+  rerenderCurrentKpis();
+});
+
+kpiTableBody.addEventListener("submit", async (event) => {
+  const form = event.target.closest("form.task-check-form");
+
+  if (!form) {
+    return;
+  }
+
+  event.preventDefault();
+
+  const taskId = form.dataset.taskId;
+  const kpiTargetId = form.dataset.kpiId;
+  const selectedResult = form.querySelector("input[type='radio']:checked");
+  const commentInput = form.querySelector("textarea[name='checkComment']");
+  const checkResult = selectedResult instanceof HTMLInputElement ? selectedResult.value : "";
+  const checkComment = commentInput instanceof HTMLTextAreaElement ? commentInput.value.trim() : "";
+
+  if (!taskId || !kpiTargetId) {
+    return;
+  }
+
+  if (!TASK_CHECK_RESULT_OPTIONS.some((option) => option.value === checkResult)) {
+    setTaskCheckUiState(taskId, {
+      isEditing: true,
+      isSaving: false,
+      result: checkResult,
+      comment: checkComment,
+      error: "結果を選択してください。"
+    });
+    rerenderCurrentKpis();
+    return;
+  }
+
+  setTaskCheckUiState(taskId, {
+    isEditing: true,
+    isSaving: true,
+    result: checkResult,
+    comment: checkComment,
+    error: ""
+  });
+  rerenderCurrentKpis();
+
+  try {
+    await updateDoc(doc(getKpisRef(), kpiTargetId, "tasks", taskId), {
+      checkStatus: "checked",
+      checkComment,
+      checkResult,
+      checkRecordedAt: serverTimestamp(),
+      updatedAt: serverTimestamp()
+    });
+
+    latestRenderedKpis = latestRenderedKpis.map((kpi) => {
+      if (kpi.id !== kpiTargetId) {
+        return kpi;
+      }
+
+      return {
+        ...kpi,
+        tasks: Array.isArray(kpi.tasks)
+          ? kpi.tasks.map((task) => task.id === taskId
+            ? {
+              ...task,
+              checkStatus: "checked",
+              checkComment,
+              checkResult,
+              checkRecordedAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString()
+            }
+            : task)
+          : []
+      };
+    });
+
+    clearTaskCheckUiState(taskId);
+    renderKpiTable(latestRenderedKpis);
+    await loadKpis();
+  } catch (error) {
+    console.error(error);
+    setTaskCheckUiState(taskId, {
+      isEditing: true,
+      isSaving: false,
+      result: checkResult,
+      comment: checkComment,
+      error: "振り返りの保存に失敗しました。時間をおいて再度お試しください。"
+    });
+    rerenderCurrentKpis();
+  }
+});
+
 const resolveKgiIdFromUrl = () => {
   const params = new URLSearchParams(window.location.search);
   const rawId = params.get("id");
@@ -2137,6 +2431,7 @@ const initializeDetailPage = async () => {
   taskAiSuggestionsByKpiId = {};
   taskAiSavedByKpiId = {};
   taskAiSavingByKpiId = {};
+  taskCheckUiState = {};
   latestRenderedKpis = [];
   setAiError("");
   setStatus("読み込み中...");
