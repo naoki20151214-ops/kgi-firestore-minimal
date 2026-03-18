@@ -1,15 +1,6 @@
 const OPENAI_API_URL = "https://api.openai.com/v1/responses";
 
-const SYSTEM_PROMPT = `あなたは実行支援の専門家です。
-与えられたタスクを、今すぐ始められる小ステップに分解してください。
-
-ルール:
-- 1〜3件
-- それぞれ短く、具体的に
-- 5〜15分で着手できる行動にする
-- 曖昧な表現は禁止
-- 出力は JSON のみ
-- 日本語で返す`;
+const SYSTEM_PROMPT = `あなたは実行支援の専門家です。与えられたTaskを今すぐ始められる小ステップへ分解し、日本語JSONのみ返してください。`;
 
 const STEP_RESPONSE_SCHEMA = {
   name: "generate_next_action_steps_response",
@@ -54,6 +45,54 @@ const getRequestBody = (req) => {
 
   return req.body;
 };
+
+const COMMENT_DIFFICULTY_KEYWORDS = ["難しい", "分からない", "わからない", "専門用語", "大変"];
+const MAX_ADAPTATION_HINTS = 5;
+
+const isCommentDifficult = (comment) => COMMENT_DIFFICULTY_KEYWORDS.some((keyword) => comment.includes(keyword));
+
+const buildAdaptationHints = (recentReflections) => {
+  const hintSet = new Set();
+
+  recentReflections.forEach((reflection) => {
+    const comment = typeof reflection?.comment === "string" ? reflection.comment.trim() : "";
+    const result = reflection?.result;
+    const hasDifficultySignal = result === "harder_than_expected" || isCommentDifficult(comment);
+
+    if (hasDifficultySignal) {
+      hintSet.add("専門用語を減らす");
+      hintSet.add("小さなステップに分ける");
+      hintSet.add("説明を増やす");
+    }
+
+    if (result === "could_not_do") {
+      hintSet.add("準備タスクから始める");
+      hintSet.add("一度に要求する作業量を減らす");
+    }
+
+    if (result === "needs_improvement") {
+      hintSet.add("順番を明確にする");
+      hintSet.add("曖昧な表現を避ける");
+    }
+  });
+
+  return Array.from(hintSet).slice(0, MAX_ADAPTATION_HINTS);
+};
+
+const buildStepPrompt = ({ kpiName, taskTitle, taskDescription, adaptationHints }) => JSON.stringify({
+  kpiName,
+  task: {
+    title: taskTitle,
+    description: taskDescription || "未設定"
+  },
+  adaptationHints,
+  output: {
+    steps: "1-3件",
+    language: "ja",
+    duration: "5-15分",
+    style: "短く具体的"
+  }
+});
 
 const extractOutputText = (responseData) => {
   if (typeof responseData?.output_text === "string" && responseData.output_text.trim()) {
@@ -110,48 +149,6 @@ const normalizeRecentReflections = (value) => {
     .slice(0, 5);
 };
 
-const buildReflectionGuidance = (recentReflections) => {
-  if (!recentReflections.length) {
-    return "";
-  }
-
-  const summaryLines = recentReflections.map((reflection, index) => {
-    const commentText = reflection.comment ? ` / コメント: ${reflection.comment}` : "";
-    return `${index + 1}. Task: ${reflection.taskTitle} / 結果: ${reflection.result}${commentText}`;
-  });
-
-  const adaptiveRules = new Set();
-
-  recentReflections.forEach((reflection) => {
-    if (reflection.result === "harder_than_expected") {
-      adaptiveRules.add("- 難しかった履歴があるため、専門用語を減らし、短い説明を補い、ステップをさらに小さく分けること。");
-    }
-
-    if (reflection.result === "could_not_do") {
-      adaptiveRules.add("- できなかった履歴があるため、難易度を1段下げ、最初の一歩をさらに小さくし、準備から始めること。");
-    }
-
-    if (reflection.result === "as_planned") {
-      adaptiveRules.add("- 予定通り進められた履歴もあるため、過度に簡単にしすぎず、着手しやすさを維持すること。");
-    }
-
-    if (reflection.result === "needs_improvement") {
-      adaptiveRules.add("- やり方の見直しが必要だった履歴があるため、順番や構成を改善し、抽象的な表現を減らすこと。");
-    }
-  });
-
-  return [
-    "過去の振り返りから分かっていること:",
-    ...summaryLines,
-    "",
-    "これらを考慮して、次の小ステップ提案では以下を守ること:",
-    ...Array.from(adaptiveRules),
-    "- 専門用語を避けるか、使う場合は短く意味を添えること。",
-    "- より具体的で、今すぐ始められる5〜15分の行動にすること。",
-    "- 難しすぎる提案を避け、必要なら準備ステップから始めること。"
-  ].join("\n");
-};
-
 const sanitizeSteps = (steps) => {
   if (!Array.isArray(steps)) {
     return [];
@@ -180,7 +177,7 @@ module.exports = async function handler(req, res) {
   const taskDescription = typeof requestBody?.taskDescription === "string" ? requestBody.taskDescription.trim() : "";
   const kpiName = typeof requestBody?.kpiName === "string" ? requestBody.kpiName.trim() : "";
   const recentReflections = normalizeRecentReflections(requestBody?.recentReflections);
-  const reflectionGuidance = buildReflectionGuidance(recentReflections);
+  const adaptationHints = buildAdaptationHints(recentReflections);
 
   if (!isNonEmptyString(taskTitle) || !isNonEmptyString(kpiName)) {
     return sendJson(res, 400, {
@@ -189,6 +186,13 @@ module.exports = async function handler(req, res) {
   }
 
   try {
+    const promptText = buildStepPrompt({
+      kpiName,
+      taskTitle,
+      taskDescription,
+      adaptationHints
+    });
+    console.log("[generate-next-action-steps] request", { rawReflectionsCount: recentReflections.length, adaptationHintsCount: adaptationHints.length, promptChars: SYSTEM_PROMPT.length + promptText.length });
     const openAiResponse = await fetch(OPENAI_API_URL, {
       method: "POST",
       headers: {
@@ -197,6 +201,8 @@ module.exports = async function handler(req, res) {
       },
       body: JSON.stringify({
         model: "gpt-5-mini",
+        prompt_cache_key: `generate-next-action-steps:${kpiName}:${taskTitle}`,
+        prompt_cache_retention: "24h",
         input: [
           {
             role: "system",
@@ -206,13 +212,7 @@ module.exports = async function handler(req, res) {
             role: "user",
             content: [{
               type: "input_text",
-              text: [
-                `KPI名: ${kpiName}`,
-                `Task名: ${taskTitle}`,
-                `Task補足説明: ${taskDescription || "未設定"}`,
-                reflectionGuidance,
-                "このTaskに今すぐ着手できる小ステップを1〜3件、JSONでのみ返してください。"
-              ].filter(Boolean).join("\n")
+              text: promptText
             }]
           }
         ],
@@ -226,6 +226,7 @@ module.exports = async function handler(req, res) {
     });
 
     if (!openAiResponse.ok) {
+      console.log("[generate-next-action-steps] response", { success: false, status: openAiResponse.status });
       return sendJson(res, 502, { error: "OpenAI API request failed" });
     }
 
@@ -243,8 +244,10 @@ module.exports = async function handler(req, res) {
       return sendJson(res, 500, { error: "Failed to parse next action step JSON" });
     }
 
+    console.log("[generate-next-action-steps] response", { success: true, stepCount: steps.length });
     return sendJson(res, 200, { steps });
   } catch (error) {
+    console.log("[generate-next-action-steps] response", { success: false });
     console.error("[generate-next-action-steps] Unexpected server error", error);
     return sendJson(res, 500, { error: "Unexpected server error" });
   }
