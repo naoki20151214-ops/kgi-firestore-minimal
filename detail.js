@@ -4,8 +4,10 @@ import {
   doc,
   getDoc,
   getDocs,
+  query,
   serverTimestamp,
-  updateDoc
+  updateDoc,
+  where
 } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
 import { getDb } from "./firebase-config.js";
 
@@ -135,9 +137,11 @@ const emptyAiSuggestions = () => ({
 });
 
 let aiLoading = false;
+let aiSavingKey = "";
 let aiError = "";
 let aiHasGenerated = false;
 let aiSuggestions = emptyAiSuggestions();
+let existingKpiKeys = new Set();
 
 const setStatus = (message, isError = false) => {
   statusText.textContent = message;
@@ -178,9 +182,9 @@ function renderAiSuggestions() {
   }
 
   aiSuggestionsContainer.hidden = !aiHasGenerated;
-  renderSuggestionList(aiSuggestions.resultKpis, resultKpiSuggestions, true);
-  renderSuggestionList(aiSuggestions.actionKpis, actionKpiSuggestions, true);
-  renderSuggestionList(aiSuggestions.subKgiCandidates, subKgiSuggestions, false);
+  renderSuggestionList(aiSuggestions.resultKpis, resultKpiSuggestions, "result", true, true);
+  renderSuggestionList(aiSuggestions.actionKpis, actionKpiSuggestions, "action", true, true);
+  renderSuggestionList(aiSuggestions.subKgiCandidates, subKgiSuggestions, "result", false, false);
 }
 
 const displaySuggestionText = (value) => {
@@ -212,7 +216,36 @@ const setAiError = (message = "") => {
   aiErrorText.hidden = !message;
 };
 
-const renderSuggestionList = (items, container, showTargetValue) => {
+const normalizeSuggestionType = (type, fallback = "result") => type === "action" ? "action" : fallback;
+
+const normalizeSuggestionTarget = (value) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const buildSuggestionKey = ({ name = "", description = "", target = 0, type = "result" }) => JSON.stringify({
+  name: String(name).trim(),
+  description: String(description).trim(),
+  target: normalizeSuggestionTarget(target),
+  type: normalizeSuggestionType(type)
+});
+
+const buildSavedSuggestionKeyFromKpi = (kpi) => buildSuggestionKey({
+  name: kpi?.name ?? "",
+  description: kpi?.description ?? "",
+  target: kpi?.targetValue ?? kpi?.target ?? 0,
+  type: kpi?.type ?? kpi?.kpiType ?? "result"
+});
+
+const buildSuggestionPayload = (item, fallbackType) => ({
+  kgiId,
+  name: displaySuggestionText(item?.title) === "-" ? "" : displaySuggestionText(item?.title),
+  description: displaySuggestionText(item?.description) === "-" ? "" : displaySuggestionText(item?.description),
+  target: normalizeSuggestionTarget(item?.targetValue),
+  type: normalizeSuggestionType(item?.type, fallbackType)
+});
+
+const renderSuggestionList = (items, container, fallbackType, showTargetValue, allowAddButton) => {
   if (!container) {
     return;
   }
@@ -225,13 +258,31 @@ const renderSuggestionList = (items, container, showTargetValue) => {
   const listMarkup = items.map((item) => {
     const title = displaySuggestionText(item?.title);
     const description = displaySuggestionText(item?.description);
+    const payload = buildSuggestionPayload(item, fallbackType);
+    const suggestionKey = buildSuggestionKey(payload);
+    const isSaved = existingKpiKeys.has(suggestionKey);
+    const isSaving = aiSavingKey === suggestionKey;
     const targetValue = showTargetValue
       ? `<span class="ai-suggestion-meta">目標値: ${Number.isFinite(Number(item?.targetValue)) ? Number(item.targetValue) : "-"}</span>`
+      : "";
+    const buttonLabel = isSaved ? "追加済み" : "＋追加";
+    const buttonMarkup = allowAddButton
+      ? `
+          <button
+            class="button ai-add-button"
+            type="button"
+            data-suggestion='${JSON.stringify(payload).replace(/'/g, "&#39;")}'
+            ${isSaved || isSaving ? "disabled" : ""}
+          >${buttonLabel}</button>
+        `
       : "";
 
     return `
       <li class="ai-suggestion-item">
-        <strong>${title}</strong>
+        <div class="ai-suggestion-head">
+          <strong>${title}</strong>
+          ${buttonMarkup}
+        </div>
         <span class="ai-suggestion-meta">説明: ${description}</span>
         ${targetValue}
       </li>
@@ -474,9 +525,10 @@ const renderOverallProgress = (kpis) => {
 
 const getKgisRef = () => collection(db, "kgis");
 const getKgiRef = () => doc(getKgisRef(), kgiId);
-const getKpisRef = () => collection(getKgiRef(), "kpis");
-const getTasksRef = (kpiId) => collection(getKgiRef(), "kpis", kpiId, "tasks");
-const getKpiRef = (kpiId) => doc(getKgiRef(), "kpis", kpiId);
+const getKpisRef = () => collection(db, "kpis");
+const getKpisQuery = () => query(getKpisRef(), where("kgiId", "==", kgiId));
+const getTasksRef = (kpiId) => collection(getKpisRef(), kpiId, "tasks");
+const getKpiRef = (kpiId) => doc(getKpisRef(), kpiId);
 
 const renderKgiMeta = (kgiData) => {
   currentKgiData = kgiData ?? null;
@@ -603,7 +655,7 @@ const syncKpiProgressFromTasks = async (kpiIdForTask, kpiDataForTarget) => {
       return;
     }
 
-    await updateDoc(doc(getKgiRef(), "kpis", kpiIdForTask, "tasks", task.id), {
+    await updateDoc(doc(getKpisRef(), kpiIdForTask, "tasks", task.id), {
       contributedValue: normalized.contributedValue,
       progressValue: normalized.progressValue,
       updatedAt: serverTimestamp()
@@ -774,12 +826,14 @@ const renderKpiTable = (kpis) => {
 };
 
 const loadKpis = async () => {
-  const snapshot = await getDocs(getKpisRef());
+  const snapshot = await getDocs(getKpisQuery());
 
   if (snapshot.empty) {
     kpiTableBody.innerHTML = "";
     kpiTable.hidden = true;
     renderOverallProgress([]);
+    existingKpiKeys = new Set();
+    renderAiSuggestions();
     setKpiStatus("KPIがまだありません。上のフォームから追加してください。");
     setDebugSummary(`KGI読み込み成功: ${kgiId}`, "KPI 0件", "Task 0件");
     updateDebugPanel([]);
@@ -787,6 +841,8 @@ const loadKpis = async () => {
   }
 
   const kpis = normalizeKpis(snapshot.docs);
+  existingKpiKeys = new Set(kpis.map((kpi) => buildSavedSuggestionKeyFromKpi(kpi)));
+
   const kpisWithTasks = await Promise.all(
     kpis.map(async (kpi) => {
       const synced = await syncKpiProgressFromTasks(kpi.id, kpi);
@@ -827,9 +883,76 @@ const loadKpis = async () => {
 
   renderKpiTable(kpisWithTasks);
   renderOverallProgress(kpisWithTasks);
+  renderAiSuggestions();
   kpiTable.hidden = false;
   setKpiStatus(`${snapshot.size}件のKPIを表示しています。`);
 };
+
+aiSuggestionsContainer?.addEventListener("click", async (event) => {
+  const button = event.target instanceof HTMLElement ? event.target.closest(".ai-add-button") : null;
+
+  if (!(button instanceof HTMLButtonElement)) {
+    return;
+  }
+
+  const rawSuggestion = button.dataset.suggestion;
+
+  if (!rawSuggestion) {
+    return;
+  }
+
+  let payload;
+
+  try {
+    payload = JSON.parse(rawSuggestion);
+  } catch (error) {
+    console.error(error);
+    alert("KPI候補データの読み込みに失敗しました。");
+    return;
+  }
+
+  if (!payload?.name || !kgiId) {
+    alert("KPI候補を保存するための情報が不足しています。");
+    return;
+  }
+
+  const suggestionKey = buildSuggestionKey(payload);
+
+  if (existingKpiKeys.has(suggestionKey) || aiSavingKey === suggestionKey) {
+    return;
+  }
+
+  aiSavingKey = suggestionKey;
+  renderAiSuggestions();
+
+  try {
+    await addDoc(getKpisRef(), {
+      kgiId: payload.kgiId,
+      name: payload.name,
+      description: payload.description,
+      target: payload.target,
+      targetValue: payload.target,
+      type: payload.type,
+      kpiType: payload.type,
+      progressType: "task_based",
+      currentValue: 0,
+      unit: "pt",
+      progress: 0,
+      percentage: 0,
+      order: existingKpiKeys.size + 1,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp()
+    });
+
+    await loadKpis();
+  } catch (error) {
+    console.error(error);
+    alert("KPI候補の保存に失敗しました。もう一度お試しください。");
+  } finally {
+    aiSavingKey = "";
+    renderAiSuggestions();
+  }
+});
 
 generateAiKpisButton?.addEventListener("click", async () => {
   if (aiLoading) {
@@ -906,18 +1029,22 @@ addKpiButton.addEventListener("click", async () => {
   addKpiButton.disabled = true;
 
   try {
-    const existingSnapshot = await getDocs(getKpisRef());
+    const existingSnapshot = await getDocs(getKpisQuery());
 
     await addDoc(getKpisRef(), {
+      kgiId,
       name,
       description,
+      type: kpiType,
       kpiType,
       progressType: "task_based",
       target: 100,
+      targetValue: 100,
       currentValue: 0,
       unit: "pt",
       deadline,
       progress: 0,
+      percentage: 0,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
       status: "active",
@@ -1045,7 +1172,7 @@ kpiTableBody.addEventListener("change", async (event) => {
       updatePayload.completedAt = isCompleted ? serverTimestamp() : null;
     }
 
-    await updateDoc(doc(getKgiRef(), "kpis", kpiTargetId, "tasks", taskId), updatePayload);
+    await updateDoc(doc(getKpisRef(), kpiTargetId, "tasks", taskId), updatePayload);
 
     const kpiSnapshot = await getDoc(getKpiRef(kpiTargetId));
     const kpiData = kpiSnapshot.exists() ? kpiSnapshot.data() : { target: 100 };
