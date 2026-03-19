@@ -1,13 +1,20 @@
+declare const process: { env: Record<string, string | undefined> };
+
 const OPENAI_API_URL = "https://api.openai.com/v1/responses";
 
 const SYSTEM_PROMPT = `あなたは実行支援の専門家です。
-与えられたタスクを、今すぐ始められる小ステップに分解してください。
+与えられたタスクを、今すぐやる小ステップ3件に分解してください。
 
-ルール:
-- 1〜3件
-- それぞれ短く、具体的に
-- 5〜15分で着手できる行動にする
-- 曖昧な表現は禁止
+最重要ルール:
+- 返す件数は必ず3件ちょうど
+- 各ステップは1文のみ
+- 各ステップは5〜10分以内で着手できる行動にする
+- 1ステップにつき1行動だけを書く
+- 専門用語、カタカナ語、略語はなるべく避ける
+- 抽象表現は避け、手を動かす行動にする
+- 「考える」「整理する」「確認する」だけで終わらせない
+- 1件目は最初の一歩、2件目は準備、3件目は実行に近い行動にする
+- 必要なら短い補足を丸かっこで入れてよい
 - 出力は JSON のみ
 - 日本語で返す`;
 
@@ -21,7 +28,7 @@ const STEP_RESPONSE_SCHEMA = {
     properties: {
       steps: {
         type: "array",
-        minItems: 1,
+        minItems: 3,
         maxItems: 3,
         items: {
           type: "string"
@@ -58,6 +65,17 @@ type StepParseResult = {
   reason: string;
 };
 
+const COMMENT_DIFFICULTY_KEYWORDS = ["難しい", "分からない", "わからない", "専門用語", "大変"];
+const MAX_ADAPTATION_HINTS = 5;
+const STEP_LABELS = ["まずやる", "次にやる", "その次"];
+const ABSTRACT_STEP_PATTERNS = ["整理", "検討", "確認", "見直", "考え", "把握", "対応", "準備", "相談", "共有", "調整", "分析", "設計", "改善", "最適化"];
+const CONCRETE_STEP_PATTERNS = ["ファイル", "表", "一覧", "URL", "件", "行", "列", "項目", "メモ", "下書き", "タイトル", "数字", "社", "人", "回", "つ", "画面", "シート", "手順", "期限", "担当", "リンク"];
+const FALLBACK_STEPS = [
+  "Taskの内容を1回読み、最初に触る対象を1つ決める",
+  "必要な作業を3つの短い行動に分けて1行ずつメモする",
+  "分けた作業の1件目を5分だけ進める"
+] as const;
+
 const isNonEmptyString = (value: unknown): value is string => typeof value === "string" && value.trim().length > 0;
 const isValidReflectionResult = (value: unknown): value is ReflectionResult => (
   value === "as_planned"
@@ -91,9 +109,6 @@ const normalizeRecentReflections = (value: unknown): NormalizedReflection[] => {
     .slice(0, 5);
 };
 
-const COMMENT_DIFFICULTY_KEYWORDS = ["難しい", "分からない", "わからない", "専門用語", "大変"];
-const MAX_ADAPTATION_HINTS = 5;
-
 const isCommentDifficult = (comment: string) => COMMENT_DIFFICULTY_KEYWORDS.some((keyword) => comment.includes(keyword));
 
 const buildAdaptationHints = (recentReflections: NormalizedReflection[]) => {
@@ -124,6 +139,40 @@ const buildAdaptationHints = (recentReflections: NormalizedReflection[]) => {
   return Array.from(hintSet).slice(0, MAX_ADAPTATION_HINTS);
 };
 
+const compressTaskDescription = (taskDescription: string) => {
+  if (!isNonEmptyString(taskDescription)) {
+    return "未設定";
+  }
+
+  return taskDescription
+    .replace(/\s+/g, " ")
+    .split(/(?<=[。.!?])\s+/)
+    .slice(0, 2)
+    .join(" ")
+    .slice(0, 140)
+    .trim();
+};
+
+const buildAdaptationPromptLines = (adaptationHints: string[]) => {
+  if (!Array.isArray(adaptationHints) || adaptationHints.length === 0) {
+    return [];
+  }
+
+  const hintMap: Record<string, string> = {
+    "専門用語を減らす": "専門用語・カタカナ語・略語を減らし、必要なら短い言い換えを入れる",
+    "小さなステップに分ける": "各ステップをさらに細かくし、1ステップ1行動に限定する",
+    "説明を増やす": "1文の中に短い補足を入れて、迷わず動ける形にする",
+    "準備タスクから始める": "いきなり本作業に入らず、最初は準備タスクから始める",
+    "一度に要求する作業量を減らす": "最初に扱う件数や量を減らし、小さく始める",
+    "順番を明確にする": "迷わない順序にして、最初の一歩をいちばん簡単にする",
+    "曖昧な表現を避ける": "抽象語を避け、対象・件数・項目を入れて具体化する"
+  };
+
+  return adaptationHints
+    .map((hint) => hintMap[hint])
+    .filter((hint): hint is string => Boolean(hint));
+};
+
 const buildStepPrompt = ({
   kpiName,
   taskTitle,
@@ -134,15 +183,21 @@ const buildStepPrompt = ({
   taskTitle: string;
   taskDescription: string;
   adaptationHints: string[];
-}) => [
-  `KPI名: ${kpiName}`,
-  `Task名: ${taskTitle}`,
-  `Task補足説明: ${taskDescription || "未設定"}`,
-  adaptationHints.length > 0
-    ? `振り返り反映ヒント: ${adaptationHints.join(" / ")}`
-    : "",
-  "このTaskに今すぐ着手できる小ステップを1〜3件、JSONでのみ返してください。"
-].filter(Boolean).join("\n");
+}) => {
+  const compactTaskDescription = compressTaskDescription(taskDescription);
+  const adaptationPromptLines = buildAdaptationPromptLines(adaptationHints);
+
+  return [
+    `KPI名: ${kpiName}`,
+    `Task名: ${taskTitle}`,
+    `Task補足説明(重要部分のみ): ${compactTaskDescription}`,
+    adaptationPromptLines.length > 0
+      ? `振り返り反映ルール:
+- ${adaptationPromptLines.join("\n- ")}`
+      : "",
+    "今すぐやる小ステップを3件ちょうど、JSONのみで返してください。"
+  ].filter(Boolean).join("\n");
+};
 
 const extractOutputText = (responseData: any) => {
   if (typeof responseData?.output_text === "string" && responseData.output_text.trim()) {
@@ -168,12 +223,6 @@ const extractOutputText = (responseData: any) => {
   return "";
 };
 
-const FALLBACK_STEPS = [
-  "タスク内容を読み直す",
-  "必要な作業を3つに分ける",
-  "最初の1つをすぐ始める"
-] as const;
-
 const removeJsonCodeFence = (value: string) => value.replace(/```json\s*/gi, "").replace(/```/g, "").trim();
 
 const extractJsonObjectString = (value: string) => {
@@ -194,29 +243,134 @@ const sanitizeSteps = (steps: unknown) => {
   }
 
   return steps
-    .map((step) => typeof step === "string" ? step.trim() : "")
+    .map((step) => typeof step === "string" ? step.replace(/\s+/g, " ").trim() : "")
     .filter((step) => step.length > 0)
     .slice(0, 3);
 };
 
-const isSameStepSet = (steps: string[]) => steps.length === FALLBACK_STEPS.length && steps.every((step, index) => step === FALLBACK_STEPS[index]);
+const normalizeStepText = (step: string) => typeof step === "string" ? step.replace(/^（?(まずやる|次にやる|その次)[:：]\s*/, "").trim() : "";
 
-const getFallbackResult = (reason: string): StepParseResult => {
+const shortenStepText = (step: string) => {
+  const normalized = normalizeStepText(step).replace(/[。.!?]+$/g, "").trim();
+
+  if (!normalized) {
+    return "";
+  }
+
+  if (normalized.length <= 80) {
+    return normalized;
+  }
+
+  const compact = normalized
+    .replace(/、[^、]{16,}$/, "")
+    .replace(/（[^）]{20,}）/g, "")
+    .trim();
+
+  return compact.slice(0, 80).trim();
+};
+
+const ensureConcreteStep = (step: string, index: number) => {
+  const shortened = shortenStepText(step);
+  const normalized = normalizeStepText(shortened);
+  const hasConcreteToken = CONCRETE_STEP_PATTERNS.some((pattern) => normalized.includes(pattern)) || /\d/.test(normalized);
+
+  if (!normalized) {
+    return FALLBACK_STEPS[index] || FALLBACK_STEPS[FALLBACK_STEPS.length - 1];
+  }
+
+  if (hasConcreteToken) {
+    return normalized;
+  }
+
+  if (index === 0) {
+    return `${normalized}対象を1つ決めてメモする`;
+  }
+
+  if (index === 1) {
+    return `${normalized}ための項目を3つ書く`;
+  }
+
+  return `${normalized}結果を1行メモする`;
+};
+
+const isAbstractStep = (step: string) => {
+  const normalized = normalizeStepText(step);
+  if (!normalized) {
+    return true;
+  }
+
+  const matchedAbstract = ABSTRACT_STEP_PATTERNS.some((pattern) => normalized.includes(pattern));
+  const hasConcreteToken = CONCRETE_STEP_PATTERNS.some((pattern) => normalized.includes(pattern)) || /\d/.test(normalized);
+  return matchedAbstract && !hasConcreteToken;
+};
+
+const addStepLabels = (steps: string[]) => steps.map((step, index) => `${STEP_LABELS[index] || `手順${index + 1}`}：${ensureConcreteStep(step, index)}`);
+
+const hasLowQualitySteps = (steps: string[]) => {
+  const normalized = steps.map((step) => normalizeStepText(step)).filter(Boolean);
+
+  if (normalized.length !== 3) {
+    return true;
+  }
+
+  const tooLong = normalized.some((step) => step.length > 80);
+  const tooAbstractCount = normalized.filter((step) => isAbstractStep(step)).length;
+  const duplicateRoots = new Set(normalized.map((step) => step.replace(/[0-9０-９]/g, "").slice(0, 12)));
+  const lacksConcreteTarget = normalized.filter((step) => CONCRETE_STEP_PATTERNS.some((pattern) => step.includes(pattern)) || /\d/.test(step)).length === 0;
+
+  return tooLong || tooAbstractCount >= 2 || duplicateRoots.size <= 1 || lacksConcreteTarget;
+};
+
+const reshapeSteps = (steps: string[]) => addStepLabels(steps.map((step, index) => ensureConcreteStep(step, index))).slice(0, 3);
+
+const isSameStepSet = (steps: string[]) => steps.length === FALLBACK_STEPS.length && steps.every((step, index) => normalizeStepText(step) === FALLBACK_STEPS[index]);
+
+const buildFallbackSteps = (taskTitle: string) => {
+  const normalizedTitle = typeof taskTitle === "string" ? taskTitle.trim().toLowerCase() : "";
+
+  if (/(qa|テスト|試験|検証)/i.test(normalizedTitle)) {
+    return [
+      "まずやる：テスト対象を1件だけ決めて開く",
+      "次にやる：再現手順を1回だけ試す",
+      "その次：結果を1行メモする"
+    ];
+  }
+
+  if (/(pr|実装|修正|開発)/i.test(normalizedTitle)) {
+    return [
+      "まずやる：対象ファイルを1つ開く",
+      "次にやる：直す内容を1行でメモする",
+      "その次：最初の修正を1つ入れる"
+    ];
+  }
+
+  if (/(営業|顧客|商談|リード)/i.test(normalizedTitle)) {
+    return [
+      "まずやる：候補を5件だけ集める",
+      "次にやる：候補を一覧に貼り付ける",
+      "その次：1件だけ送る文を作る"
+    ];
+  }
+
+  return addStepLabels(FALLBACK_STEPS.slice());
+};
+
+const getFallbackResult = (reason: string, taskTitle = ""): StepParseResult => {
   console.warn("[generate-next-action-steps] fallback enabled", {
     endpoint: "generate-next-action-steps",
     reason,
     usedFallback: true,
-    returnedStepsCount: FALLBACK_STEPS.length
+    returnedStepsCount: 3
   });
 
   return {
-    steps: FALLBACK_STEPS.slice(),
+    steps: buildFallbackSteps(taskTitle),
     usedFallback: true,
     reason
   };
 };
 
-const parseStepsFromOutputText = (outputText: string): StepParseResult => {
+const parseStepsFromOutputText = (outputText: string, taskTitle = ""): StepParseResult => {
   console.log("[generate-next-action-steps] raw response status", {
     endpoint: "generate-next-action-steps",
     hasRawResponse: Boolean(outputText && outputText.trim())
@@ -224,14 +378,14 @@ const parseStepsFromOutputText = (outputText: string): StepParseResult => {
 
   if (!outputText || !outputText.trim()) {
     console.log("[generate-next-action-steps] parse result", { endpoint: "generate-next-action-steps", parseSucceeded: false, reason: "empty_response" });
-    return getFallbackResult("empty_response");
+    return getFallbackResult("empty_response", taskTitle);
   }
 
   const jsonText = extractJsonObjectString(outputText);
 
   if (!jsonText) {
     console.log("[generate-next-action-steps] parse result", { endpoint: "generate-next-action-steps", parseSucceeded: false, reason: "json_not_found" });
-    return getFallbackResult("json_not_found");
+    return getFallbackResult("json_not_found", taskTitle);
   }
 
   try {
@@ -240,14 +394,18 @@ const parseStepsFromOutputText = (outputText: string): StepParseResult => {
 
     if (steps.length === 0) {
       console.log("[generate-next-action-steps] parse result", { endpoint: "generate-next-action-steps", parseSucceeded: false, reason: "steps_missing_or_empty" });
-      return getFallbackResult("steps_missing_or_empty");
+      return getFallbackResult("steps_missing_or_empty", taskTitle);
     }
 
-    console.log("[generate-next-action-steps] parse result", { endpoint: "generate-next-action-steps", parseSucceeded: true, reason: "ok" });
+    const reshapedSteps = reshapeSteps(steps);
+    const needsReshape = hasLowQualitySteps(steps);
+    const finalSteps = needsReshape ? reshapedSteps : addStepLabels(steps);
+
+    console.log("[generate-next-action-steps] parse result", { endpoint: "generate-next-action-steps", parseSucceeded: true, reason: needsReshape ? "reshaped" : "ok" });
     return {
-      steps,
-      usedFallback: isSameStepSet(steps),
-      reason: "ok"
+      steps: finalSteps,
+      usedFallback: isSameStepSet(finalSteps),
+      reason: needsReshape ? "reshaped" : "ok"
     };
   } catch (error) {
     console.error("[generate-next-action-steps] parse error", {
@@ -256,7 +414,7 @@ const parseStepsFromOutputText = (outputText: string): StepParseResult => {
       reason: "json_parse_error",
       error
     });
-    return getFallbackResult("json_parse_error");
+    return getFallbackResult("json_parse_error", taskTitle);
   }
 };
 
@@ -348,7 +506,7 @@ export async function POST(request: Request) {
           recentReflections
         }
       });
-      const fallback = getFallbackResult(`upstream_status_${openAiResponse.status}`);
+      const fallback = getFallbackResult(`upstream_status_${openAiResponse.status}`, taskTitle);
       console.log("[generate-next-action-steps] response", {
         endpoint: "generate-next-action-steps",
         parseSucceeded: false,
@@ -360,11 +518,11 @@ export async function POST(request: Request) {
 
     const responseData = await openAiResponse.json();
     const outputText = extractOutputText(responseData);
-    const parsed = parseStepsFromOutputText(outputText);
+    const parsed = parseStepsFromOutputText(outputText, taskTitle);
 
     console.log("[generate-next-action-steps] response", {
       endpoint: "generate-next-action-steps",
-      parseSucceeded: parsed.reason === "ok",
+      parseSucceeded: parsed.reason === "ok" || parsed.reason === "reshaped",
       usedFallback: parsed.usedFallback,
       returnedStepsCount: parsed.steps.length
     });
@@ -374,7 +532,7 @@ export async function POST(request: Request) {
       endpoint: "generate-next-action-steps",
       error
     });
-    const fallback = getFallbackResult("unexpected_server_error");
+    const fallback = getFallbackResult("unexpected_server_error", taskTitle);
     console.log("[generate-next-action-steps] response", {
       endpoint: "generate-next-action-steps",
       parseSucceeded: false,

@@ -944,10 +944,11 @@ const getTaskActionableStatus = (task) => {
   return getTaskIsCompleted(task) ? "done" : "todo";
 };
 
+const NEXT_ACTION_STEP_LABELS = ["まずやる", "次にやる", "その次"];
 const FALLBACK_NEXT_ACTION_STEPS = [
-  "タスク内容を読み直す",
-  "必要な作業を3つに分ける",
-  "最初の1つをすぐ始める"
+  "まずやる：Taskの内容を1回読み、最初に触る対象を1つ決める",
+  "次にやる：必要な作業を3つの短い行動に分けて1行ずつメモする",
+  "その次：分けた作業の1件目を5分だけ進める"
 ];
 
 const sanitizeNextActionSteps = (steps) => {
@@ -956,14 +957,58 @@ const sanitizeNextActionSteps = (steps) => {
   }
 
   return steps
-    .map((step) => typeof step === "string" ? step.trim() : "")
+    .map((step) => typeof step === "string" ? step.replace(/\s+/g, " ").trim() : "")
     .filter((step) => step.length > 0)
-    .slice(0, 5);
+    .slice(0, 3);
 };
 
-const getFallbackNextActionSteps = (reason) => {
-  console.warn("Using fallback next action steps", { reason, fallbackSteps: FALLBACK_NEXT_ACTION_STEPS });
+const ensureNextActionStepLabel = (step, index) => {
+  const normalizedStep = typeof step === "string" ? step.trim() : "";
+  if (!normalizedStep) {
+    return "";
+  }
+
+  if (/^(まずやる|次にやる|その次)[:：]/.test(normalizedStep)) {
+    return normalizedStep;
+  }
+
+  return `${NEXT_ACTION_STEP_LABELS[index] || `手順${index + 1}`}：${normalizedStep}`;
+};
+
+const buildContextualFallbackNextActionSteps = (title) => {
+  const normalizedTitle = typeof title === "string" ? title.trim().toLowerCase() : "";
+
+  if (/(qa|テスト|試験|検証)/i.test(normalizedTitle)) {
+    return [
+      "まずやる：テスト対象を1件だけ決めて開く",
+      "次にやる：再現手順を1回だけ試す",
+      "その次：結果を1行メモする"
+    ];
+  }
+
+  if (/(pr|実装|修正|開発)/i.test(normalizedTitle)) {
+    return [
+      "まずやる：対象ファイルを1つ開く",
+      "次にやる：直す内容を1行でメモする",
+      "その次：最初の修正を1つ入れる"
+    ];
+  }
+
+  if (/(営業|顧客|商談|リード)/i.test(normalizedTitle)) {
+    return [
+      "まずやる：候補を5件だけ集める",
+      "次にやる：候補を一覧に貼り付ける",
+      "その次：1件だけ送る文を作る"
+    ];
+  }
+
   return FALLBACK_NEXT_ACTION_STEPS.slice();
+};
+
+const getFallbackNextActionSteps = (reason, taskTitle = currentNextAction?.task?.title ?? "") => {
+  const fallbackSteps = buildContextualFallbackNextActionSteps(taskTitle);
+  console.warn("Using fallback next action steps", { reason, taskTitle, fallbackSteps });
+  return fallbackSteps;
 };
 
 const setNextActionState = ({
@@ -1007,13 +1052,13 @@ const renderNextAction = (nextAction) => {
     : taskStatus === "doing"
       ? '<p class="next-action-inline-status">実行中です。完了したら「完了する」を押してください。</p>'
       : "";
-  const fallbackStepListMarkup = `<ol class="next-action-step-list">${getFallbackNextActionSteps(nextActionStepError ? "render_error" : "render_missing_steps").map((step) => `<li>${step}</li>`).join("")}</ol>`;
+  const fallbackStepListMarkup = `<ol class="next-action-step-list">${getFallbackNextActionSteps(nextActionStepError ? "render_error" : "render_missing_steps", task.title ?? "").map((step) => `<li>${step}</li>`).join("")}</ol>`;
   const stepContent = nextActionStepLoading
     ? '<p class="hint">小ステップを準備中...</p>'
     : nextActionStepError
       ? `<div><p class="hint">${nextActionStepError}</p>${fallbackStepListMarkup}</div>`
       : nextActionSteps.length > 0
-        ? `<ol class="next-action-step-list">${nextActionSteps.map((step) => `<li>${step}</li>`).join("")}</ol>`
+        ? `<ol class="next-action-step-list">${nextActionSteps.map((step, index) => `<li>${ensureNextActionStepLabel(step, index)}</li>`).join("")}</ol>`
         : fallbackStepListMarkup;
   const errorMarkup = nextActionError
     ? `<p class="hint error">${nextActionError}</p>`
@@ -1049,6 +1094,36 @@ const hashNextActionStepContext = (...parts) => parts
   .reduce((hash, char) => ((hash * 31) + char.charCodeAt(0)) % 1000000007, 7)
   .toString(16);
 
+const NEXT_ACTION_DIFFICULTY_KEYWORDS = ["難しい", "分からない", "わからない", "専門用語", "大変"];
+const isNextActionCommentDifficult = (comment) => NEXT_ACTION_DIFFICULTY_KEYWORDS.some((keyword) => comment.includes(keyword));
+const buildNextActionAdaptationHints = (recentReflections = []) => {
+  const hintSet = new Set();
+
+  (Array.isArray(recentReflections) ? recentReflections : []).forEach((reflection) => {
+    const comment = typeof reflection?.comment === "string" ? reflection.comment.trim() : "";
+    const result = typeof reflection?.result === "string" ? reflection.result : "";
+    const hasDifficultySignal = result === "harder_than_expected" || isNextActionCommentDifficult(comment);
+
+    if (hasDifficultySignal) {
+      hintSet.add("専門用語を減らす");
+      hintSet.add("小さなステップに分ける");
+      hintSet.add("説明を増やす");
+    }
+
+    if (result === "could_not_do") {
+      hintSet.add("準備タスクから始める");
+      hintSet.add("一度に要求する作業量を減らす");
+    }
+
+    if (result === "needs_improvement") {
+      hintSet.add("順番を明確にする");
+      hintSet.add("曖昧な表現を避ける");
+    }
+  });
+
+  return Array.from(hintSet).slice(0, 5);
+};
+
 const buildNextActionReflectionSignature = (recentReflections) => JSON.stringify(
   Array.isArray(recentReflections)
     ? recentReflections.map((reflection) => ({
@@ -1063,8 +1138,9 @@ const buildNextActionStepCacheContext = (nextAction, recentReflections = []) => 
   const taskId = typeof nextAction?.task?.id === "string" ? nextAction.task.id : "";
   const taskTitle = typeof nextAction?.task?.title === "string" ? nextAction.task.title.trim() : "";
   const taskDescription = typeof nextAction?.task?.description === "string" ? nextAction.task.description.trim() : "";
+  const adaptationHints = buildNextActionAdaptationHints(recentReflections);
+  const simpleHash = hashNextActionStepContext(taskTitle, taskDescription, adaptationHints.join("|"));
   const reflectionSignature = buildNextActionReflectionSignature(recentReflections);
-  const simpleHash = hashNextActionStepContext(taskTitle, taskDescription, reflectionSignature);
 
   return {
     taskId,
@@ -1073,7 +1149,7 @@ const buildNextActionStepCacheContext = (nextAction, recentReflections = []) => 
     reflectionSignature,
     simpleHash,
     requestKey: taskId ? `${taskId}:${simpleHash}` : "",
-    storageKey: taskId ? `nextActionMiniSteps:v2:${taskId}:${simpleHash}` : ""
+    storageKey: taskId ? `nextActionMiniSteps:${taskId}:${simpleHash}` : ""
   };
 };
 
@@ -1170,7 +1246,7 @@ const generateNextActionSteps = async (nextAction) => {
   const { requestKey, storageKey, taskId } = cacheContext;
 
   if (!nextAction?.task?.title || !nextAction?.kpiName) {
-    const fallbackSteps = getFallbackNextActionSteps("missing_task_context");
+    const fallbackSteps = getFallbackNextActionSteps("missing_task_context", nextAction?.task?.title ?? "");
     console.log("[next-action-steps] api call", { taskId, requestKey, willCallApi: false, reason: "missing_task_context" });
     setNextActionState({
       nextAction,
@@ -1243,8 +1319,8 @@ const generateNextActionSteps = async (nextAction) => {
       return;
     }
 
-    const nextSteps = sanitizeNextActionSteps(data?.steps);
-    const resolvedSteps = nextSteps.length >= 3 ? nextSteps : getFallbackNextActionSteps(response.ok ? "api_missing_steps" : `http_${response.status}`);
+    const nextSteps = sanitizeNextActionSteps(data?.steps).map((step, index) => ensureNextActionStepLabel(step, index));
+    const resolvedSteps = nextSteps.length >= 3 ? nextSteps : getFallbackNextActionSteps(response.ok ? "api_missing_steps" : `http_${response.status}`, nextAction.task.title ?? "");
     const cacheSource = isFallbackNextActionSteps(resolvedSteps) ? "fallback" : "normal";
     const fallbackMessage = cacheSource === "fallback"
       ? "小ステップの自動生成に失敗したため、代替ステップを表示しています。"
@@ -1269,7 +1345,7 @@ const generateNextActionSteps = async (nextAction) => {
       return;
     }
 
-    const fallbackSteps = getFallbackNextActionSteps("fetch_error");
+    const fallbackSteps = getFallbackNextActionSteps("fetch_error", nextAction.task.title ?? "");
     console.log("[next-action-steps] received steps", { taskId, requestKey, stepsCount: fallbackSteps.length, source: "fallback", fromCache: false, responseOk: false });
     if (storageKey && taskId) {
       writeCachedNextActionSteps({ storageKey, taskId, steps: fallbackSteps, source: "fallback" });
