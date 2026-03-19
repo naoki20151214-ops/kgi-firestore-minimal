@@ -1,4 +1,4 @@
-import { collection, addDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
+import { collection, addDoc, doc, serverTimestamp, updateDoc } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
 import { getDb } from "./firebase-config.js";
 
 const nameInput = document.getElementById("kgiName");
@@ -8,6 +8,30 @@ const saveButton = document.getElementById("saveButton");
 const statusText = document.getElementById("statusText");
 
 let db;
+
+const generateRoadmap = async (kgiData) => {
+  const response = await fetch("/api/generate-roadmap", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      name: kgiData.name ?? "",
+      goalText: kgiData.goalText ?? "",
+      deadline: kgiData.deadline ?? ""
+    })
+  });
+
+  const responseText = await response.text();
+  const data = responseText ? JSON.parse(responseText) : null;
+
+  if (!response.ok || !Array.isArray(data?.roadmapPhases)) {
+    throw new Error(data?.error || "ロードマップの生成に失敗しました");
+  }
+
+  return data.roadmapPhases;
+};
+
 
 const setStatus = (message, isError = false) => {
   statusText.textContent = message;
@@ -46,7 +70,7 @@ saveButton.addEventListener("click", async () => {
   saveButton.disabled = true;
 
   try {
-    await addDoc(collection(db, "kgis"), {
+    const createdKgi = {
       name,
       goalText,
       deadline,
@@ -55,10 +79,26 @@ saveButton.addEventListener("click", async () => {
       status: "active",
       overallProgress: 0,
       nextActionText: "",
-      nextActionReason: ""
-    });
+      nextActionReason: "",
+      roadmapPhases: []
+    };
 
-    location.href = "./list.html";
+    const kgiDocRef = await addDoc(collection(db, "kgis"), createdKgi);
+
+    try {
+      const roadmapPhases = await generateRoadmap({ name, goalText, deadline });
+
+      if (Array.isArray(roadmapPhases) && roadmapPhases.length > 0) {
+        await updateDoc(doc(db, "kgis", kgiDocRef.id), {
+          roadmapPhases,
+          updatedAt: serverTimestamp()
+        });
+      }
+    } catch (roadmapError) {
+      console.error("Failed to generate roadmap", roadmapError);
+    }
+
+    location.href = `./detail.html?id=${kgiDocRef.id}`;
   } catch (error) {
     console.error(error);
     alert("保存に失敗しました。Firebase設定とルールを確認してください。");

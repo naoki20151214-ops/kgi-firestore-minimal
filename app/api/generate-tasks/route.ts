@@ -48,6 +48,7 @@ type TaskRequest = {
   kpiDescription?: string;
   kpiType?: "result" | "action";
   targetValue?: number;
+  phaseName?: string;
   recentReflections?: RecentReflection[];
 };
 
@@ -162,7 +163,8 @@ const buildTaskPrompt = ({
   kpiDescription,
   kpiType,
   targetValue,
-  adaptationHints
+  adaptationHints,
+  phaseName
 }: {
   kgiName: string;
   kgiGoalText: string;
@@ -171,10 +173,14 @@ const buildTaskPrompt = ({
   kpiType: "result" | "action";
   targetValue: number;
   adaptationHints: string[];
+  phaseName: string;
 }) => JSON.stringify({
   kgi: {
     name: kgiName,
     goal: kgiGoalText || "未設定"
+  },
+  roadmap: {
+    phaseName: phaseName || "未分類"
   },
   kpi: {
     name: kpiName,
@@ -218,6 +224,7 @@ export async function POST(request: Request) {
   const kpiDescription = typeof body?.kpiDescription === "string" ? body.kpiDescription.trim() : "";
   const kpiType = body?.kpiType;
   const targetValue = Number(body?.targetValue);
+  const phaseName = typeof body?.phaseName === "string" ? body.phaseName.trim() : "";
   const recentReflections = normalizeRecentReflections(body?.recentReflections);
   const adaptationHints = buildAdaptationHints(recentReflections);
 
@@ -235,7 +242,8 @@ export async function POST(request: Request) {
       kpiDescription,
       kpiType,
       targetValue,
-      adaptationHints
+      adaptationHints,
+      phaseName
     });
     console.log("[generate-tasks] request", { rawReflectionsCount: recentReflections.length, adaptationHintsCount: adaptationHints.length, promptChars: SYSTEM_PROMPT.length + promptText.length });
     const openAiResponse = await fetch(OPENAI_API_URL, {

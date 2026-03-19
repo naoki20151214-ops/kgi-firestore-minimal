@@ -13,6 +13,9 @@ import { getDb } from "./firebase-config.js";
 
 const statusText = document.getElementById("statusText");
 const kgiMeta = document.getElementById("kgiMeta");
+const roadmapContainer = document.getElementById("roadmapContainer");
+const roadmapStatusText = document.getElementById("roadmapStatusText");
+const currentLocationContainer = document.getElementById("currentLocationContainer");
 const kpiStatusText = document.getElementById("kpiStatusText");
 const nextActionContainer = document.getElementById("nextActionContainer");
 const kpiTable = document.getElementById("kpiTable");
@@ -22,9 +25,9 @@ const kpiDescriptionInput = document.getElementById("kpiDescription");
 const kpiTypeInput = document.getElementById("kpiType");
 const kpiDeadlineInput = document.getElementById("kpiDeadline");
 const addKpiButton = document.getElementById("addKpiButton");
-const overallProgressValue = document.getElementById("overallProgressValue");
-const overallProgressFill = document.getElementById("overallProgressFill");
-const overallProgressCaption = document.getElementById("overallProgressCaption");
+let overallProgressValue = document.getElementById("overallProgressValue");
+let overallProgressFill = document.getElementById("overallProgressFill");
+let overallProgressCaption = document.getElementById("overallProgressCaption");
 const generateAiKpisButton = document.getElementById("generateAiKpisButton");
 const aiLoadingText = document.getElementById("aiLoadingText");
 const aiErrorText = document.getElementById("aiErrorText");
@@ -130,6 +133,7 @@ window.addEventListener("unhandledrejection", (event) => {
 let db;
 let kgiId = "";
 let currentKgiData = null;
+let currentRoadmapPhases = [];
 let nextActionLoading = false;
 let nextActionError = "";
 let nextActionStepLoading = false;
@@ -325,8 +329,19 @@ const enableKpiActions = () => {
 
 const resetKpiSection = () => {
   currentKgiData = null;
+  currentRoadmapPhases = [];
   kgiMeta.hidden = true;
   kgiMeta.innerHTML = "";
+  if (roadmapContainer) {
+    roadmapContainer.innerHTML = "";
+  }
+  if (roadmapStatusText) {
+    roadmapStatusText.textContent = "読み込み中...";
+    roadmapStatusText.classList.remove("error");
+  }
+  if (currentLocationContainer) {
+    currentLocationContainer.innerHTML = '<p class="hint">ロードマップを確認中...</p>';
+  }
   kpiTableBody.innerHTML = "";
   kpiTable.hidden = true;
   renderOverallProgress([]);
@@ -707,6 +722,124 @@ const calcRemainingDays = (deadline) => {
   };
 };
 
+const ROADMAP_STATUS_LABELS = {
+  done: "完了",
+  current: "今ここ",
+  next: "次",
+  future: "予定"
+};
+
+const normalizeRoadmapStatus = (status) => {
+  if (status === "done" || status === "current" || status === "next" || status === "future") {
+    return status;
+  }
+
+  return "future";
+};
+
+const normalizeRoadmapPhases = (phases) => {
+  if (!Array.isArray(phases)) {
+    return [];
+  }
+
+  return phases
+    .map((phase, index) => {
+      const id = typeof phase?.id === "string" && phase.id.trim()
+        ? phase.id.trim()
+        : `phase_${index + 1}`;
+      const title = typeof phase?.title === "string" && phase.title.trim()
+        ? phase.title.trim()
+        : `フェーズ${index + 1}`;
+      const description = typeof phase?.description === "string" && phase.description.trim()
+        ? phase.description.trim()
+        : "説明はまだありません";
+
+      return {
+        id,
+        title,
+        description,
+        status: normalizeRoadmapStatus(phase?.status)
+      };
+    })
+    .filter((phase) => phase.title);
+};
+
+const getCurrentRoadmapPhase = (phases = currentRoadmapPhases) => phases.find((phase) => phase.status === "current") ?? null;
+const getNextRoadmapPhase = (phases = currentRoadmapPhases) => phases.find((phase) => phase.status === "next") ?? null;
+
+const getPhaseLabel = (phaseId, phases = currentRoadmapPhases) => {
+  if (typeof phaseId !== "string" || !phaseId.trim()) {
+    return "未分類";
+  }
+
+  return phases.find((phase) => phase.id === phaseId)?.title ?? "未分類";
+};
+const getDefaultPhaseId = (phases = currentRoadmapPhases) => {
+  const currentPhase = getCurrentRoadmapPhase(phases);
+
+  if (currentPhase?.id) {
+    return currentPhase.id;
+  }
+
+  const nextPhase = getNextRoadmapPhase(phases);
+  return nextPhase?.id ?? "";
+};
+
+
+const renderRoadmap = (phases = currentRoadmapPhases) => {
+  if (!roadmapContainer) {
+    return;
+  }
+
+  if (!Array.isArray(phases) || phases.length === 0) {
+    roadmapContainer.innerHTML = '<p class="hint">ロードマップはまだ未生成です。KGI詳細にはそのまま進めます。</p>';
+    if (roadmapStatusText) {
+      roadmapStatusText.textContent = "未生成";
+      roadmapStatusText.classList.remove("error");
+    }
+    return;
+  }
+
+  const markup = phases.map((phase, index) => `
+    <li class="roadmap-phase-item ${phase.status}">
+      <div class="roadmap-phase-head">
+        <strong>${escapeHtml(phase.title)}</strong>
+        <span class="roadmap-phase-status ${phase.status}">${ROADMAP_STATUS_LABELS[phase.status] ?? "予定"}</span>
+      </div>
+      <p class="hint">${escapeHtml(phase.description)}</p>
+      <span class="roadmap-phase-meta">フェーズ ${index + 1}</span>
+    </li>
+  `).join("");
+
+  roadmapContainer.innerHTML = `<ol class="roadmap-list">${markup}</ol>`;
+  if (roadmapStatusText) {
+    roadmapStatusText.textContent = `${phases.length}フェーズ`;
+    roadmapStatusText.classList.remove("error");
+  }
+};
+
+const renderCurrentLocation = (phases = currentRoadmapPhases) => {
+  if (!currentLocationContainer) {
+    return;
+  }
+
+  const currentPhase = getCurrentRoadmapPhase(phases);
+  const nextPhase = getNextRoadmapPhase(phases);
+
+  currentLocationContainer.innerHTML = `
+    <div class="location-card">
+      <strong>今いるフェーズ</strong>
+      <div>${escapeHtml(currentPhase?.title ?? "未設定")}</div>
+      <p class="hint">${escapeHtml(currentPhase?.description ?? "ロードマップ未生成のため、現在地を特定できていません。")}</p>
+    </div>
+    <div class="location-card">
+      <strong>次の到達点</strong>
+      <div>${escapeHtml(nextPhase?.title ?? "未設定")}</div>
+      <p class="hint">${escapeHtml(nextPhase?.description ?? "次フェーズはまだありません。現在のTask完了後に見直してください。")}</p>
+    </div>
+  `;
+};
+
 const formatPercent = (value) => `${Math.round(value)}%`;
 
 const clampPercent = (value) => Math.max(0, Math.min(100, value));
@@ -969,9 +1102,22 @@ const buildTaskTicketStatusUpdate = (ticketStatus) => {
   return updatePayload;
 };
 
-const selectNextAction = (kpis) => {
+const selectNextAction = (kpis, phases = currentRoadmapPhases) => {
+  const currentPhase = getCurrentRoadmapPhase(phases);
+  const nextPhase = getNextRoadmapPhase(phases);
+  const phasePriorityMap = new Map();
+
+  if (currentPhase?.id) {
+    phasePriorityMap.set(currentPhase.id, 0);
+  }
+  if (nextPhase?.id) {
+    phasePriorityMap.set(nextPhase.id, 1);
+  }
+
   const candidates = (Array.isArray(kpis) ? kpis : []).flatMap((kpi) => {
     const tasks = Array.isArray(kpi?.tasks) ? kpi.tasks : [];
+    const phaseId = typeof kpi?.phaseId === "string" ? kpi.phaseId.trim() : "";
+    const phaseRank = phasePriorityMap.has(phaseId) ? phasePriorityMap.get(phaseId) : 2;
 
     return tasks
       .filter((task) => !getTaskIsCompleted(task))
@@ -979,6 +1125,9 @@ const selectNextAction = (kpis) => {
         task,
         kpiId: kpi.id,
         kpiName: kpi.name ?? "",
+        phaseId,
+        phaseName: getPhaseLabel(phaseId, phases),
+        phaseRank,
         ticketStatusRank: ["doing", "ready", "backlog", "done"].indexOf(normalizeTaskTicketStatus(task)),
         priorityRank: getComparablePriority(task.priority),
         deadlineRank: getComparableDeadline(getTaskDueDate(task) || task.deadline),
@@ -991,6 +1140,10 @@ const selectNextAction = (kpis) => {
   }
 
   candidates.sort((a, b) => {
+    if (a.phaseRank !== b.phaseRank) {
+      return a.phaseRank - b.phaseRank;
+    }
+
     if (a.ticketStatusRank !== b.ticketStatusRank) {
       return a.ticketStatusRank - b.ticketStatusRank;
     }
@@ -1148,7 +1301,7 @@ const renderNextAction = (nextAction) => {
     return;
   }
 
-  const { task, kpiName } = currentNextAction;
+  const { task, kpiName, phaseName } = currentNextAction;
   const deadline = displayDeadline(getTaskDueDate(task) || task.deadline);
   const remaining = calcRemainingDays(deadline === "未設定" ? "" : deadline);
   const taskStatus = getTaskActionableStatus(task);
@@ -1755,6 +1908,10 @@ const displayProgress = (kpi) => {
 };
 
 const renderOverallProgress = (kpis) => {
+  if (!overallProgressValue || !overallProgressFill || !overallProgressCaption) {
+    return;
+  }
+
   if (kpis.length === 0) {
     overallProgressValue.textContent = "0%";
     overallProgressFill.style.width = "0%";
@@ -1780,21 +1937,48 @@ const getKpiRef = (kpiId) => doc(getKpisRef(), kpiId);
 
 const renderKgiMeta = (kgiData) => {
   currentKgiData = kgiData ?? null;
+  currentRoadmapPhases = normalizeRoadmapPhases(kgiData?.roadmapPhases);
   const deadline = displayDeadline(kgiData.deadline);
   const deadlineInfo = calcRemainingDays(deadline === "未設定" ? "" : deadline);
 
   kgiMeta.hidden = false;
   kgiMeta.innerHTML = `
-    <div class="deadline-highlight">
-      <p class="deadline-label">残り日数</p>
-      <p class="deadline-value ${deadlineInfo.isOverdue ? "overdue" : ""}">${deadlineInfo.remainingText}</p>
-      <p class="deadline-date">期限: ${deadline}</p>
+    <div class="overview-grid">
+      <div class="overview-item">
+        <strong>KGI名</strong>
+        <div>${escapeHtml(kgiData.name ?? "")}</div>
+      </div>
+      <div class="overview-item">
+        <strong>ゴール説明</strong>
+        <div>${escapeHtml(displayGoalText(kgiData.goalText))}</div>
+      </div>
+      <div class="overview-item">
+        <strong>期限</strong>
+        <div>${escapeHtml(deadline)}</div>
+      </div>
+      <div class="overview-item">
+        <strong>残り日数</strong>
+        <div class="${deadlineInfo.isOverdue ? "overdue-text" : ""}">${escapeHtml(deadlineInfo.remainingText)}</div>
+      </div>
+      <div class="overview-item progress-item">
+        <strong>全体進捗</strong>
+        <p id="overallProgressValue" class="summary-value">0%</p>
+        <div class="progress-wrap">
+          <div class="progress-bar" aria-label="KGI全体進捗バー">
+            <div id="overallProgressFill" class="progress-fill"></div>
+          </div>
+          <p id="overallProgressCaption" class="progress-label">KPIがありません</p>
+        </div>
+      </div>
     </div>
-    <div class="row"><strong>KGI名</strong><span>${kgiData.name ?? ""}</span></div>
-    <div class="row"><strong>ゴール説明</strong><span>${displayGoalText(kgiData.goalText)}</span></div>
-    <div class="row"><strong>期限</strong><span>${deadline}</span></div>
-    <div class="row"><strong>作成日時</strong><span>${formatDate(kgiData.createdAt)}</span></div>
   `;
+
+  overallProgressValue = document.getElementById("overallProgressValue");
+  overallProgressFill = document.getElementById("overallProgressFill");
+  overallProgressCaption = document.getElementById("overallProgressCaption");
+
+  renderRoadmap(currentRoadmapPhases);
+  renderCurrentLocation(currentRoadmapPhases);
 };
 
 const normalizeKpis = (docs) => docs
@@ -2048,6 +2232,7 @@ const renderKpiTable = (kpis) => {
     row.innerHTML = `
       <td>
         <strong>${escapeHtml(simpleName || "-")}</strong>
+        <div class="phase-kpi-badge">フェーズ: ${escapeHtml(getPhaseLabel(kpi.phaseId))}</div>
         ${simpleName && simpleName !== originalName ? `<div class="hint">元のKPI: ${escapeHtml(originalName)}</div>` : ""}
       </td>
       <td>
@@ -2208,7 +2393,7 @@ const loadKpis = async () => {
   );
   updateDebugPanel(kpisWithTasks.map((kpi) => kpi.debug));
 
-  const nextAction = selectNextAction(kpisWithTasks);
+  const nextAction = selectNextAction(kpisWithTasks, currentRoadmapPhases);
 
   renderKpiTable(kpisWithTasks);
   renderOverallProgress(kpisWithTasks);
@@ -2356,6 +2541,7 @@ aiSuggestionsContainer?.addEventListener("click", async (event) => {
       progress: 0,
       percentage: 0,
       order: existingKpiKeys.size + 1,
+      phaseId: getDefaultPhaseId(),
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp()
     });
@@ -2472,6 +2658,7 @@ addKpiButton.addEventListener("click", async () => {
       deadline,
       progress: 0,
       percentage: 0,
+      phaseId: getDefaultPhaseId(),
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
       status: "active",
@@ -2812,7 +2999,7 @@ nextActionContainer?.addEventListener("click", async (event) => {
     });
 
     renderKpiTable(latestRenderedKpis);
-    const immediateNextAction = selectNextAction(latestRenderedKpis);
+    const immediateNextAction = selectNextAction(latestRenderedKpis, currentRoadmapPhases);
     const shouldRegenerateSteps = buildNextActionStepRequestKey(currentNextAction) !== buildNextActionStepRequestKey(immediateNextAction);
 
     setNextActionState({

@@ -144,10 +144,13 @@ const buildAdaptationHints = (recentReflections) => {
   return Array.from(hintSet).slice(0, MAX_ADAPTATION_HINTS);
 };
 
-const buildTaskPrompt = ({ kgiName, kgiGoalText, kpiName, kpiDescription, kpiType, targetValue, adaptationHints }) => JSON.stringify({
+const buildTaskPrompt = ({ kgiName, kgiGoalText, kpiName, kpiDescription, kpiType, targetValue, phaseName, adaptationHints }) => JSON.stringify({
   kgi: {
     name: kgiName,
     goal: kgiGoalText || "未設定"
+  },
+  roadmap: {
+    phaseName: phaseName || "未分類"
   },
   kpi: {
     name: kpiName,
@@ -200,6 +203,7 @@ module.exports = async function handler(req, res) {
   const kpiDescription = typeof requestBody?.kpiDescription === "string" ? requestBody.kpiDescription.trim() : "";
   const kpiType = requestBody?.kpiType;
   const targetValue = Number(requestBody?.targetValue);
+  const phaseName = typeof requestBody?.phaseName === "string" ? requestBody.phaseName.trim() : "";
   const recentReflections = normalizeRecentReflections(requestBody?.recentReflections);
   const adaptationHints = buildAdaptationHints(recentReflections);
 
@@ -217,6 +221,7 @@ module.exports = async function handler(req, res) {
       kpiDescription,
       kpiType,
       targetValue,
+      phaseName,
       adaptationHints
     });
     console.log("[generate-tasks] request", { rawReflectionsCount: recentReflections.length, adaptationHintsCount: adaptationHints.length, promptChars: SYSTEM_PROMPT.length + promptText.length });
