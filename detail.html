@@ -307,6 +307,123 @@
         min-width: 160px;
       }
 
+      .section-title-with-note {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        align-items: baseline;
+        flex-wrap: wrap;
+      }
+
+      .overview-grid,
+      .location-grid,
+      .roadmap-list {
+        display: grid;
+        gap: 12px;
+      }
+
+      .overview-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .overview-item,
+      .location-card,
+      .roadmap-phase-item {
+        border: 1px solid #e5e7eb;
+        border-radius: 12px;
+        padding: 14px;
+        background: #f8fafc;
+      }
+
+      .overview-item strong,
+      .location-card strong,
+      .roadmap-phase-item strong {
+        display: block;
+        margin-bottom: 6px;
+      }
+
+      .overview-item.progress-item {
+        grid-column: 1 / -1;
+      }
+
+      .roadmap-list {
+        margin: 0;
+        padding: 0;
+        list-style: none;
+      }
+
+      .roadmap-phase-item {
+        display: grid;
+        gap: 6px;
+      }
+
+      .roadmap-phase-head {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        align-items: center;
+        flex-wrap: wrap;
+      }
+
+      .roadmap-phase-status {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 72px;
+        padding: 4px 10px;
+        border-radius: 999px;
+        font-size: 0.82rem;
+        font-weight: 700;
+      }
+
+      .roadmap-phase-status.done {
+        background: #dcfce7;
+        color: #15803d;
+      }
+
+      .roadmap-phase-status.current {
+        background: #dbeafe;
+        color: #1d4ed8;
+      }
+
+      .roadmap-phase-status.next {
+        background: #ede9fe;
+        color: #6d28d9;
+      }
+
+      .roadmap-phase-status.future,
+      .roadmap-phase-status.unset {
+        background: #e2e8f0;
+        color: #334155;
+      }
+
+      .roadmap-phase-item.current {
+        border-color: #93c5fd;
+        background: #eff6ff;
+      }
+
+      .roadmap-phase-item.next {
+        border-color: #c4b5fd;
+      }
+
+      .roadmap-phase-meta {
+        color: #64748b;
+        font-size: 0.9rem;
+      }
+
+      .phase-kpi-badge {
+        display: inline-flex;
+        width: fit-content;
+        margin-top: 8px;
+        padding: 4px 8px;
+        border-radius: 999px;
+        background: #eff6ff;
+        color: #1d4ed8;
+        font-size: 0.82rem;
+        font-weight: 700;
+      }
+
+
       .task-panel-row td {
         background: #f8fafc;
       }
@@ -564,6 +681,10 @@
           font-size: 0.9rem;
         }
 
+        .overview-grid {
+          grid-template-columns: 1fr;
+        }
+
         .task-grid {
           grid-template-columns: 1fr;
         }
@@ -587,21 +708,25 @@
         <div id="kgiMeta" class="meta" hidden></div>
       </section>
 
+      <section class="card">
+        <div class="section-title-with-note">
+          <h2>ロードマップ</h2>
+          <p id="roadmapStatusText" class="hint">読み込み中...</p>
+        </div>
+        <div id="roadmapContainer"></div>
+      </section>
+
+      <section class="card">
+        <h2>現在地と次の到達点</h2>
+        <div id="currentLocationContainer" class="location-grid">
+          <p class="hint">ロードマップを確認中...</p>
+        </div>
+      </section>
+
       <section class="card next-action-card">
         <h2>今やるべきこと</h2>
         <div id="nextActionContainer" class="next-action-body">
           <p class="hint">算出中...</p>
-        </div>
-      </section>
-
-      <section class="card summary-card">
-        <p class="summary-label">KGI全体進捗</p>
-        <p id="overallProgressValue" class="summary-value">0%</p>
-        <div class="progress-wrap">
-          <div class="progress-bar" aria-label="KGI全体進捗バー">
-            <div id="overallProgressFill" class="progress-fill"></div>
-          </div>
-          <p id="overallProgressCaption" class="progress-label">KPIがありません</p>
         </div>
       </section>
 
@@ -654,6 +779,7 @@
 
       <section class="card">
         <h2>KPI一覧</h2>
+        <p class="hint">ロードマップ各フェーズの進行指標として表示します。</p>
         <p id="kpiStatusText" class="hint">読み込み中...</p>
         <table id="kpiTable" hidden>
           <thead>
