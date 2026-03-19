@@ -720,6 +720,113 @@ const displayDescription = (description) => {
   return trimmed || "-";
 };
 
+const getSimpleName = (kpi) => {
+  if (typeof kpi?.simpleName === "string" && kpi.simpleName.trim()) {
+    return kpi.simpleName.trim();
+  }
+
+  if (typeof kpi?.name === "string" && kpi.name.trim()) {
+    return kpi.name.trim();
+  }
+
+  return "";
+};
+
+const getSimpleDescription = (kpi) => {
+  if (typeof kpi?.simpleDescription === "string" && kpi.simpleDescription.trim()) {
+    return kpi.simpleDescription.trim();
+  }
+
+  if (typeof kpi?.description === "string" && kpi.description.trim()) {
+    return kpi.description.trim();
+  }
+
+  return "";
+};
+
+const buildSimpleKpiFallback = ({ name = "", description = "" }) => ({
+  simpleName: typeof name === "string" && name.trim() ? name.trim() : "KPI",
+  simpleDescription: typeof description === "string" && description.trim() ? description.trim() : "説明なし"
+});
+
+const fetchSimpleKpi = async ({ name = "", description = "", type = "result", targetValue = null }) => {
+  const fallback = buildSimpleKpiFallback({ name, description });
+
+  try {
+    const response = await fetch("/api/simplify-kpi", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        name,
+        description,
+        type: type === "action" ? "action" : "result",
+        targetValue
+      })
+    });
+
+    const responseText = await response.text();
+    let data = null;
+
+    if (responseText) {
+      try {
+        data = JSON.parse(responseText);
+      } catch (parseError) {
+        console.error("Failed to parse /api/simplify-kpi response as JSON", parseError, responseText);
+      }
+    }
+
+    if (!response.ok) {
+      const apiErrorMessage = typeof data?.error === "string" ? data.error : `HTTP ${response.status}`;
+      throw new Error(apiErrorMessage);
+    }
+
+    return {
+      simpleName: typeof data?.simpleName === "string" && data.simpleName.trim() ? data.simpleName.trim() : fallback.simpleName,
+      simpleDescription: typeof data?.simpleDescription === "string" && data.simpleDescription.trim() ? data.simpleDescription.trim() : fallback.simpleDescription
+    };
+  } catch (error) {
+    console.error("Failed to simplify KPI", error);
+    return fallback;
+  }
+};
+
+const ensureSimpleKpiFields = async (kpi) => {
+  if (!kpi?.id) {
+    return {
+      ...kpi,
+      ...buildSimpleKpiFallback(kpi ?? {})
+    };
+  }
+
+  if (typeof kpi.simpleName === "string" && kpi.simpleName.trim() && typeof kpi.simpleDescription === "string" && kpi.simpleDescription.trim()) {
+    return kpi;
+  }
+
+  const simplified = await fetchSimpleKpi({
+    name: kpi.name ?? "",
+    description: kpi.description ?? "",
+    type: kpi.type ?? kpi.kpiType ?? "result",
+    targetValue: kpi.targetValue ?? kpi.target ?? null
+  });
+
+  try {
+    await updateDoc(getKpiRef(kpi.id), {
+      simpleName: simplified.simpleName,
+      simpleDescription: simplified.simpleDescription,
+      updatedAt: serverTimestamp()
+    });
+  } catch (error) {
+    console.error("Failed to persist simplified KPI fields", error);
+  }
+
+  return {
+    ...kpi,
+    ...simplified
+  };
+};
+
 const parsePositiveNumber = (value, fallback = 0) => {
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
@@ -1933,14 +2040,25 @@ const renderKpiTable = (kpis) => {
     const remaining = calcRemainingDays(deadline === "未設定" ? "" : deadline);
     const currentValue = parsePositiveNumber(kpi.currentValue, 0);
 
+    const simpleName = getSimpleName(kpi);
+    const simpleDescription = getSimpleDescription(kpi);
+    const originalName = typeof kpi.name === "string" && kpi.name.trim() ? kpi.name.trim() : "-";
+    const originalDescription = displayDescription(kpi.description);
+
     row.innerHTML = `
-      <td>${kpi.name ?? ""}</td>
-      <td>${displayDescription(kpi.description)}</td>
+      <td>
+        <strong>${escapeHtml(simpleName || "-")}</strong>
+        ${simpleName && simpleName !== originalName ? `<div class="hint">元のKPI: ${escapeHtml(originalName)}</div>` : ""}
+      </td>
+      <td>
+        <div>${escapeHtml(simpleDescription || "-")}</div>
+        ${simpleDescription && simpleDescription !== originalDescription && originalDescription !== "-" ? `<div class="hint">元の説明: ${escapeHtml(originalDescription)}</div>` : ""}
+      </td>
       <td>${kpi.kpiType === "action" ? "action" : "result"}</td>
       <td>${currentValue}</td>
       <td class="kpi-progress-cell">
         <div class="progress-wrap">
-          <div class="progress-bar" aria-label="${kpi.name ?? "KPI"}の進捗バー">
+          <div class="progress-bar" aria-label="${escapeHtml(simpleName || kpi.name || "KPI")}の進捗バー">
             <div class="progress-fill" style="width: ${progressPercent}%"></div>
           </div>
           <p class="progress-label">${formatPercent(progressPercent)}</p>
@@ -2051,7 +2169,8 @@ const loadKpis = async () => {
 
   const kpisWithTasks = await Promise.all(
     kpis.map(async (kpi) => {
-      const synced = await syncKpiProgressFromTasks(kpi.id, kpi);
+      const kpiWithSimpleFields = await ensureSimpleKpiFields(kpi);
+      const synced = await syncKpiProgressFromTasks(kpi.id, kpiWithSimpleFields);
       const tasks = synced.tasks;
 
       const taskDebugItems = synced.tasks.map((task) => ({
@@ -2064,7 +2183,7 @@ const loadKpis = async () => {
       }));
 
       return {
-        ...kpi,
+        ...kpiWithSimpleFields,
         currentValue: synced.currentValue,
         progress: synced.progress,
         tasks,
@@ -2214,10 +2333,19 @@ aiSuggestionsContainer?.addEventListener("click", async (event) => {
   renderAiSuggestions();
 
   try {
+    const simplified = await fetchSimpleKpi({
+      name: payload.name,
+      description: payload.description,
+      type: payload.type,
+      targetValue: payload.target
+    });
+
     await addDoc(getKpisRef(), {
       kgiId: payload.kgiId,
       name: payload.name,
       description: payload.description,
+      simpleName: simplified.simpleName,
+      simpleDescription: simplified.simpleDescription,
       target: payload.target,
       targetValue: payload.target,
       type: payload.type,
@@ -2321,10 +2449,19 @@ addKpiButton.addEventListener("click", async () => {
   try {
     const existingSnapshot = await getDocs(getKpisQuery());
 
+    const simplified = await fetchSimpleKpi({
+      name,
+      description,
+      type: kpiType,
+      targetValue: 100
+    });
+
     await addDoc(getKpisRef(), {
       kgiId,
       name,
       description,
+      simpleName: simplified.simpleName,
+      simpleDescription: simplified.simpleDescription,
       type: kpiType,
       kpiType,
       progressType: "task_based",
