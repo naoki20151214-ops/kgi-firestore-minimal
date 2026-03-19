@@ -2,20 +2,26 @@ declare const process: { env: Record<string, string | undefined> };
 
 const OPENAI_API_URL = "https://api.openai.com/v1/responses";
 
-const SYSTEM_PROMPT = `あなたは実行支援の専門家です。
-与えられたタスクを、今すぐやる小ステップ3件に分解してください。
+const SYSTEM_PROMPT = `あなたは既存の KGI / KPI / Task 管理アプリの小ステップ生成AIです。
+目的は「ユーザーが考えずにすぐ行動できる小ステップを作ること」です。
 
 最重要ルール:
-- 返す件数は必ず3件ちょうど
+- 思考を必要とさせない
+- 見た瞬間に何をするか分かる
+- 手を動かす行動だけを書く
+- 曖昧な表現は禁止
+- 必ず具体物（数・対象・場所）を含める
+- 1ステップ＝1行動のみ
+- 3件ちょうど出す
 - 各ステップは1文のみ
-- 各ステップは5〜10分以内で着手できる行動にする
-- 1ステップにつき1行動だけを書く
-- 専門用語、カタカナ語、略語はなるべく避ける
-- 抽象表現は避け、手を動かす行動にする
-- 「考える」「整理する」「確認する」だけで終わらせない
-- 1件目は最初の一歩、2件目は準備、3件目は実行に近い行動にする
-- 必要なら短い補足を丸かっこで入れてよい
+- 5〜10分以内に着手できる内容にする
+- 最初の1件は「開く」または「始める」だけの行動にする
+- 順番は「開始 → 準備 → 実行」にする
+- 「考える」「検討する」「整理する」は使わない
+- 専門用語は極力使わない
+- 必要なら短い補足を（）で入れる
 - 出力は JSON のみ
+- steps 配列の各要素はラベルなしの文だけを入れる
 - 日本語で返す`;
 
 const STEP_RESPONSE_SCHEMA = {
@@ -50,6 +56,7 @@ type RequestBody = {
   taskTitle?: unknown;
   taskDescription?: unknown;
   kpiName?: unknown;
+  adaptationHints?: unknown;
   recentReflections?: RecentReflection[];
 };
 
@@ -67,13 +74,13 @@ type StepParseResult = {
 
 const COMMENT_DIFFICULTY_KEYWORDS = ["難しい", "分からない", "わからない", "専門用語", "大変"];
 const MAX_ADAPTATION_HINTS = 5;
-const STEP_LABELS = ["まずやる", "次にやる", "その次"];
 const ABSTRACT_STEP_PATTERNS = ["整理", "検討", "確認", "見直", "考え", "把握", "対応", "準備", "相談", "共有", "調整", "分析", "設計", "改善", "最適化"];
-const CONCRETE_STEP_PATTERNS = ["ファイル", "表", "一覧", "URL", "件", "行", "列", "項目", "メモ", "下書き", "タイトル", "数字", "社", "人", "回", "つ", "画面", "シート", "手順", "期限", "担当", "リンク"];
+const CONCRETE_STEP_PATTERNS = ["ファイル", "表", "一覧", "URL", "件", "行", "列", "項目", "メモ", "下書き", "タイトル", "数字", "社", "人", "回", "つ", "画面", "シート", "手順", "期限", "担当", "リンク", "ページ", "フォルダ", "メッセージ", "画像", "番号", "場所"];
+const BANNED_STEP_PATTERNS = ["考える", "検討する", "整理する"];
 const FALLBACK_STEPS = [
-  "Taskの内容を1回読み、最初に触る対象を1つ決める",
-  "必要な作業を3つの短い行動に分けて1行ずつメモする",
-  "分けた作業の1件目を5分だけ進める"
+  "作業する画面を1つ開く",
+  "使う項目を3つメモに書く",
+  "1件だけ手を動かして更新する"
 ] as const;
 
 const isNonEmptyString = (value: unknown): value is string => typeof value === "string" && value.trim().length > 0;
@@ -139,6 +146,26 @@ const buildAdaptationHints = (recentReflections: NormalizedReflection[]) => {
   return Array.from(hintSet).slice(0, MAX_ADAPTATION_HINTS);
 };
 
+const normalizeUserAdaptationHints = (value: unknown) => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((item) => typeof item === "string" ? item.trim() : "")
+    .filter((item) => item.length > 0)
+    .slice(0, MAX_ADAPTATION_HINTS);
+};
+
+const mergeAdaptationHints = (recentReflections: NormalizedReflection[], userAdaptationHints: string[]) => {
+  const merged = new Set<string>();
+
+  buildAdaptationHints(recentReflections).forEach((hint) => merged.add(hint));
+  userAdaptationHints.forEach((hint) => merged.add(hint));
+
+  return Array.from(merged).slice(0, MAX_ADAPTATION_HINTS);
+};
+
 const compressTaskDescription = (taskDescription: string) => {
   if (!isNonEmptyString(taskDescription)) {
     return "未設定";
@@ -159,13 +186,17 @@ const buildAdaptationPromptLines = (adaptationHints: string[]) => {
   }
 
   const hintMap: Record<string, string> = {
-    "専門用語を減らす": "専門用語・カタカナ語・略語を減らし、必要なら短い言い換えを入れる",
+    "専門用語を減らす": "難しい言葉を避け、短い言い換えを入れる",
     "小さなステップに分ける": "各ステップをさらに細かくし、1ステップ1行動に限定する",
-    "説明を増やす": "1文の中に短い補足を入れて、迷わず動ける形にする",
-    "準備タスクから始める": "いきなり本作業に入らず、最初は準備タスクから始める",
-    "一度に要求する作業量を減らす": "最初に扱う件数や量を減らし、小さく始める",
-    "順番を明確にする": "迷わない順序にして、最初の一歩をいちばん簡単にする",
-    "曖昧な表現を避ける": "抽象語を避け、対象・件数・項目を入れて具体化する"
+    "説明を増やす": "短い補足を（）で足して、見た瞬間に分かる文にする",
+    "準備タスクから始める": "1件目は開く・始めるだけの行動にする",
+    "一度に要求する作業量を減らす": "最初に扱う件数を5件以下に減らす",
+    "順番を明確にする": "開始 → 準備 → 実行の順番を守る",
+    "曖昧な表現を避ける": "対象・件数・場所を入れて具体化する",
+    "難しい": "難しい言葉をやめて、やることを短く書く",
+    "時間がかかる": "件数を減らし、最初は5件以下にする",
+    "分かりにくい": "短い補足を（）で入れる",
+    "細かくしたい": "作業をもっと細かく分ける"
   };
 
   return adaptationHints
@@ -190,12 +221,13 @@ const buildStepPrompt = ({
   return [
     `KPI名: ${kpiName}`,
     `Task名: ${taskTitle}`,
-    `Task補足説明(重要部分のみ): ${compactTaskDescription}`,
+    `taskDescription: ${compactTaskDescription}`,
     adaptationPromptLines.length > 0
-      ? `振り返り反映ルール:
+      ? `adaptationHints:
 - ${adaptationPromptLines.join("\n- ")}`
       : "",
-    "今すぐやる小ステップを3件ちょうど、JSONのみで返してください。"
+    "出力形式は {\"steps\":[\"開始の文\",\"準備の文\",\"実行の文\"] } のみです。",
+    "各文に具体物（数・対象・場所）を必ず入れてください。"
   ].filter(Boolean).join("\n");
 };
 
@@ -248,49 +280,24 @@ const sanitizeSteps = (steps: unknown) => {
     .slice(0, 3);
 };
 
-const normalizeStepText = (step: string) => typeof step === "string" ? step.replace(/^（?(まずやる|次にやる|その次)[:：]\s*/, "").trim() : "";
-
-const shortenStepText = (step: string) => {
-  const normalized = normalizeStepText(step).replace(/[。.!?]+$/g, "").trim();
-
-  if (!normalized) {
-    return "";
-  }
-
-  if (normalized.length <= 80) {
-    return normalized;
-  }
-
-  const compact = normalized
-    .replace(/、[^、]{16,}$/, "")
-    .replace(/（[^）]{20,}）/g, "")
-    .trim();
-
-  return compact.slice(0, 80).trim();
-};
+const normalizeStepText = (step: string) => typeof step === "string"
+  ? step.replace(/^（?(まずやる|次にやる|その次|手順\d+)[:：]\s*/, "").replace(/[。.!?]+$/g, "").replace(/\s+/g, " ").trim()
+  : "";
 
 const ensureConcreteStep = (step: string, index: number) => {
-  const shortened = shortenStepText(step);
-  const normalized = normalizeStepText(shortened);
+  const normalized = normalizeStepText(step);
   const hasConcreteToken = CONCRETE_STEP_PATTERNS.some((pattern) => normalized.includes(pattern)) || /\d/.test(normalized);
+  const containsBannedPattern = BANNED_STEP_PATTERNS.some((pattern) => normalized.includes(pattern));
 
   if (!normalized) {
     return FALLBACK_STEPS[index] || FALLBACK_STEPS[FALLBACK_STEPS.length - 1];
   }
 
-  if (hasConcreteToken) {
-    return normalized;
+  if (!hasConcreteToken || containsBannedPattern) {
+    return FALLBACK_STEPS[index] || FALLBACK_STEPS[FALLBACK_STEPS.length - 1];
   }
 
-  if (index === 0) {
-    return `${normalized}対象を1つ決めてメモする`;
-  }
-
-  if (index === 1) {
-    return `${normalized}ための項目を3つ書く`;
-  }
-
-  return `${normalized}結果を1行メモする`;
+  return normalized;
 };
 
 const isAbstractStep = (step: string) => {
@@ -304,8 +311,6 @@ const isAbstractStep = (step: string) => {
   return matchedAbstract && !hasConcreteToken;
 };
 
-const addStepLabels = (steps: string[]) => steps.map((step, index) => `${STEP_LABELS[index] || `手順${index + 1}`}：${ensureConcreteStep(step, index)}`);
-
 const hasLowQualitySteps = (steps: string[]) => {
   const normalized = steps.map((step) => normalizeStepText(step)).filter(Boolean);
 
@@ -313,15 +318,18 @@ const hasLowQualitySteps = (steps: string[]) => {
     return true;
   }
 
-  const tooLong = normalized.some((step) => step.length > 80);
-  const tooAbstractCount = normalized.filter((step) => isAbstractStep(step)).length;
-  const duplicateRoots = new Set(normalized.map((step) => step.replace(/[0-9０-９]/g, "").slice(0, 12)));
-  const lacksConcreteTarget = normalized.filter((step) => CONCRETE_STEP_PATTERNS.some((pattern) => step.includes(pattern)) || /\d/.test(step)).length === 0;
+  if (!/^(開く|始める)/.test(normalized[0])) {
+    return true;
+  }
 
-  return tooLong || tooAbstractCount >= 2 || duplicateRoots.size <= 1 || lacksConcreteTarget;
+  return normalized.some((step, index) => {
+    const hasConcreteToken = CONCRETE_STEP_PATTERNS.some((pattern) => step.includes(pattern)) || /\d/.test(step);
+    const containsBannedPattern = BANNED_STEP_PATTERNS.some((pattern) => step.includes(pattern));
+    return step.length > 60 || isAbstractStep(step) || !hasConcreteToken || containsBannedPattern || (index > 0 && /^(開く|始める)$/.test(step));
+  });
 };
 
-const reshapeSteps = (steps: string[]) => addStepLabels(steps.map((step, index) => ensureConcreteStep(step, index))).slice(0, 3);
+const reshapeSteps = (steps: string[]) => steps.map((step, index) => ensureConcreteStep(step, index)).slice(0, 3);
 
 const isSameStepSet = (steps: string[]) => steps.length === FALLBACK_STEPS.length && steps.every((step, index) => normalizeStepText(step) === FALLBACK_STEPS[index]);
 
@@ -330,29 +338,29 @@ const buildFallbackSteps = (taskTitle: string) => {
 
   if (/(qa|テスト|試験|検証)/i.test(normalizedTitle)) {
     return [
-      "まずやる：テスト対象を1件だけ決めて開く",
-      "次にやる：再現手順を1回だけ試す",
-      "その次：結果を1行メモする"
+      "テスト画面を1つ開く",
+      "試す手順を1行メモに書く",
+      "1件だけ操作して結果を1行書く"
     ];
   }
 
   if (/(pr|実装|修正|開発)/i.test(normalizedTitle)) {
     return [
-      "まずやる：対象ファイルを1つ開く",
-      "次にやる：直す内容を1行でメモする",
-      "その次：最初の修正を1つ入れる"
+      "対象ファイルを1つ開く",
+      "直す行を1か所メモする",
+      "1行だけ書き換えて保存する"
     ];
   }
 
   if (/(営業|顧客|商談|リード)/i.test(normalizedTitle)) {
     return [
-      "まずやる：候補を5件だけ集める",
-      "次にやる：候補を一覧に貼り付ける",
-      "その次：1件だけ送る文を作る"
+      "顧客一覧を開く",
+      "送る相手を3件メモする",
+      "1件だけ送る文を下書きする"
     ];
   }
 
-  return addStepLabels(FALLBACK_STEPS.slice());
+  return FALLBACK_STEPS.slice();
 };
 
 const getFallbackResult = (reason: string, taskTitle = ""): StepParseResult => {
@@ -399,7 +407,7 @@ const parseStepsFromOutputText = (outputText: string, taskTitle = ""): StepParse
 
     const reshapedSteps = reshapeSteps(steps);
     const needsReshape = hasLowQualitySteps(steps);
-    const finalSteps = needsReshape ? reshapedSteps : addStepLabels(steps);
+    const finalSteps = needsReshape ? reshapedSteps : steps.map((step, index) => ensureConcreteStep(step, index));
 
     console.log("[generate-next-action-steps] parse result", { endpoint: "generate-next-action-steps", parseSucceeded: true, reason: needsReshape ? "reshaped" : "ok" });
     return {
@@ -437,7 +445,8 @@ export async function POST(request: Request) {
   const taskDescription = typeof requestBody?.taskDescription === "string" ? requestBody.taskDescription.trim() : "";
   const kpiName = typeof requestBody?.kpiName === "string" ? requestBody.kpiName.trim() : "";
   const recentReflections = normalizeRecentReflections(requestBody?.recentReflections);
-  const adaptationHints = buildAdaptationHints(recentReflections);
+  const userAdaptationHints = normalizeUserAdaptationHints(requestBody?.adaptationHints);
+  const adaptationHints = mergeAdaptationHints(recentReflections, userAdaptationHints);
 
   if (!isNonEmptyString(taskTitle) || !isNonEmptyString(kpiName)) {
     return Response.json({
@@ -458,7 +467,8 @@ export async function POST(request: Request) {
         taskTitle,
         taskDescription,
         kpiName,
-        recentReflections
+        recentReflections,
+        userAdaptationHints
       },
       rawReflectionsCount: recentReflections.length,
       adaptationHints,
@@ -503,7 +513,8 @@ export async function POST(request: Request) {
           taskTitle,
           taskDescription,
           kpiName,
-          recentReflections
+          recentReflections,
+          userAdaptationHints
         }
       });
       const fallback = getFallbackResult(`upstream_status_${openAiResponse.status}`, taskTitle);
