@@ -5,6 +5,7 @@ declare const process: { env: Record<string, string | undefined> };
 const OPENAI_API_URL = "https://api.openai.com/v1/responses";
 const MAX_PHASES = 5;
 const MAX_KPIS = 12;
+const DEBUG_RETURN_RAW_RESPONSE = false;
 
 const SYSTEM_PROMPT = `あなたはロードマップの各フェーズを、初心者にも分かりやすいKPIへ分解するアシスタントです。
 目的:
@@ -20,7 +21,10 @@ const SYSTEM_PROMPT = `あなたはロードマップの各フェーズを、初
 7. name は指標名、simpleName はもっと分かりやすい表示名にする
 8. description は少し具体的に、simpleDescription はやさしく短めにする
 9. 抽象的すぎる表現は避け、Taskに落としやすい指標にする
-10. targetValue は現実的な整数にする`;
+10. targetValue は現実的な整数にする
+11. 必ずJSONのみを返す
+12. 説明文は禁止
+13. \`\`\`json のようなコードブロックも禁止`;
 
 const KPI_RESPONSE_SCHEMA = {
   name: "generate_kpis_from_roadmap_response",
@@ -32,7 +36,7 @@ const KPI_RESPONSE_SCHEMA = {
     properties: {
       kpis: {
         type: "array",
-        minItems: 2,
+        minItems: 0,
         maxItems: MAX_KPIS,
         items: {
           type: "object",
@@ -146,6 +150,10 @@ const normalizeGeneratedKpis = (value: unknown, phases: RoadmapPhase[]): Generat
     return [];
   }
 
+  if (phases.length === 0) {
+    return [];
+  }
+
   const phaseIds = new Set(phases.map((phase) => phase.id));
   const phaseCounts = new Map<string, number>();
   const phaseTypeCounts = new Map<string, { result: number; action: number }>();
@@ -195,7 +203,8 @@ const normalizeGeneratedKpis = (value: unknown, phases: RoadmapPhase[]): Generat
     return count >= 2 && typeCount.result >= 1 && typeCount.action >= 1;
   });
 
-  if (!hasMinimumBalance) {
+  if (!hasMinimumBalance && normalized.length > 0) {
+    console.warn("[generate-kpis-from-roadmap] KPI balance validation failed", { normalizedCount: normalized.length });
     return [];
   }
 
@@ -210,12 +219,19 @@ export async function POST(request: Request) {
   }
 
   const body = await request.json().catch(() => null) as GenerateKpisRequest | null;
+  console.log("input:", body);
+
   const kgiName = isNonEmptyString(body?.kgiName) ? body.kgiName.trim() : "";
   const kgiGoalText = isNonEmptyString(body?.kgiGoalText) ? body.kgiGoalText.trim() : "";
   const roadmapPhases = normalizeRoadmapPhases(body?.roadmapPhases);
+  console.log("roadmapPhases:", roadmapPhases);
 
-  if (!kgiName || roadmapPhases.length === 0) {
+  if (!kgiName) {
     return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
+  }
+
+  if (roadmapPhases.length === 0) {
+    return NextResponse.json({ kpis: [] });
   }
 
   try {
@@ -243,17 +259,37 @@ export async function POST(request: Request) {
     });
 
     const responseJson = await response.json();
-    const outputText = extractOutputText(responseJson);
-    const data = outputText ? JSON.parse(outputText) : null;
-    const kpis = normalizeGeneratedKpis(data?.kpis, roadmapPhases);
+    const rawText = extractOutputText(responseJson);
+    console.log("AI raw response:", rawText);
 
-    if (!response.ok || kpis.length === 0) {
-      return NextResponse.json({ error: responseJson?.error?.message || "ロードマップからのKPI生成に失敗しました" }, { status: response.ok ? 500 : response.status });
+    if (DEBUG_RETURN_RAW_RESPONSE) {
+      return NextResponse.json({
+        debug: true,
+        raw: rawText
+      });
     }
 
+    if (!response.ok) {
+      return NextResponse.json({ error: responseJson?.error?.message || "ロードマップからKPIを生成できませんでした" }, { status: response.status });
+    }
+
+    let parsed: { kpis?: unknown } | null = null;
+
+    try {
+      parsed = rawText ? JSON.parse(rawText) : null;
+    } catch (e) {
+      console.error("JSON parse error", rawText, e);
+      return NextResponse.json({ error: "invalid json" }, { status: 500 });
+    }
+
+    if (!parsed?.kpis) {
+      return NextResponse.json({ kpis: [] });
+    }
+
+    const kpis = normalizeGeneratedKpis(parsed.kpis, roadmapPhases);
     return NextResponse.json({ kpis });
   } catch (error) {
     console.error("[generate-kpis-from-roadmap]", error);
-    return NextResponse.json({ error: "ロードマップからのKPI生成に失敗しました" }, { status: 500 });
+    return NextResponse.json({ error: "ロードマップからKPIを生成できませんでした" }, { status: 500 });
   }
 }
