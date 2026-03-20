@@ -435,6 +435,90 @@
       }
 
 
+      .hint.info {
+        color: #1d4ed8;
+      }
+
+      .kpi-group-list {
+        display: grid;
+        gap: 14px;
+        margin-top: 12px;
+      }
+
+      .kpi-phase-group {
+        border: 1px solid #dbeafe;
+        border-radius: 12px;
+        background: #f8fbff;
+        overflow: hidden;
+      }
+
+      .kpi-phase-toggle {
+        width: 100%;
+        border: none;
+        background: transparent;
+        padding: 14px 16px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+        cursor: pointer;
+        font: inherit;
+      }
+
+      .kpi-phase-title {
+        font-size: 1rem;
+        font-weight: 800;
+        margin-right: 8px;
+      }
+
+      .kpi-phase-toggle-meta {
+        color: #475569;
+        font-size: 0.9rem;
+        font-weight: 700;
+      }
+
+      .kpi-phase-body {
+        display: grid;
+        gap: 12px;
+        padding: 0 16px 16px;
+      }
+
+      .kpi-card {
+        border: 1px solid #e5e7eb;
+        border-radius: 12px;
+        background: #ffffff;
+        padding: 14px;
+        display: grid;
+        gap: 12px;
+      }
+
+      .kpi-card-summary,
+      .kpi-card-detail,
+      .kpi-card-detail-block {
+        display: grid;
+        gap: 10px;
+      }
+
+      .kpi-card-meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px 12px;
+        color: #334155;
+        font-size: 0.92rem;
+      }
+
+      .kpi-card-actions {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+
+      .kpi-detail-toggle {
+        padding: 8px 12px;
+      }
+
       .task-panel-row td {
         background: #f8fafc;
       }
@@ -728,7 +812,7 @@
         <div class="roadmap-kpi-actions">
           <button id="generateRoadmapKpisButton" class="button" type="button" hidden>ロードマップからKPIを作る</button>
           <p id="roadmapKpiLoadingText" class="hint" hidden>KPIを作成中...</p>
-          <p id="roadmapKpiErrorText" class="hint error" hidden></p>
+          <p id="roadmapKpiErrorText" class="hint info" hidden></p>
         </div>
       </section>
 
@@ -797,20 +881,9 @@
         <h2>KPI一覧</h2>
         <p class="hint">ロードマップ各フェーズの進行指標として表示します。</p>
         <p id="kpiStatusText" class="hint">読み込み中...</p>
-        <table id="kpiTable" hidden>
-          <thead>
-            <tr>
-              <th>KPI名</th>
-              <th>補足説明</th>
-              <th>KPIタイプ</th>
-              <th>現在値(自動集計)</th>
-              <th>進捗率</th>
-              <th>期限</th>
-              <th>残り日数</th>
-            </tr>
-          </thead>
-          <tbody id="kpiTableBody"></tbody>
-        </table>
+        <div id="kpiTable" class="kpi-group-list" hidden>
+          <div id="kpiTableBody"></div>
+        </div>
       </section>
     </main>
 
