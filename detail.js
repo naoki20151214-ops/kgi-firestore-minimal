@@ -154,6 +154,9 @@ const emptyAiSuggestions = () => ({
 
 let aiLoading = false;
 let roadmapKpiLoading = false;
+let roadmapKpiFeedbackTone = "info";
+let roadmapPhaseOpenState = {};
+let kpiDetailOpenState = {};
 let aiSavingKey = "";
 let aiError = "";
 let aiHasGenerated = false;
@@ -326,7 +329,8 @@ const updateRoadmapKpiButtonState = (kpiCount = latestRenderedKpis.length) => {
   const canGenerate = Boolean(currentKgiData) && currentRoadmapPhases.length > 0;
   generateRoadmapKpisButton.hidden = !canGenerate;
   generateRoadmapKpisButton.disabled = !canGenerate || roadmapKpiLoading;
-  generateRoadmapKpisButton.classList.toggle("attention", canGenerate && kpiCount === 0);
+  generateRoadmapKpisButton.textContent = roadmapKpiLoading ? "KPIを作成中..." : "ロードマップからKPIを作る";
+  generateRoadmapKpisButton.classList.toggle("attention", canGenerate && kpiCount === 0 && !roadmapKpiLoading);
 };
 
 const disableKpiActions = () => {
@@ -400,24 +404,27 @@ const displaySuggestionText = (value) => {
   return trimmed || "-";
 };
 
-const setRoadmapKpiError = (message = "") => {
+const setRoadmapKpiError = (message = "", tone = roadmapKpiFeedbackTone) => {
+  roadmapKpiFeedbackTone = tone;
+
   if (!roadmapKpiErrorText) {
     return;
   }
 
   roadmapKpiErrorText.textContent = message;
   roadmapKpiErrorText.hidden = !message;
+  roadmapKpiErrorText.classList.toggle("error", tone === "error");
+  roadmapKpiErrorText.classList.toggle("info", tone !== "error");
 };
 
 const setRoadmapKpiLoading = (nextLoading) => {
   roadmapKpiLoading = nextLoading;
-
-  if (generateRoadmapKpisButton) {
-    generateRoadmapKpisButton.disabled = nextLoading || !currentKgiData || currentRoadmapPhases.length === 0;
-  }
+  persistRoadmapKpiLoadingState();
+  updateRoadmapKpiButtonState();
 
   if (roadmapKpiLoadingText) {
     roadmapKpiLoadingText.hidden = !nextLoading;
+    roadmapKpiLoadingText.textContent = nextLoading ? "KPIを作成中... 完了まで再押下できません。" : "";
   }
 };
 
@@ -815,7 +822,55 @@ const buildRoadmapPhaseSummary = (phases = currentRoadmapPhases) => (Array.isArr
   status: phase.status
 }));
 
-const buildPhaseNameNameKey = (phaseId, name) => `${String(phaseId || "").trim()}::${String(name || "").trim()}`;
+const normalizeKpiDuplicateText = (value) => String(value ?? "")
+  .normalize("NFKC")
+  .replace(/[\s\u3000]+/g, "")
+  .trim()
+  .toLowerCase();
+
+const buildPhaseNameNameKey = (phaseId, name) => `${normalizeKpiDuplicateText(phaseId)}::${normalizeKpiDuplicateText(name)}`;
+
+const ROADMAP_KPI_LOADING_MAX_AGE_MS = 2 * 60 * 1000;
+const getRoadmapKpiLoadingStorageKey = () => kgiId ? `kgi-detail-roadmap-kpi-loading:${kgiId}` : "";
+
+const persistRoadmapKpiLoadingState = () => {
+  const storageKey = getRoadmapKpiLoadingStorageKey();
+
+  if (!storageKey) {
+    return;
+  }
+
+  try {
+    if (roadmapKpiLoading) {
+      window.sessionStorage.setItem(storageKey, JSON.stringify({ status: "loading", startedAt: Date.now() }));
+    } else {
+      window.sessionStorage.removeItem(storageKey);
+    }
+  } catch (error) {
+    console.error("Failed to persist roadmap KPI loading state", error);
+  }
+};
+
+const restoreRoadmapKpiLoadingState = () => {
+  const storageKey = getRoadmapKpiLoadingStorageKey();
+
+  if (!storageKey) {
+    return false;
+  }
+
+  try {
+    const raw = window.sessionStorage.getItem(storageKey);
+    if (!raw) {
+      return false;
+    }
+
+    const parsed = JSON.parse(raw);
+    return parsed?.status === "loading" && Number.isFinite(parsed?.startedAt) && Date.now() - parsed.startedAt < ROADMAP_KPI_LOADING_MAX_AGE_MS;
+  } catch (error) {
+    console.error("Failed to restore roadmap KPI loading state", error);
+    return false;
+  }
+};
 
 const requestRoadmapGeneratedKpis = async () => {
   const fetchUrl = "/api/generate-kpis-from-roadmap";
@@ -865,11 +920,13 @@ const saveRoadmapGeneratedKpis = async (generatedKpis) => {
   const now = serverTimestamp();
   let nextOrder = existingSnapshot.size;
   let savedCount = 0;
+  let skippedCount = 0;
 
   generatedKpis.forEach((kpi) => {
     const duplicateKey = buildPhaseNameNameKey(kpi?.phaseId, kpi?.name);
 
-    if (existingKeys.has(duplicateKey)) {
+    if (!duplicateKey || existingKeys.has(duplicateKey)) {
+      skippedCount += 1;
       return;
     }
 
@@ -877,10 +934,10 @@ const saveRoadmapGeneratedKpis = async (generatedKpis) => {
     const nestedRef = doc(getNestedKpisRef(), topLevelRef.id);
     const payload = {
       kgiId,
-      name: kpi.name,
-      description: kpi.description,
-      simpleName: kpi.simpleName,
-      simpleDescription: kpi.simpleDescription,
+      name: String(kpi.name ?? "").trim(),
+      description: String(kpi.description ?? "").trim(),
+      simpleName: String(kpi.simpleName ?? kpi.name ?? "").trim(),
+      simpleDescription: String(kpi.simpleDescription ?? kpi.description ?? "").trim(),
       type: kpi.type,
       kpiType: kpi.type,
       target: Number(kpi.targetValue),
@@ -890,7 +947,7 @@ const saveRoadmapGeneratedKpis = async (generatedKpis) => {
       unit: "pt",
       progress: 0,
       percentage: 0,
-      phaseId: kpi.phaseId,
+      phaseId: String(kpi.phaseId ?? "").trim(),
       status: "active",
       priority: 2,
       order: nextOrder,
@@ -909,7 +966,76 @@ const saveRoadmapGeneratedKpis = async (generatedKpis) => {
     await batch.commit();
   }
 
-  return savedCount;
+  return { savedCount, skippedCount };
+};
+
+const getPhaseStatusRank = (status) => ({ current: 0, next: 1, future: 2, done: 3 }[normalizeRoadmapStatus(status)] ?? 4);
+
+const getPhaseSectionTitle = (phase) => phase?.title || "未分類";
+
+const getPhaseSectionStatusLabel = (phase) => {
+  if (!phase?.id) {
+    return "未分類";
+  }
+
+  return ROADMAP_STATUS_LABELS[normalizeRoadmapStatus(phase.status)] ?? "予定";
+};
+
+const ensurePhaseOpenState = (phaseGroups, phases = currentRoadmapPhases) => {
+  const currentPhaseId = getCurrentRoadmapPhase(phases)?.id ?? "";
+  const nextState = {};
+
+  phaseGroups.forEach((group, index) => {
+    const key = group.key;
+    if (Object.prototype.hasOwnProperty.call(roadmapPhaseOpenState, key)) {
+      nextState[key] = roadmapPhaseOpenState[key];
+      return;
+    }
+
+    nextState[key] = Boolean(currentPhaseId) ? group.phaseId === currentPhaseId : index === 0;
+  });
+
+  roadmapPhaseOpenState = nextState;
+};
+
+const buildPhaseGroups = (kpis, phases = currentRoadmapPhases) => {
+  const phaseMap = new Map((Array.isArray(phases) ? phases : []).map((phase) => [phase.id, phase]));
+  const grouped = new Map();
+
+  (Array.isArray(kpis) ? kpis : []).forEach((kpi) => {
+    const phaseId = typeof kpi?.phaseId === "string" ? kpi.phaseId.trim() : "";
+    const groupKey = phaseId || "unclassified";
+
+    if (!grouped.has(groupKey)) {
+      grouped.set(groupKey, []);
+    }
+
+    grouped.get(groupKey).push(kpi);
+  });
+
+  return Array.from(grouped.entries())
+    .map(([groupKey, items]) => {
+      const phase = phaseMap.get(groupKey) ?? null;
+      return {
+        phaseId: phase?.id ?? "",
+        key: groupKey,
+        title: getPhaseSectionTitle(phase),
+        status: phase?.status ?? "future",
+        statusLabel: getPhaseSectionStatusLabel(phase),
+        description: phase?.description ?? "",
+        items
+      };
+    })
+    .sort((a, b) => {
+      const rankDiff = getPhaseStatusRank(a.status) - getPhaseStatusRank(b.status);
+      if (rankDiff !== 0) {
+        return rankDiff;
+      }
+
+      const indexA = phases.findIndex((phase) => phase.id === a.phaseId);
+      const indexB = phases.findIndex((phase) => phase.id === b.phaseId);
+      return (indexA === -1 ? Number.MAX_SAFE_INTEGER : indexA) - (indexB === -1 ? Number.MAX_SAFE_INTEGER : indexB);
+    });
 };
 
 const getCurrentRoadmapPhase = (phases = currentRoadmapPhases) => phases.find((phase) => phase.status === "current") ?? null;
@@ -2087,6 +2213,8 @@ const getKpiRef = (kpiId) => doc(getKpisRef(), kpiId);
 const renderKgiMeta = (kgiData) => {
   currentKgiData = kgiData ?? null;
   currentRoadmapPhases = normalizeRoadmapPhases(kgiData?.roadmapPhases);
+  roadmapPhaseOpenState = {};
+  kpiDetailOpenState = {};
   const deadline = displayDeadline(kgiData.deadline);
   const deadlineInfo = calcRemainingDays(deadline === "未設定" ? "" : deadline);
 
@@ -2367,103 +2495,107 @@ const renderKpiTable = (kpis) => {
   latestRenderedKpis = Array.isArray(kpis) ? kpis : [];
   kpiTableBody.innerHTML = "";
 
-  kpis.forEach((kpi) => {
-    const row = document.createElement("tr");
-    const progressPercent = displayProgress(kpi);
-    const deadline = displayDeadline(kpi.deadline);
-    const remaining = calcRemainingDays(deadline === "未設定" ? "" : deadline);
-    const currentValue = parsePositiveNumber(kpi.currentValue, 0);
+  const phaseGroups = buildPhaseGroups(latestRenderedKpis, currentRoadmapPhases);
+  ensurePhaseOpenState(phaseGroups, currentRoadmapPhases);
 
-    const simpleName = getSimpleName(kpi);
-    const simpleDescription = getSimpleDescription(kpi);
-    const originalName = typeof kpi.name === "string" && kpi.name.trim() ? kpi.name.trim() : "-";
-    const originalDescription = displayDescription(kpi.description);
+  phaseGroups.forEach((group) => {
+    const section = document.createElement("section");
+    section.className = `kpi-phase-group ${roadmapPhaseOpenState[group.key] ? "open" : ""}`;
+    section.dataset.phaseGroup = group.key;
 
-    row.innerHTML = `
-      <td>
-        <strong>${escapeHtml(simpleName || "-")}</strong>
-        <div class="phase-kpi-badge">フェーズ: ${escapeHtml(getPhaseLabel(kpi.phaseId))}</div>
-        ${simpleName && simpleName !== originalName ? `<div class="hint">元のKPI: ${escapeHtml(originalName)}</div>` : ""}
-      </td>
-      <td>
-        <div>${escapeHtml(simpleDescription || "-")}</div>
-        ${simpleDescription && simpleDescription !== originalDescription && originalDescription !== "-" ? `<div class="hint">元の説明: ${escapeHtml(originalDescription)}</div>` : ""}
-      </td>
-      <td>${kpi.kpiType === "action" ? "action" : "result"}</td>
-      <td>${currentValue}</td>
-      <td class="kpi-progress-cell">
-        <div class="progress-wrap">
-          <div class="progress-bar" aria-label="${escapeHtml(simpleName || kpi.name || "KPI")}の進捗バー">
-            <div class="progress-fill" style="width: ${progressPercent}%"></div>
-          </div>
-          <p class="progress-label">${formatPercent(progressPercent)}</p>
-        </div>
-      </td>
-      <td>${deadline}</td>
-      <td class="${remaining.isOverdue ? "overdue-text" : ""}">${remaining.remainingText}</td>
+    const groupHeader = document.createElement("button");
+    groupHeader.type = "button";
+    groupHeader.className = "kpi-phase-toggle";
+    groupHeader.dataset.phaseToggle = group.key;
+    groupHeader.setAttribute("aria-expanded", roadmapPhaseOpenState[group.key] ? "true" : "false");
+    groupHeader.innerHTML = `
+      <span>
+        <span class="kpi-phase-title">${escapeHtml(group.title)}</span>
+        <span class="phase-kpi-badge">${escapeHtml(group.statusLabel)}</span>
+      </span>
+      <span class="kpi-phase-toggle-meta">${group.items.length}件 / ${roadmapPhaseOpenState[group.key] ? "閉じる" : "開く"}</span>
     `;
+    section.appendChild(groupHeader);
 
-    const taskPanelRow = document.createElement("tr");
-    const tasks = Array.isArray(kpi.tasks) ? kpi.tasks : [];
-    taskPanelRow.className = "task-panel-row";
-    taskPanelRow.innerHTML = `
-      <td colspan="7">
-        <div class="task-panel">
-          <h3 class="task-panel-title">Task</h3>
-          <form class="task-form" data-kpi-id="${kpi.id}">
-            <div class="task-grid">
-              <label>
-                Task名
-                <input name="title" type="text" placeholder="例: LPの改善案を3つ作る" required />
-              </label>
-              <label>
-                補足説明
-                <input name="description" type="text" placeholder="任意" />
-              </label>
-              <label>
-                タイプ
-                <select name="type" class="task-type-select">
-                  <option value="one_time">one_time</option>
-                  <option value="repeatable">repeatable</option>
-                </select>
-              </label>
-              <label>
-                進捗値
-                <input name="progressValue" type="number" min="0" step="1" value="1" required />
-              </label>
-              <label>
-                期限
-                <input name="deadline" type="date" />
-              </label>
-              <label>
-                優先度
-                <input name="priority" type="number" min="1" step="1" value="2" />
-              </label>
-              <label>
-                担当
-                <input name="assignee" type="text" placeholder="例: 自分、ナオキ、外注先A" />
-              </label>
-              <label>
-                完了条件
-                <input name="doneDefinition" type="text" placeholder="例: PR作成まで、承認取得まで、初回送信20件完了まで" />
-              </label>
-              <label>
-                メモ
-                <input name="ticketNote" type="text" placeholder="任意" />
-              </label>
+    const phaseBody = document.createElement("div");
+    phaseBody.className = "kpi-phase-body";
+    phaseBody.hidden = !roadmapPhaseOpenState[group.key];
+
+    if (group.description) {
+      const desc = document.createElement("p");
+      desc.className = "hint";
+      desc.textContent = group.description;
+      phaseBody.appendChild(desc);
+    }
+
+    group.items.forEach((kpi) => {
+      const progressPercent = displayProgress(kpi);
+      const deadline = displayDeadline(kpi.deadline);
+      const remaining = calcRemainingDays(deadline === "未設定" ? "" : deadline);
+      const currentValue = parsePositiveNumber(kpi.currentValue, 0);
+      const simpleName = getSimpleName(kpi);
+      const simpleDescription = getSimpleDescription(kpi);
+      const originalName = typeof kpi.name === "string" && kpi.name.trim() ? kpi.name.trim() : "-";
+      const originalDescription = displayDescription(kpi.description);
+      const isOpen = Boolean(kpiDetailOpenState[kpi.id]);
+      const tasks = Array.isArray(kpi.tasks) ? kpi.tasks : [];
+
+      const article = document.createElement("article");
+      article.className = `kpi-card ${isOpen ? "open" : ""}`;
+      article.innerHTML = `
+        <div class="kpi-card-summary">
+          <div class="kpi-card-main">
+            <strong>${escapeHtml(simpleName || "-")}</strong>
+            <p class="hint">${escapeHtml(simpleDescription || "-")}</p>
+            ${simpleName && simpleName !== originalName ? `<p class="hint">元のKPI: ${escapeHtml(originalName)}</p>` : ""}
+          </div>
+          <div class="kpi-card-meta">
+            <span>進捗 ${formatPercent(progressPercent)}</span>
+            <span>タイプ ${escapeHtml(kpi.kpiType === "action" ? "action" : "result")}</span>
+            <span>期限 ${escapeHtml(deadline)}</span>
+            <span class="${remaining.isOverdue ? "overdue-text" : ""}">${escapeHtml(remaining.remainingText)}</span>
+          </div>
+          <div class="progress-wrap">
+            <div class="progress-bar" aria-label="${escapeHtml(simpleName || kpi.name || "KPI")}の進捗バー">
+              <div class="progress-fill" style="width: ${progressPercent}%"></div>
             </div>
-            <button class="button task-add-button" type="submit">Taskを追加</button>
-          </form>
-          ${renderTaskSuggestionList(kpi)}
-          <div class="task-list-wrap">
-            ${renderTaskRows(kpi.id, tasks)}
+          </div>
+          <div class="kpi-card-actions">
+            <span class="hint">現在値: ${currentValue}</span>
+            <button class="button secondary kpi-detail-toggle" type="button" data-kpi-toggle="${kpi.id}" aria-expanded="${isOpen ? "true" : "false"}">${isOpen ? "閉じる" : "開く"}</button>
           </div>
         </div>
-      </td>
-    `;
+        <div class="kpi-card-detail" ${isOpen ? "" : "hidden"}>
+          <div class="kpi-card-detail-block">
+            <div><strong>説明</strong><div>${escapeHtml(simpleDescription || "-")}</div></div>
+            ${simpleDescription && simpleDescription !== originalDescription && originalDescription !== "-" ? `<div><strong>元の説明</strong><div>${escapeHtml(originalDescription)}</div></div>` : ""}
+          </div>
+          <div class="task-panel">
+            <h3 class="task-panel-title">Task</h3>
+            <form class="task-form" data-kpi-id="${kpi.id}">
+              <div class="task-grid">
+                <label>Task名<input name="title" type="text" placeholder="例: LPの改善案を3つ作る" required /></label>
+                <label>補足説明<input name="description" type="text" placeholder="任意" /></label>
+                <label>タイプ<select name="type" class="task-type-select"><option value="one_time">one_time</option><option value="repeatable">repeatable</option></select></label>
+                <label>進捗値<input name="progressValue" type="number" min="0" step="1" value="1" required /></label>
+                <label>期限<input name="deadline" type="date" /></label>
+                <label>優先度<input name="priority" type="number" min="1" step="1" value="2" /></label>
+                <label>担当<input name="assignee" type="text" placeholder="例: 自分、ナオキ、外注先A" /></label>
+                <label>完了条件<input name="doneDefinition" type="text" placeholder="例: PR作成まで、承認取得まで、初回送信20件完了まで" /></label>
+                <label>メモ<input name="ticketNote" type="text" placeholder="任意" /></label>
+              </div>
+              <button class="button task-add-button" type="submit">Taskを追加</button>
+            </form>
+            ${renderTaskSuggestionList(kpi)}
+            <div class="task-list-wrap">${renderTaskRows(kpi.id, tasks)}</div>
+          </div>
+        </div>
+      `;
+      phaseBody.appendChild(article);
+    });
 
-    kpiTableBody.appendChild(row);
-    kpiTableBody.appendChild(taskPanelRow);
+    section.appendChild(phaseBody);
+    kpiTableBody.appendChild(section);
   });
 };
 
@@ -2583,7 +2715,7 @@ const loadKpis = async () => {
 
   renderAiSuggestions();
   kpiTable.hidden = false;
-  setKpiStatus(`${snapshot.size}件のKPIを表示しています。`);
+  setKpiStatus(`${snapshot.size}件のKPIを表示しています。必要なKPIだけ開いて確認できます。`);
 };
 
 aiSuggestionsContainer?.addEventListener("click", async (event) => {
@@ -2719,14 +2851,26 @@ generateRoadmapKpisButton?.addEventListener("click", async () => {
 
   try {
     const generatedKpis = await requestRoadmapGeneratedKpis();
-    const savedCount = await saveRoadmapGeneratedKpis(generatedKpis);
+    const { savedCount, skippedCount } = await saveRoadmapGeneratedKpis(generatedKpis);
     await loadKpis();
-    setRoadmapKpiError("");
-    setKpiStatus(savedCount > 0 ? `ロードマップから${savedCount}件のKPIを保存しました。` : "重複するKPIは保存せず、既存のKPIをそのまま使います。");
+
+    if (savedCount > 0 && skippedCount > 0) {
+      setRoadmapKpiError(`新規に${savedCount}件のKPIを保存しました（${skippedCount}件は既存のためスキップ）。`, "info");
+      setKpiStatus(`新規に${savedCount}件のKPIを保存しました（${skippedCount}件は既存のためスキップ）。`);
+    } else if (savedCount > 0) {
+      setRoadmapKpiError(`新規に${savedCount}件のKPIを保存しました。`, "info");
+      setKpiStatus(`新規に${savedCount}件のKPIを保存しました。`);
+    } else if (skippedCount > 0) {
+      setRoadmapKpiError("新規保存はありませんでした（既存KPIを再利用しています）。", "info");
+      setKpiStatus("新規保存はありませんでした（既存KPIを再利用しています）。");
+    } else {
+      setRoadmapKpiError("KPI候補はありましたが、保存対象はありませんでした。", "info");
+      setKpiStatus("KPI候補はありましたが、保存対象はありませんでした。");
+    }
   } catch (error) {
     console.error(error);
     const errorMessage = error instanceof Error && error.message ? error.message : "ロードマップからKPIを作成できませんでした";
-    setRoadmapKpiError(errorMessage);
+    setRoadmapKpiError(errorMessage, "error");
     setKpiStatus(`ロードマップからのKPI作成に失敗しました: ${errorMessage}`, true);
   } finally {
     setRoadmapKpiLoading(false);
@@ -2859,6 +3003,31 @@ addKpiButton.addEventListener("click", async () => {
 });
 
 kpiTableBody.addEventListener("click", async (event) => {
+  const phaseToggleButton = event.target instanceof HTMLElement ? event.target.closest("[data-phase-toggle]") : null;
+
+  if (phaseToggleButton instanceof HTMLButtonElement) {
+    const groupKey = phaseToggleButton.dataset.phaseToggle;
+
+    if (groupKey) {
+      roadmapPhaseOpenState = { ...roadmapPhaseOpenState, [groupKey]: !roadmapPhaseOpenState[groupKey] };
+      rerenderCurrentKpis();
+    }
+
+    return;
+  }
+
+  const kpiToggleButton = event.target instanceof HTMLElement ? event.target.closest("[data-kpi-toggle]") : null;
+
+  if (kpiToggleButton instanceof HTMLButtonElement) {
+    const targetId = kpiToggleButton.dataset.kpiToggle;
+
+    if (targetId) {
+      kpiDetailOpenState = { ...kpiDetailOpenState, [targetId]: !kpiDetailOpenState[targetId] };
+      rerenderCurrentKpis();
+    }
+
+    return;
+  }
   const generateButton = event.target instanceof HTMLElement ? event.target.closest("[data-task-ai-generate]") : null;
   const addButton = event.target instanceof HTMLElement ? event.target.closest(".task-ai-add-button") : null;
 
@@ -3449,11 +3618,14 @@ const initializeDetailPage = async () => {
   taskAiSavingByKpiId = {};
   taskCheckUiState = {};
   latestRenderedKpis = [];
+  roadmapPhaseOpenState = {};
+  kpiDetailOpenState = {};
   setAiError("");
   setStatus("読み込み中...");
   setKpiStatus("KPIの読み込み待機中...");
 
   kgiId = resolveKgiIdFromUrl();
+  roadmapKpiLoading = restoreRoadmapKpiLoadingState();
 
   if (!kgiId) {
     setStatus("KGI ID が指定されていません", true);
