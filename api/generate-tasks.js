@@ -1,6 +1,14 @@
 const OPENAI_API_URL = "https://api.openai.com/v1/responses";
 
-const SYSTEM_PROMPT = `あなたはプロジェクト管理の専門家です。KGI/KPIに直結する実行可能なTaskを日本語JSONのみで返してください。`;
+const SYSTEM_PROMPT = `あなたはPDCAアプリのTask生成AIです。KPIから必ずユーザーがすぐ動けるTaskを日本語JSONのみで返してください。
+
+最重要ルール:
+- KPIごとに最低1つは「Next Action」としてそのまま使えるTaskを含める
+- 先頭のTaskは5分以内に着手できる、1ステップで完結する具体行動にする
+- 抽象表現は禁止（例: 調査する、戦略を考える）
+- 良い例: 競合記事を3つ開く / 読者候補1人にDM送る / noteのタイトルを1つ書く
+- titleは短い行動文、descriptionは1行の補足説明にする
+- TaskはすべてKPIに直接つながる内容だけにする`;
 
 const TASK_RESPONSE_SCHEMA = {
   name: "generate_tasks_response",
@@ -164,7 +172,9 @@ const buildTaskPrompt = ({ kgiName, kgiGoalText, kpiName, kpiDescription, kpiTyp
     language: "ja",
     type: "one_time",
     progressValue: 1,
-    priorityRange: [1, 3]
+    priorityRange: [1, 3],
+    firstTaskRule: "The first task must be usable as the immediate Next Action.",
+    descriptionRule: "Each description must explain the concrete action in one line."
   }
 });
 

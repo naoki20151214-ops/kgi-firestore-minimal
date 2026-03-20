@@ -172,6 +172,8 @@ let taskAiSavedByKpiId = {};
 let taskAiSavingByKpiId = {};
 let latestRenderedKpis = [];
 let taskCheckUiState = {};
+let autoTaskGenerationInFlight = false;
+let autoTaskGenerationPromise = null;
 const getAiSuggestionStorageKey = () => kgiId ? `kgi-detail-ai-suggestions:${kgiId}` : "";
 const getSubKgiSavedStorageKey = () => kgiId ? `kgi-detail-subkgi-saved:${kgiId}` : "";
 const TASK_CHECK_RESULT_OPTIONS = [
@@ -1376,6 +1378,109 @@ const buildTaskTicketStatusUpdate = (ticketStatus) => {
   return updatePayload;
 };
 
+const buildTaskGenerationRequestBody = (kpi) => ({
+  kgiName: currentKgiData?.name ?? "",
+  kgiGoalText: currentKgiData?.goalText ?? "",
+  kpiName: typeof kpi?.name === "string" ? kpi.name.trim() : "",
+  kpiDescription: typeof kpi?.description === "string" ? kpi.description.trim() : "",
+  kpiType: kpi?.kpiType === "action" ? "action" : "result",
+  targetValue: parsePositiveNumber(kpi?.targetValue ?? kpi?.target, 0),
+  phaseName: getPhaseLabel(kpi?.phaseId, currentRoadmapPhases),
+  recentReflections: buildRecentReflections(latestRenderedKpis, { preferredKpiId: kpi?.id, limit: 5 })
+});
+
+const requestGeneratedTasksForKpi = async (kpi) => {
+  const response = await fetch("/api/generate-tasks", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(buildTaskGenerationRequestBody(kpi))
+  });
+
+  const responseText = await response.text();
+  let data = null;
+
+  if (responseText) {
+    try {
+      data = JSON.parse(responseText);
+    } catch (parseError) {
+      console.error("Failed to parse /api/generate-tasks response as JSON", parseError, responseText);
+    }
+  }
+
+  if (!response.ok) {
+    const apiErrorMessage = typeof data?.error === "string" && data.error.trim()
+      ? data.error.trim()
+      : responseText.trim() || `HTTP ${response.status}`;
+    throw new Error(apiErrorMessage);
+  }
+
+  return Array.isArray(data?.tasks) ? data.tasks : [];
+};
+
+const saveGeneratedTaskForKpi = async (kpiId, suggestion, order = 0) => {
+  await addDoc(getTasksRef(kpiId), {
+    title: displaySuggestionText(suggestion?.title) === "-" ? "" : displaySuggestionText(suggestion?.title),
+    description: displaySuggestionText(suggestion?.description) === "-" ? "" : displaySuggestionText(suggestion?.description),
+    status: "todo",
+    deadline: "",
+    assignee: "",
+    dueDate: "",
+    doneDefinition: "",
+    ticketStatus: "ready",
+    ticketNote: "AIが自動生成した最初のNext Actionです",
+    priority: Number.isFinite(Number(suggestion?.priority)) ? Number(suggestion.priority) : 1,
+    order,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+    completedAt: null,
+    isSuggestedByAI: true,
+    type: "one_time",
+    progressValue: 1,
+    contributedValue: 0,
+    isCompleted: false,
+    kpiId,
+    checkStatus: "not_checked",
+    checkComment: "",
+    checkResult: "",
+    checkRecordedAt: null
+  });
+};
+
+const ensureMinimumTasksForKpis = async (kpis) => {
+  const kpisNeedingTasks = (Array.isArray(kpis) ? kpis : []).filter((kpi) => !Array.isArray(kpi?.tasks) || kpi.tasks.length === 0);
+
+  if (kpisNeedingTasks.length === 0) {
+    return { generatedCount: 0, failedKpiNames: [] };
+  }
+
+  const failedKpiNames = [];
+  let generatedCount = 0;
+
+  for (const kpi of kpisNeedingTasks) {
+    try {
+      const suggestions = await requestGeneratedTasksForKpi(kpi);
+      const firstSuggestion = Array.isArray(suggestions) ? suggestions.find((item) => displaySuggestionText(item?.title) !== "-") : null;
+
+      if (!firstSuggestion) {
+        throw new Error("Task候補が空でした");
+      }
+
+      await saveGeneratedTaskForKpi(kpi.id, firstSuggestion, 0);
+      const kpiSnapshot = await getDoc(getKpiRef(kpi.id));
+      const kpiData = kpiSnapshot.exists() ? kpiSnapshot.data() : { target: 100 };
+      await syncKpiProgressFromTasks(kpi.id, kpiData);
+      generatedCount += 1;
+    } catch (error) {
+      console.error("Failed to auto-generate minimum task", { kpiId: kpi?.id, error });
+      failedKpiNames.push(typeof kpi?.name === "string" && kpi.name.trim() ? kpi.name.trim() : "名称未設定KPI");
+    }
+  }
+
+  return { generatedCount, failedKpiNames };
+};
+
 const selectNextAction = (kpis, phases = currentRoadmapPhases) => {
   const currentPhase = getCurrentRoadmapPhase(phases);
   const nextPhase = getNextRoadmapPhase(phases);
@@ -1399,9 +1504,11 @@ const selectNextAction = (kpis, phases = currentRoadmapPhases) => {
         task,
         kpiId: kpi.id,
         kpiName: kpi.name ?? "",
+        kpiType: kpi?.kpiType === "action" ? "action" : "result",
         phaseId,
         phaseName: getPhaseLabel(phaseId, phases),
         phaseRank,
+        kpiTypeRank: kpi?.kpiType === "action" ? 0 : 1,
         ticketStatusRank: ["doing", "ready", "backlog", "done"].indexOf(normalizeTaskTicketStatus(task)),
         priorityRank: getComparablePriority(task.priority),
         deadlineRank: getComparableDeadline(getTaskDueDate(task) || task.deadline),
@@ -1416,6 +1523,10 @@ const selectNextAction = (kpis, phases = currentRoadmapPhases) => {
   candidates.sort((a, b) => {
     if (a.phaseRank !== b.phaseRank) {
       return a.phaseRank - b.phaseRank;
+    }
+
+    if (a.kpiTypeRank !== b.kpiTypeRank) {
+      return a.kpiTypeRank - b.kpiTypeRank;
     }
 
     if (a.ticketStatusRank !== b.ticketStatusRank) {
@@ -1571,7 +1682,7 @@ const renderNextAction = (nextAction) => {
   }
 
   if (!currentNextAction) {
-    nextActionContainer.innerHTML = '<p class="next-action-empty">今やるべき未完了Taskはありません</p>';
+    nextActionContainer.innerHTML = '<p class="next-action-empty">今やるべきことを準備中です。KPIからNext Actionを作成しています...</p>';
     return;
   }
 
@@ -1601,15 +1712,10 @@ const renderNextAction = (nextAction) => {
   nextActionContainer.innerHTML = `
     ${errorMarkup}
     <p class="next-action-title">${task.title ?? "-"}</p>
-    <div class="row"><strong>補足説明</strong><span>${displayDescription(task.description)}</span></div>
-    <div class="row"><strong>所属KPI名</strong><span>${kpiName || "-"}</span></div>
-    <div class="row"><strong>優先度</strong><span>${displayTaskPriority(task.priority)}</span></div>
-    <div class="row"><strong>期限</strong><span>${deadline}</span></div>
-    <div class="row"><strong>残り日数</strong><span class="${remaining.isOverdue ? "overdue-text" : ""}">${remaining.remainingText}</span></div>
-    <div class="row"><strong>状態</strong><span class="next-action-status-row"><span class="status-badge ${getTaskStatusClassName(taskStatus)}">${getTaskStatusLabel(taskStatus)}</span></span></div>
-    <div class="row"><strong>チケット状態</strong><span class="next-action-status-row"><span class="status-badge ${getTaskTicketStatusClassName(normalizeTaskTicketStatus(task))}">${getTaskTicketStatusLabel(normalizeTaskTicketStatus(task))}</span></span></div>
+    <p class="next-action-inline-status">${displayDescription(task.description)}<br>対象KPI: ${kpiName || "-"} / フェーズ: ${phaseName || "未分類"} / ${remaining.remainingText}</p>
+    <div class="next-action-status-row"><span class="status-badge ${getTaskStatusClassName(taskStatus)}">${getTaskStatusLabel(taskStatus)}</span></div>
     <div class="next-action-actions">
-      ${canStart ? '<button class="button" type="button" data-next-action-action="start">開始する</button>' : ""}
+      ${canStart ? '<button class="button" type="button" data-next-action-action="start">実行する</button>' : ""}
       ${canComplete ? '<button class="button success" type="button" data-next-action-action="complete">完了する</button>' : ""}
       ${taskStatus === "doing" ? '<span class="status-badge doing">実行中</span>' : ""}
     </div>
@@ -2669,6 +2775,48 @@ const loadKpis = async () => {
 
   hydrateTaskAiSavedStateFromTasks(kpisWithTasks);
 
+  if (!autoTaskGenerationInFlight) {
+    const missingTaskKpis = kpisWithTasks.filter((kpi) => !Array.isArray(kpi.tasks) || kpi.tasks.length === 0);
+
+    if (missingTaskKpis.length > 0) {
+      autoTaskGenerationInFlight = true;
+      setKpiStatus(`Taskが未作成のKPI ${missingTaskKpis.length}件から、最初のNext Actionを自動作成しています...`);
+      setNextActionState({
+        nextAction: null,
+        loading: true,
+        error: "",
+        stepLoading: false,
+        stepError: "",
+        steps: []
+      });
+      renderNextAction(null);
+
+      autoTaskGenerationPromise = ensureMinimumTasksForKpis(missingTaskKpis)
+        .then(async ({ generatedCount, failedKpiNames }) => {
+          autoTaskGenerationInFlight = false;
+          autoTaskGenerationPromise = null;
+
+          if (generatedCount > 0) {
+            setKpiStatus(`KPI ${generatedCount}件に最初のTaskを自動作成しました。`);
+          }
+
+          if (failedKpiNames.length > 0) {
+            setKpiStatus(`一部のKPIでTask自動作成に失敗しました: ${failedKpiNames.join("、")}`, true);
+          }
+
+          await loadKpis();
+        })
+        .catch((error) => {
+          console.error(error);
+          autoTaskGenerationInFlight = false;
+          autoTaskGenerationPromise = null;
+          setKpiStatus("Taskの自動作成に失敗しました。", true);
+        });
+
+      return;
+    }
+  }
+
   const totalTaskCount = kpisWithTasks.reduce((sum, kpi) => sum + (Array.isArray(kpi.tasks) ? kpi.tasks.length : 0), 0);
   setDebugSummary(
     `KGI読み込み成功: ${kgiId}`,
@@ -3059,41 +3207,13 @@ kpiTableBody.addEventListener("click", async (event) => {
     rerenderCurrentKpis();
 
     try {
-      const response = await fetch("/api/generate-tasks", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          kgiName: currentKgiData.name ?? "",
-          kgiGoalText: currentKgiData.goalText ?? "",
-          kpiName,
-          kpiDescription: kpiDescription === "-" ? "" : kpiDescription,
-          kpiType,
-          targetValue,
-          recentReflections: buildRecentReflections(latestRenderedKpis, { preferredKpiId: kpiTargetId, limit: 5 })
-        })
+      const nextSuggestions = await requestGeneratedTasksForKpi({
+        ...kpiForAi,
+        name: kpiName,
+        description: kpiDescription === "-" ? "" : kpiDescription,
+        kpiType,
+        targetValue
       });
-
-      const responseText = await response.text();
-      let data = null;
-
-      if (responseText) {
-        try {
-          data = JSON.parse(responseText);
-        } catch (parseError) {
-          console.error("Failed to parse /api/generate-tasks response as JSON", parseError, responseText);
-        }
-      }
-
-      if (!response.ok) {
-        const apiErrorMessage = typeof data?.error === "string" && data.error.trim()
-          ? data.error.trim()
-          : responseText.trim() || `HTTP ${response.status}`;
-        throw new Error(apiErrorMessage);
-      }
-
-      const nextSuggestions = Array.isArray(data?.tasks) ? data.tasks : [];
       setTaskAiSuggestions(kpiTargetId, nextSuggestions);
       setTaskAiError(kpiTargetId, "");
     } catch (error) {
@@ -3249,7 +3369,7 @@ kpiTableBody.addEventListener("submit", async (event) => {
     } else {
       taskPayload.isCompleted = false;
       taskPayload.contributedValue = 0;
-      taskPayload.progressValue = 0;
+      taskPayload.progressValue = progressValue;
       taskPayload.completedAt = null;
     }
 
@@ -3617,6 +3737,8 @@ const initializeDetailPage = async () => {
   taskAiSavedByKpiId = {};
   taskAiSavingByKpiId = {};
   taskCheckUiState = {};
+  autoTaskGenerationInFlight = false;
+  autoTaskGenerationPromise = null;
   latestRenderedKpis = [];
   roadmapPhaseOpenState = {};
   kpiDetailOpenState = {};
