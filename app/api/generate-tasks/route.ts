@@ -10,6 +10,7 @@ const SYSTEM_PROMPT = `あなたはPDCAアプリのTask生成AIです。KPIか�
 - 抽象表現は禁止（例: 調査する、戦略を考える）
 - 良い例: 競合記事を3つ開く / 読者候補1人にDM送る / noteのタイトルを1つ書く
 - titleは短い行動文、descriptionは1行の補足説明にする
+- stage は必ず setup / research / decision / build / launch / review のいずれか1つを入れる
 - TaskはすべてKPIに直接つながる内容だけにする`;
 
 const TASK_RESPONSE_SCHEMA = {
@@ -27,10 +28,11 @@ const TASK_RESPONSE_SCHEMA = {
         items: {
           type: "object",
           additionalProperties: false,
-          required: ["title", "description", "type", "progressValue", "priority"],
+          required: ["title", "description", "stage", "type", "progressValue", "priority"],
           properties: {
             title: { type: "string" },
             description: { type: "string" },
+            stage: { type: "string", enum: ["setup", "research", "decision", "build", "launch", "review"] },
             type: { type: "string", enum: ["one_time"] },
             progressValue: { type: "integer", enum: [1] },
             priority: { type: "integer", minimum: 1, maximum: 3 }
@@ -60,9 +62,12 @@ type TaskRequest = {
   recentReflections?: RecentReflection[];
 };
 
+type TaskStage = "setup" | "research" | "decision" | "build" | "launch" | "review";
+
 type TaskItem = {
   title: string;
   description: string;
+  stage: TaskStage;
   type: "one_time";
   progressValue: 1;
   priority: number;
@@ -203,16 +208,24 @@ const buildTaskPrompt = ({
     type: "one_time",
     progressValue: 1,
     priorityRange: [1, 3],
+    stageRule: "Every task must include one valid stage. If unsure, use build.",
     firstTaskRule: "The first task must be usable as the immediate Next Action.",
     descriptionRule: "Each description must explain the concrete action in one line."
   }
 });
+
+const TASK_STAGES: TaskStage[] = ["setup", "research", "decision", "build", "launch", "review"];
+const normalizeTaskStage = (stage: unknown): TaskStage => {
+  const normalized = typeof stage === "string" ? stage.trim().toLowerCase() : "";
+  return TASK_STAGES.includes(normalized as TaskStage) ? normalized as TaskStage : "build";
+};
 
 const isValidTask = (value: any): value is TaskItem => (
   value
   && typeof value === "object"
   && isNonEmptyString(value.title)
   && isNonEmptyString(value.description)
+  && TASK_STAGES.includes(normalizeTaskStage(value.stage))
   && value.type === "one_time"
   && Number(value.progressValue) === 1
   && Number.isInteger(Number(value.priority))
@@ -309,6 +322,7 @@ export async function POST(request: Request) {
     const tasks = parsed.tasks.map((task) => ({
       title: task.title.trim(),
       description: task.description.trim(),
+      stage: normalizeTaskStage(task.stage),
       type: "one_time" as const,
       progressValue: 1 as const,
       priority: Number(task.priority)

@@ -482,6 +482,7 @@ const buildSuggestionPayload = (item, fallbackType) => ({
 const buildTaskSuggestionKey = (item) => JSON.stringify({
   title: displaySuggestionText(item?.title),
   description: displaySuggestionText(item?.description),
+  stage: normalizeTaskStage(item?.stage),
   priority: Number.isFinite(Number(item?.priority)) ? Number(item.priority) : 2,
   type: item?.type === "one_time" ? "one_time" : "one_time",
   progressValue: Number.isFinite(Number(item?.progressValue)) ? Number(item.progressValue) : 1
@@ -1241,6 +1242,42 @@ const parsePositiveNumber = (value, fallback = 0) => {
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
 };
 
+const TASK_STAGE_OPTIONS = ["setup", "research", "decision", "build", "launch", "review"];
+const STAGE_ORDER = Object.freeze({
+  setup: 0,
+  research: 1,
+  decision: 2,
+  build: 3,
+  launch: 4,
+  review: 5
+});
+const TASK_STAGE_LABELS = {
+  setup: "setup",
+  research: "research",
+  decision: "decision",
+  build: "build",
+  launch: "launch",
+  review: "review"
+};
+
+const normalizeTaskStage = (stage) => {
+  const normalized = typeof stage === "string" ? stage.trim().toLowerCase() : "";
+  return TASK_STAGE_OPTIONS.includes(normalized) ? normalized : "build";
+};
+
+const normalizeDependsOnTaskIds = (value) => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((item) => (typeof item === "string" ? item.trim() : ""))
+    .filter(Boolean);
+};
+
+const getTaskStageRank = (task) => STAGE_ORDER[normalizeTaskStage(task?.stage)] ?? STAGE_ORDER.build;
+const getTaskStageLabel = (task) => TASK_STAGE_LABELS[normalizeTaskStage(task?.stage)] ?? "build";
+
 const normalizeTaskType = (type) => {
   if (type === "repeatable") {
     return "repeatable";
@@ -1430,6 +1467,8 @@ const saveGeneratedTaskForKpi = async (kpiId, suggestion, order = 0) => {
     doneDefinition: "",
     ticketStatus: "ready",
     ticketNote: "AIが自動生成した最初のNext Actionです",
+    stage: normalizeTaskStage(suggestion?.stage),
+    dependsOnTaskIds: normalizeDependsOnTaskIds(suggestion?.dependsOnTaskIds),
     priority: Number.isFinite(Number(suggestion?.priority)) ? Number(suggestion.priority) : 1,
     order,
     createdAt: serverTimestamp(),
@@ -1481,25 +1520,17 @@ const ensureMinimumTasksForKpis = async (kpis) => {
   return { generatedCount, failedKpiNames };
 };
 
-const selectNextAction = (kpis, phases = currentRoadmapPhases) => {
+const getCandidateTasksForCurrentPhase = (kpis, phases = currentRoadmapPhases) => {
+  const normalizedKpis = Array.isArray(kpis) ? kpis : [];
   const currentPhase = getCurrentRoadmapPhase(phases);
-  const nextPhase = getNextRoadmapPhase(phases);
-  const phasePriorityMap = new Map();
+  const currentPhaseId = typeof currentPhase?.id === "string" ? currentPhase.id.trim() : "";
 
-  if (currentPhase?.id) {
-    phasePriorityMap.set(currentPhase.id, 0);
-  }
-  if (nextPhase?.id) {
-    phasePriorityMap.set(nextPhase.id, 1);
-  }
-
-  const candidates = (Array.isArray(kpis) ? kpis : []).flatMap((kpi) => {
-    const tasks = Array.isArray(kpi?.tasks) ? kpi.tasks : [];
+  const buildCandidates = (targetKpis, reason) => targetKpis.flatMap((kpi) => {
+    const tasks = sortTasks(Array.isArray(kpi?.tasks) ? kpi.tasks : []);
     const phaseId = typeof kpi?.phaseId === "string" ? kpi.phaseId.trim() : "";
-    const phaseRank = phasePriorityMap.has(phaseId) ? phasePriorityMap.get(phaseId) : 2;
 
     return tasks
-      .filter((task) => !getTaskIsCompleted(task))
+      .filter((task) => normalizeTaskTicketStatus(task) !== "done" && !getTaskIsCompleted(task))
       .map((task) => ({
         task,
         kpiId: kpi.id,
@@ -1507,49 +1538,28 @@ const selectNextAction = (kpis, phases = currentRoadmapPhases) => {
         kpiType: kpi?.kpiType === "action" ? "action" : "result",
         phaseId,
         phaseName: getPhaseLabel(phaseId, phases),
-        phaseRank,
-        kpiTypeRank: kpi?.kpiType === "action" ? 0 : 1,
-        ticketStatusRank: ["doing", "ready", "backlog", "done"].indexOf(normalizeTaskTicketStatus(task)),
-        priorityRank: getComparablePriority(task.priority),
-        deadlineRank: getComparableDeadline(getTaskDueDate(task) || task.deadline),
-        createdAtRank: getComparableCreatedAt(task.createdAt)
+        selectionReason: reason
       }));
   });
 
-  if (candidates.length === 0) {
-    return null;
+  if (currentPhaseId) {
+    const currentPhaseKpis = normalizedKpis.filter((kpi) => String(kpi?.phaseId ?? "").trim() === currentPhaseId);
+    const currentPhaseCandidates = buildCandidates(currentPhaseKpis, "current_phase");
+
+    if (currentPhaseCandidates.length > 0) {
+      return currentPhaseCandidates;
+    }
   }
 
-  candidates.sort((a, b) => {
-    if (a.phaseRank !== b.phaseRank) {
-      return a.phaseRank - b.phaseRank;
-    }
-
-    if (a.kpiTypeRank !== b.kpiTypeRank) {
-      return a.kpiTypeRank - b.kpiTypeRank;
-    }
-
-    if (a.ticketStatusRank !== b.ticketStatusRank) {
-      return a.ticketStatusRank - b.ticketStatusRank;
-    }
-
-    if (a.priorityRank !== b.priorityRank) {
-      return a.priorityRank - b.priorityRank;
-    }
-
-    if (a.deadlineRank !== b.deadlineRank) {
-      return a.deadlineRank - b.deadlineRank;
-    }
-
-    if (a.createdAtRank !== b.createdAtRank) {
-      return a.createdAtRank - b.createdAtRank;
-    }
-
-    return String(a.task.id ?? "").localeCompare(String(b.task.id ?? ""), "ja");
-  });
-
-  return candidates[0];
+  return buildCandidates(normalizedKpis, currentPhaseId ? "fallback_all_phases" : "no_current_phase");
 };
+
+const getNextAction = (kpis, phases = currentRoadmapPhases) => {
+  const candidates = getCandidateTasksForCurrentPhase(kpis, phases);
+  return candidates.length > 0 ? candidates[0] : null;
+};
+
+const selectNextAction = (kpis, phases = currentRoadmapPhases) => getNextAction(kpis, phases);
 
 const getTaskStatusLabel = (status) => {
   if (status === "doing") {
@@ -1682,7 +1692,9 @@ const renderNextAction = (nextAction) => {
   }
 
   if (!currentNextAction) {
-    nextActionContainer.innerHTML = '<p class="next-action-empty">今やるべきことを準備中です。KPIからNext Actionを作成しています...</p>';
+    nextActionContainer.innerHTML = nextActionError
+      ? `<p class="next-action-empty">${escapeHtml(nextActionError)}</p>`
+      : '<p class="next-action-empty">今やるべきことを準備中です。KPIからNext Actionを作成しています...</p>';
     return;
   }
 
@@ -2378,18 +2390,46 @@ const normalizeKpis = (docs) => docs
     return 0;
   });
 
-const normalizeTasks = (docs) => docs
-  .map((taskDoc) => ({ id: taskDoc.id, ...taskDoc.data(), ...buildTaskTicketFields(taskDoc.data()) }))
-  .sort((a, b) => {
-    const orderA = Number.isFinite(Number(a.order)) ? Number(a.order) : Number.MAX_SAFE_INTEGER;
-    const orderB = Number.isFinite(Number(b.order)) ? Number(b.order) : Number.MAX_SAFE_INTEGER;
+const sortTasks = (tasks) => (Array.isArray(tasks) ? [...tasks] : []).sort((a, b) => {
+  const stageRankA = getTaskStageRank(a);
+  const stageRankB = getTaskStageRank(b);
 
-    if (orderA !== orderB) {
-      return orderA - orderB;
-    }
+  if (stageRankA !== stageRankB) {
+    return stageRankA - stageRankB;
+  }
 
-    return 0;
-  });
+  const priorityA = getComparablePriority(a?.priority);
+  const priorityB = getComparablePriority(b?.priority);
+
+  if (priorityA !== priorityB) {
+    return priorityA - priorityB;
+  }
+
+  const orderA = Number.isFinite(Number(a?.order)) ? Number(a.order) : Number.MAX_SAFE_INTEGER;
+  const orderB = Number.isFinite(Number(b?.order)) ? Number(b.order) : Number.MAX_SAFE_INTEGER;
+
+  if (orderA !== orderB) {
+    return orderA - orderB;
+  }
+
+  const createdAtA = getComparableCreatedAt(a?.createdAt);
+  const createdAtB = getComparableCreatedAt(b?.createdAt);
+
+  if (createdAtA !== createdAtB) {
+    return createdAtA - createdAtB;
+  }
+
+  return String(a?.id ?? "").localeCompare(String(b?.id ?? ""), "ja");
+});
+
+const normalizeTasks = (docs) => sortTasks(docs
+  .map((taskDoc) => ({
+    id: taskDoc.id,
+    ...taskDoc.data(),
+    stage: normalizeTaskStage(taskDoc.data()?.stage),
+    dependsOnTaskIds: normalizeDependsOnTaskIds(taskDoc.data()?.dependsOnTaskIds),
+    ...buildTaskTicketFields(taskDoc.data())
+  })));
 
 const getOneTimeTaskContribution = (task) => {
   const isCompleted = getTaskIsCompleted(task);
@@ -2517,6 +2557,7 @@ const renderTaskRows = (kpiIdForTask, tasks) => {
     const taskTitle = task.title ?? "";
     const taskDescription = displayDescription(task.description);
     const taskType = normalizeTaskType(task.type);
+    const taskStage = getTaskStageLabel(task);
     const taskPriority = displayTaskPriority(task.priority);
     const taskDeadline = displayDeadline(task.deadline);
     const taskDueDate = displayDeadline(getTaskDueDate(task));
@@ -2540,6 +2581,7 @@ const renderTaskRows = (kpiIdForTask, tasks) => {
       <tr>
         <td>${escapeHtml(taskTitle || "-")}</td>
         <td>${taskDescription}</td>
+        <td>${taskStage}</td>
         <td>${taskType}</td>
         <td>${contributedValue}</td>
         <td>
@@ -2564,7 +2606,7 @@ const renderTaskRows = (kpiIdForTask, tasks) => {
       ${isTaskCheckAvailable(task)
     ? `
         <tr class="task-check-row">
-          <td colspan="10">
+          <td colspan="11">
             ${renderTaskCheckSection(kpiIdForTask, task)}
           </td>
         </tr>
@@ -2579,6 +2621,7 @@ const renderTaskRows = (kpiIdForTask, tasks) => {
         <tr>
           <th>Task名</th>
           <th>補足説明</th>
+          <th>stage</th>
           <th>タイプ</th>
           <th>進捗値</th>
           <th>達成入力</th>
@@ -2682,6 +2725,7 @@ const renderKpiTable = (kpis) => {
               <div class="task-grid">
                 <label>Task名<input name="title" type="text" placeholder="例: LPの改善案を3つ作る" required /></label>
                 <label>補足説明<input name="description" type="text" placeholder="任意" /></label>
+                <label>stage<select name="stage"><option value="setup">setup</option><option value="research">research</option><option value="decision">decision</option><option value="build" selected>build</option><option value="launch">launch</option><option value="review">review</option></select></label>
                 <label>タイプ<select name="type" class="task-type-select"><option value="one_time">one_time</option><option value="repeatable">repeatable</option></select></label>
                 <label>進捗値<input name="progressValue" type="number" min="0" step="1" value="1" required /></label>
                 <label>期限<input name="deadline" type="date" /></label>
@@ -2725,7 +2769,7 @@ const loadKpis = async () => {
     setNextActionState({
       nextAction: null,
       loading: false,
-      error: "",
+      error: "Taskがまだないため、Next Actionを表示できません。",
       stepLoading: false,
       stepError: "",
       steps: []
@@ -2835,7 +2879,7 @@ const loadKpis = async () => {
     setNextActionState({
       nextAction: null,
       loading: false,
-      error: "",
+      error: totalTaskCount > 0 ? "未完了Taskがないため、今やるべきことはありません。" : "Taskがまだないため、Next Actionを表示できません。",
       stepLoading: false,
       stepError: "",
       steps: []
@@ -3273,6 +3317,8 @@ kpiTableBody.addEventListener("click", async (event) => {
         doneDefinition: "",
         ticketStatus: "backlog",
         ticketNote: "",
+        stage: normalizeTaskStage(suggestion?.stage),
+        dependsOnTaskIds: normalizeDependsOnTaskIds(suggestion?.dependsOnTaskIds),
         priority: Number.isFinite(Number(suggestion?.priority)) ? Number(suggestion.priority) : 2,
         order: taskSnapshot.size,
         createdAt: serverTimestamp(),
@@ -3322,6 +3368,7 @@ kpiTableBody.addEventListener("submit", async (event) => {
   const assignee = String(formData.get("assignee") ?? "").trim();
   const doneDefinition = String(formData.get("doneDefinition") ?? "").trim();
   const ticketNote = String(formData.get("ticketNote") ?? "").trim();
+  const taskStage = normalizeTaskStage(String(formData.get("stage") ?? "build"));
   const taskType = normalizeTaskType(String(formData.get("type") ?? "one_time"));
   const rawProgressValue = Number(formData.get("progressValue"));
   const progressValue = Number.isFinite(rawProgressValue) && rawProgressValue >= 0
@@ -3345,6 +3392,8 @@ kpiTableBody.addEventListener("submit", async (event) => {
       description,
       kpiId: kpiTargetId,
       type: taskType,
+      stage: taskStage,
+      dependsOnTaskIds: [],
       status: "todo",
       progressValue,
       deadline,
