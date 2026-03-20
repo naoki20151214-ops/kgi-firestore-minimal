@@ -818,19 +818,29 @@ const buildRoadmapPhaseSummary = (phases = currentRoadmapPhases) => (Array.isArr
 const buildPhaseNameNameKey = (phaseId, name) => `${String(phaseId || "").trim()}::${String(name || "").trim()}`;
 
 const requestRoadmapGeneratedKpis = async () => {
-  const response = await fetch("/api/generate-kpis-from-roadmap", {
+  const fetchUrl = "/api/generate-kpis-from-roadmap";
+  const requestBody = {
+    kgiName: currentKgiData?.name ?? "",
+    kgiGoalText: currentKgiData?.goalText ?? "",
+    roadmapPhases: buildRoadmapPhaseSummary(currentRoadmapPhases)
+  };
+
+  console.log("button clicked");
+  console.log("fetch開始");
+  console.log("fetch url", fetchUrl);
+  console.log("request roadmapPhases length", Array.isArray(requestBody.roadmapPhases) ? requestBody.roadmapPhases.length : "invalid");
+
+  const response = await fetch(fetchUrl, {
     method: "POST",
     headers: {
       "Content-Type": "application/json"
     },
-    body: JSON.stringify({
-      kgiName: currentKgiData?.name ?? "",
-      kgiGoalText: currentKgiData?.goalText ?? "",
-      roadmapPhases: buildRoadmapPhaseSummary(currentRoadmapPhases)
-    })
+    body: JSON.stringify(requestBody)
   });
 
+  console.log("response.status", response.status);
   const responseText = await response.text();
+  console.log("response body raw text", responseText);
   let data = null;
 
   if (responseText) {
