@@ -7,7 +7,8 @@ import {
   query,
   serverTimestamp,
   updateDoc,
-  where
+  where,
+  writeBatch
 } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
 import { getDb } from "./firebase-config.js";
 
@@ -16,6 +17,9 @@ const kgiMeta = document.getElementById("kgiMeta");
 const roadmapContainer = document.getElementById("roadmapContainer");
 const roadmapStatusText = document.getElementById("roadmapStatusText");
 const currentLocationContainer = document.getElementById("currentLocationContainer");
+const generateRoadmapKpisButton = document.getElementById("generateRoadmapKpisButton");
+const roadmapKpiLoadingText = document.getElementById("roadmapKpiLoadingText");
+const roadmapKpiErrorText = document.getElementById("roadmapKpiErrorText");
 const kpiStatusText = document.getElementById("kpiStatusText");
 const nextActionContainer = document.getElementById("nextActionContainer");
 const kpiTable = document.getElementById("kpiTable");
@@ -149,6 +153,7 @@ const emptyAiSuggestions = () => ({
 });
 
 let aiLoading = false;
+let roadmapKpiLoading = false;
 let aiSavingKey = "";
 let aiError = "";
 let aiHasGenerated = false;
@@ -313,10 +318,24 @@ const setKpiStatus = (message, isError = false) => {
   kpiStatusText.classList.toggle("error", isError);
 };
 
+const updateRoadmapKpiButtonState = (kpiCount = latestRenderedKpis.length) => {
+  if (!generateRoadmapKpisButton) {
+    return;
+  }
+
+  const canGenerate = Boolean(currentKgiData) && currentRoadmapPhases.length > 0;
+  generateRoadmapKpisButton.hidden = !canGenerate;
+  generateRoadmapKpisButton.disabled = !canGenerate || roadmapKpiLoading;
+  generateRoadmapKpisButton.classList.toggle("attention", canGenerate && kpiCount === 0);
+};
+
 const disableKpiActions = () => {
   addKpiButton.disabled = true;
   if (generateAiKpisButton) {
     generateAiKpisButton.disabled = true;
+  }
+  if (generateRoadmapKpisButton) {
+    generateRoadmapKpisButton.disabled = true;
   }
 };
 
@@ -325,6 +344,7 @@ const enableKpiActions = () => {
   if (generateAiKpisButton) {
     generateAiKpisButton.disabled = false;
   }
+  updateRoadmapKpiButtonState();
 };
 
 const resetKpiSection = () => {
@@ -342,6 +362,9 @@ const resetKpiSection = () => {
   if (currentLocationContainer) {
     currentLocationContainer.innerHTML = '<p class="hint">ロードマップを確認中...</p>';
   }
+  setRoadmapKpiLoading(false);
+  setRoadmapKpiError("");
+  updateRoadmapKpiButtonState(0);
   kpiTableBody.innerHTML = "";
   kpiTable.hidden = true;
   renderOverallProgress([]);
@@ -375,6 +398,27 @@ const displaySuggestionText = (value) => {
 
   const trimmed = value.trim();
   return trimmed || "-";
+};
+
+const setRoadmapKpiError = (message = "") => {
+  if (!roadmapKpiErrorText) {
+    return;
+  }
+
+  roadmapKpiErrorText.textContent = message;
+  roadmapKpiErrorText.hidden = !message;
+};
+
+const setRoadmapKpiLoading = (nextLoading) => {
+  roadmapKpiLoading = nextLoading;
+
+  if (generateRoadmapKpisButton) {
+    generateRoadmapKpisButton.disabled = nextLoading || !currentKgiData || currentRoadmapPhases.length === 0;
+  }
+
+  if (roadmapKpiLoadingText) {
+    roadmapKpiLoadingText.hidden = !nextLoading;
+  }
 };
 
 const setAiLoading = (nextLoading) => {
@@ -762,6 +806,100 @@ const normalizeRoadmapPhases = (phases) => {
       };
     })
     .filter((phase) => phase.title);
+};
+
+const buildRoadmapPhaseSummary = (phases = currentRoadmapPhases) => (Array.isArray(phases) ? phases : []).map((phase) => ({
+  id: phase.id,
+  title: phase.title,
+  description: phase.description,
+  status: phase.status
+}));
+
+const buildPhaseNameNameKey = (phaseId, name) => `${String(phaseId || "").trim()}::${String(name || "").trim()}`;
+
+const requestRoadmapGeneratedKpis = async () => {
+  const response = await fetch("/api/generate-kpis-from-roadmap", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      kgiName: currentKgiData?.name ?? "",
+      kgiGoalText: currentKgiData?.goalText ?? "",
+      roadmapPhases: buildRoadmapPhaseSummary(currentRoadmapPhases)
+    })
+  });
+
+  const responseText = await response.text();
+  let data = null;
+
+  if (responseText) {
+    try {
+      data = JSON.parse(responseText);
+    } catch (parseError) {
+      console.error("Failed to parse /api/generate-kpis-from-roadmap response as JSON", parseError, responseText);
+    }
+  }
+
+  if (!response.ok || !Array.isArray(data?.kpis)) {
+    throw new Error(data?.error || "ロードマップからKPIを生成できませんでした");
+  }
+
+  return data.kpis;
+};
+
+const saveRoadmapGeneratedKpis = async (generatedKpis) => {
+  const existingSnapshot = await getDocs(getKpisQuery());
+  const existingKeys = new Set(existingSnapshot.docs.map((snapshotDoc) => buildPhaseNameNameKey(snapshotDoc.data()?.phaseId, snapshotDoc.data()?.name)));
+  const batch = writeBatch(db);
+  const now = serverTimestamp();
+  let nextOrder = existingSnapshot.size;
+  let savedCount = 0;
+
+  generatedKpis.forEach((kpi) => {
+    const duplicateKey = buildPhaseNameNameKey(kpi?.phaseId, kpi?.name);
+
+    if (existingKeys.has(duplicateKey)) {
+      return;
+    }
+
+    const topLevelRef = doc(getKpisRef());
+    const nestedRef = doc(getNestedKpisRef(), topLevelRef.id);
+    const payload = {
+      kgiId,
+      name: kpi.name,
+      description: kpi.description,
+      simpleName: kpi.simpleName,
+      simpleDescription: kpi.simpleDescription,
+      type: kpi.type,
+      kpiType: kpi.type,
+      target: Number(kpi.targetValue),
+      targetValue: Number(kpi.targetValue),
+      currentValue: 0,
+      progressType: "task_based",
+      unit: "pt",
+      progress: 0,
+      percentage: 0,
+      phaseId: kpi.phaseId,
+      status: "active",
+      priority: 2,
+      order: nextOrder,
+      createdAt: now,
+      updatedAt: now
+    };
+
+    batch.set(topLevelRef, payload);
+    batch.set(nestedRef, payload);
+    existingKeys.add(duplicateKey);
+    nextOrder += 1;
+    savedCount += 1;
+  });
+
+  if (savedCount > 0) {
+    await batch.commit();
+  }
+
+  return savedCount;
 };
 
 const getCurrentRoadmapPhase = (phases = currentRoadmapPhases) => phases.find((phase) => phase.status === "current") ?? null;
@@ -1930,6 +2068,7 @@ const renderOverallProgress = (kpis) => {
 
 const getKgisRef = () => collection(db, "kgis");
 const getKgiRef = () => doc(getKgisRef(), kgiId);
+const getNestedKpisRef = () => collection(db, "kgis", kgiId, "kpis");
 const getKpisRef = () => collection(db, "kpis");
 const getKpisQuery = () => query(getKpisRef(), where("kgiId", "==", kgiId));
 const getTasksRef = (kpiId) => collection(getKpisRef(), kpiId, "tasks");
@@ -1979,6 +2118,7 @@ const renderKgiMeta = (kgiData) => {
 
   renderRoadmap(currentRoadmapPhases);
   renderCurrentLocation(currentRoadmapPhases);
+  updateRoadmapKpiButtonState(latestRenderedKpis.length);
 };
 
 const normalizeKpis = (docs) => docs
@@ -2325,6 +2465,7 @@ const loadKpis = async () => {
   const snapshot = await getDocs(getKpisQuery());
 
   if (snapshot.empty) {
+    updateRoadmapKpiButtonState(0);
     kpiTableBody.innerHTML = "";
     latestRenderedKpis = [];
     kpiTable.hidden = true;
@@ -2343,13 +2484,14 @@ const loadKpis = async () => {
     });
     renderNextAction(null);
     renderAiSuggestions();
-    setKpiStatus("KPIがまだありません。上のフォームから追加してください。");
+    setKpiStatus(currentRoadmapPhases.length > 0 ? "KPIがまだありません。ロードマップから自動作成するか、上のフォームから追加してください。" : "KPIがまだありません。上のフォームから追加してください。");
     setDebugSummary(`KGI読み込み成功: ${kgiId}`, "KPI 0件", "Task 0件");
     updateDebugPanel([]);
     return;
   }
 
   const kpis = normalizeKpis(snapshot.docs);
+  updateRoadmapKpiButtonState(kpis.length);
   existingKpiKeys = new Set(kpis.map((kpi) => buildSavedSuggestionKeyFromKpi(kpi)));
 
   const kpisWithTasks = await Promise.all(
@@ -2553,6 +2695,31 @@ aiSuggestionsContainer?.addEventListener("click", async (event) => {
   } finally {
     aiSavingKey = "";
     renderAiSuggestions();
+  }
+});
+
+generateRoadmapKpisButton?.addEventListener("click", async () => {
+  if (roadmapKpiLoading || !currentKgiData || currentRoadmapPhases.length === 0) {
+    return;
+  }
+
+  setRoadmapKpiLoading(true);
+  setRoadmapKpiError("");
+  setKpiStatus("ロードマップからKPIを作成しています...");
+
+  try {
+    const generatedKpis = await requestRoadmapGeneratedKpis();
+    const savedCount = await saveRoadmapGeneratedKpis(generatedKpis);
+    await loadKpis();
+    setRoadmapKpiError("");
+    setKpiStatus(savedCount > 0 ? `ロードマップから${savedCount}件のKPIを保存しました。` : "重複するKPIは保存せず、既存のKPIをそのまま使います。");
+  } catch (error) {
+    console.error(error);
+    const errorMessage = error instanceof Error && error.message ? error.message : "ロードマップからKPIを作成できませんでした";
+    setRoadmapKpiError(errorMessage);
+    setKpiStatus(`ロードマップからのKPI作成に失敗しました: ${errorMessage}`, true);
+  } finally {
+    setRoadmapKpiLoading(false);
   }
 });
 
