@@ -2844,46 +2844,10 @@ const loadKpis = async () => {
 
   hydrateTaskAiSavedStateFromTasks(kpisWithTasks);
 
-  if (!autoTaskGenerationInFlight) {
-    const missingTaskKpis = kpisWithTasks.filter((kpi) => !Array.isArray(kpi.tasks) || kpi.tasks.length === 0);
+  const missingTaskKpis = kpisWithTasks.filter((kpi) => !Array.isArray(kpi.tasks) || kpi.tasks.length === 0);
 
-    if (missingTaskKpis.length > 0) {
-      autoTaskGenerationInFlight = true;
-      setKpiStatus(`Taskが未作成のKPI ${missingTaskKpis.length}件から、最初のNext Actionを自動作成しています...`);
-      setNextActionState({
-        nextAction: null,
-        loading: true,
-        error: "",
-        stepLoading: false,
-        stepError: "",
-        steps: []
-      });
-      renderNextAction(null);
-
-      autoTaskGenerationPromise = ensureMinimumTasksForKpis(missingTaskKpis)
-        .then(async ({ generatedCount, failedKpiNames }) => {
-          autoTaskGenerationInFlight = false;
-          autoTaskGenerationPromise = null;
-
-          if (generatedCount > 0) {
-            setKpiStatus(`KPI ${generatedCount}件に最初のTaskを自動作成しました。`);
-          }
-
-          if (failedKpiNames.length > 0) {
-            setKpiStatus(`一部のKPIでTask自動作成に失敗しました: ${failedKpiNames.join("、")}`, true);
-          }
-
-          await loadKpis();
-        })
-        .catch((error) => {
-          console.error(error);
-          autoTaskGenerationInFlight = false;
-          autoTaskGenerationPromise = null;
-          setKpiStatus("Taskの自動作成に失敗しました。", true);
-        });
-
-      return;
-    }
+  if (!autoTaskGenerationInFlight && missingTaskKpis.length > 0) {
+    setKpiStatus(`Task未作成のKPIが ${missingTaskKpis.length}件あります。一覧表示を優先するため、自動生成は停止しています。`);
   }
 
   const totalTaskCount = kpisWithTasks.reduce((sum, kpi) => sum + (Array.isArray(kpi.tasks) ? kpi.tasks.length : 0), 0);
