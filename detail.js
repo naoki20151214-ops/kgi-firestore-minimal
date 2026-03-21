@@ -1045,7 +1045,7 @@ const ensurePhaseOpenState = (phaseGroups, phases = currentRoadmapPhases) => {
   phaseGroups.forEach((group, index) => {
     const key = group.key;
     if (Object.prototype.hasOwnProperty.call(roadmapPhaseOpenState, key)) {
-      nextState[key] = roadmapPhaseOpenState[key];
+      nextState[key] = Boolean(roadmapPhaseOpenState[key]);
       return;
     }
 
@@ -1054,6 +1054,8 @@ const ensurePhaseOpenState = (phaseGroups, phases = currentRoadmapPhases) => {
 
   roadmapPhaseOpenState = nextState;
 };
+
+const isPhaseGroupOpen = (groupKey) => Boolean(roadmapPhaseOpenState[groupKey]);
 
 const buildPhaseGroups = (kpis, phases = currentRoadmapPhases) => {
   const phaseMap = new Map((Array.isArray(phases) ? phases : []).map((phase) => [phase.id, phase]));
@@ -2685,27 +2687,28 @@ const renderKpiTable = (kpis) => {
   ensurePhaseOpenState(phaseGroups, currentRoadmapPhases);
 
   phaseGroups.forEach((group) => {
+    const isOpen = isPhaseGroupOpen(group.key);
     const section = document.createElement("section");
-    section.className = `kpi-phase-group ${roadmapPhaseOpenState[group.key] ? "open" : ""}`;
+    section.className = `kpi-phase-group ${isOpen ? "open" : ""}`;
     section.dataset.phaseGroup = group.key;
 
     const groupHeader = document.createElement("button");
     groupHeader.type = "button";
     groupHeader.className = "kpi-phase-toggle";
     groupHeader.dataset.phaseToggle = group.key;
-    groupHeader.setAttribute("aria-expanded", roadmapPhaseOpenState[group.key] ? "true" : "false");
+    groupHeader.setAttribute("aria-expanded", isOpen ? "true" : "false");
     groupHeader.innerHTML = `
       <span>
         <span class="kpi-phase-title">${escapeHtml(group.title)}</span>
         <span class="phase-kpi-badge">${escapeHtml(group.statusLabel)}</span>
       </span>
-      <span class="kpi-phase-toggle-meta">${group.items.length}件 / ${roadmapPhaseOpenState[group.key] ? "閉じる" : "開く"}</span>
+      <span class="kpi-phase-toggle-meta">${group.items.length}件 / ${isOpen ? "閉じる" : "開く"}</span>
     `;
     section.appendChild(groupHeader);
 
     const phaseBody = document.createElement("div");
     phaseBody.className = "kpi-phase-body";
-    phaseBody.hidden = !roadmapPhaseOpenState[group.key];
+    phaseBody.hidden = !isOpen;
 
     if (group.description) {
       const desc = document.createElement("p");
@@ -3215,7 +3218,7 @@ kpiTableBody.addEventListener("click", async (event) => {
     const groupKey = phaseToggleButton.dataset.phaseToggle;
 
     if (groupKey) {
-      roadmapPhaseOpenState = { ...roadmapPhaseOpenState, [groupKey]: !roadmapPhaseOpenState[groupKey] };
+      roadmapPhaseOpenState = { ...roadmapPhaseOpenState, [groupKey]: !isPhaseGroupOpen(groupKey) };
       rerenderCurrentKpis();
     }
 
