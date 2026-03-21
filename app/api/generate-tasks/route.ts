@@ -65,12 +65,25 @@ type TaskRequest = {
 type TaskStage = "setup" | "research" | "decision" | "build" | "launch" | "review";
 
 type TaskItem = {
+  title?: unknown;
+  description?: unknown;
+  stage?: unknown;
+  type?: unknown;
+  progressValue?: unknown;
+  priority?: unknown;
+  status?: unknown;
+  dependsOnTaskIds?: unknown;
+};
+
+type NormalizedTask = {
   title: string;
   description: string;
   stage: TaskStage;
   type: "one_time";
   progressValue: 1;
   priority: number;
+  status: "todo";
+  dependsOnTaskIds: string[];
 };
 
 type NormalizedReflection = {
@@ -220,18 +233,95 @@ const normalizeTaskStage = (stage: unknown): TaskStage => {
   return TASK_STAGES.includes(normalized as TaskStage) ? normalized as TaskStage : "build";
 };
 
-const isValidTask = (value: any): value is TaskItem => (
-  value
-  && typeof value === "object"
-  && isNonEmptyString(value.title)
-  && isNonEmptyString(value.description)
-  && TASK_STAGES.includes(normalizeTaskStage(value.stage))
-  && value.type === "one_time"
-  && Number(value.progressValue) === 1
-  && Number.isInteger(Number(value.priority))
-  && Number(value.priority) >= 1
-  && Number(value.priority) <= 3
-);
+const FALLBACK_TASK_TITLE = "最初の一歩を決める";
+const FALLBACK_TASK_DESCRIPTION = "KPI達成に向けて、最初に着手する具体的な作業を1つ決めて実行する。";
+
+const normalizeTaskTitle = (value: unknown, index: number) => {
+  if (isNonEmptyString(value)) {
+    return value.trim();
+  }
+
+  return index === 0 ? FALLBACK_TASK_TITLE : `補完Task ${index + 1}`;
+};
+
+const normalizeTaskDescription = (value: unknown, title: string) => {
+  if (isNonEmptyString(value)) {
+    return value.trim();
+  }
+
+  return `${title} を安全に進めるための補完Taskです。`;
+};
+
+const normalizeTaskPriority = (value: unknown) => {
+  const priority = Number(value);
+
+  if (!Number.isFinite(priority) || priority < 0) {
+    return 0;
+  }
+
+  if (priority > 3) {
+    return 3;
+  }
+
+  return Math.trunc(priority);
+};
+
+const normalizeDependsOnTaskIds = (value: unknown) => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((item) => (typeof item === "string" ? item.trim() : ""))
+    .filter(Boolean);
+};
+
+const normalizeTaskItem = (value: TaskItem, index: number): NormalizedTask => {
+  const title = normalizeTaskTitle(value?.title, index);
+
+  return {
+    title,
+    description: normalizeTaskDescription(value?.description, title),
+    stage: normalizeTaskStage(value?.stage),
+    type: "one_time",
+    progressValue: 1,
+    priority: normalizeTaskPriority(value?.priority),
+    status: "todo",
+    dependsOnTaskIds: normalizeDependsOnTaskIds(value?.dependsOnTaskIds)
+  };
+};
+
+const buildFallbackTasks = (taskTitle = FALLBACK_TASK_TITLE): NormalizedTask[] => [{
+  title: isNonEmptyString(taskTitle) ? taskTitle.trim() : FALLBACK_TASK_TITLE,
+  description: FALLBACK_TASK_DESCRIPTION,
+  stage: "build",
+  type: "one_time",
+  progressValue: 1,
+  priority: 0,
+  status: "todo",
+  dependsOnTaskIds: []
+}];
+
+const safeParseTasks = (outputText: string, kpiName: string) => {
+  if (!outputText) {
+    console.warn("[generate-tasks] empty outputText, using fallback", { kpiName });
+    return buildFallbackTasks(`${kpiName || FALLBACK_TASK_TITLE} の最初の一歩`);
+  }
+
+  try {
+    const parsed = JSON.parse(outputText) as { tasks?: TaskItem[] };
+
+    if (!Array.isArray(parsed?.tasks) || parsed.tasks.length === 0) {
+      console.warn("[generate-tasks] tasks missing or empty, using fallback", { kpiName, outputText });
+      return buildFallbackTasks(`${kpiName || FALLBACK_TASK_TITLE} の最初の一歩`);
+    }
+
+    return parsed.tasks.slice(0, 7).map((task, index) => normalizeTaskItem(task, index));
+  } catch (error) {
+    console.warn("[generate-tasks] json parse failed, using fallback", { kpiName, error, outputText });
+    return buildFallbackTasks(`${kpiName || FALLBACK_TASK_TITLE} の最初の一歩`);
+  }
+};
 
 export async function POST(request: Request) {
   const apiKey = process.env.OPENAI_API_KEY;
@@ -309,26 +399,9 @@ export async function POST(request: Request) {
     const responseData = await openAiResponse.json();
     const outputText = extractOutputText(responseData);
 
-    if (!outputText) {
-      return NextResponse.json({ error: "Failed to parse Task JSON" }, { status: 500 });
-    }
+    const tasks = safeParseTasks(outputText, kpiName);
 
-    const parsed = JSON.parse(outputText) as { tasks?: TaskItem[] };
-
-    if (!Array.isArray(parsed.tasks) || parsed.tasks.length < 3 || parsed.tasks.length > 7 || !parsed.tasks.every(isValidTask)) {
-      return NextResponse.json({ error: "Failed to parse Task JSON" }, { status: 500 });
-    }
-
-    const tasks = parsed.tasks.map((task) => ({
-      title: task.title.trim(),
-      description: task.description.trim(),
-      stage: normalizeTaskStage(task.stage),
-      type: "one_time" as const,
-      progressValue: 1 as const,
-      priority: Number(task.priority)
-    }));
-
-    console.log("[generate-tasks] response", { success: true, taskCount: tasks.length });
+    console.log("[generate-tasks] response", { success: true, taskCount: tasks.length, fallbackUsed: !outputText || tasks.some((task) => task.priority === 0) });
     return NextResponse.json({ tasks });
   } catch (error) {
     console.log("[generate-tasks] response", { success: false });
