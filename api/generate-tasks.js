@@ -304,7 +304,12 @@ const safeParseTasks = (outputText, kpiName) => {
 
     return taskItems.slice(0, 7).map((task, index) => {
       try {
-        return normalizeTaskItem(task ?? {}, index);
+        const normalizedTask = normalizeTaskItem(task ?? {}, index);
+
+        return {
+          ...normalizedTask,
+          stage: normalizeTaskStage(task?.stage ?? normalizedTask.stage)
+        };
       } catch (taskError) {
         console.error("[generate-tasks] failed to normalize task item", { kpiName, index, task, taskError });
         return normalizeTaskItem({}, index);
