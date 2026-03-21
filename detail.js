@@ -157,6 +157,8 @@ let roadmapKpiLoading = false;
 let roadmapKpiFeedbackTone = "info";
 let roadmapPhaseOpenState = {};
 let kpiDetailOpenState = {};
+let taskFormOpenState = {};
+let taskAiPanelOpenState = {};
 let aiSavingKey = "";
 let aiError = "";
 let aiHasGenerated = false;
@@ -593,6 +595,7 @@ const renderTaskSuggestionList = (kpi) => {
   const errorMessage = taskAiErrorByKpiId[kpi.id] ?? "";
   const savedSet = ensureTaskAiSavedSet(kpi.id);
   const savingSet = ensureTaskAiSavingSet(kpi.id);
+  const isOpen = Boolean(taskAiPanelOpenState[kpi.id]);
 
   const loadingMarkup = isLoading
     ? '<p class="hint">AIがTask案を作成中...</p>'
@@ -638,18 +641,29 @@ const renderTaskSuggestionList = (kpi) => {
 
   return `
     <div class="task-ai-panel">
-      <div class="ai-actions task-ai-actions">
+      <div class="task-disclosure-header">
         <button
-          class="button"
+          class="button secondary task-disclosure-toggle"
           type="button"
-          data-task-ai-generate="${kpi.id}"
-          ${isLoading ? "disabled" : ""}
-        >AIでTask案を作る</button>
-        ${loadingMarkup}
+          data-task-ai-toggle="${kpi.id}"
+          aria-expanded="${isOpen ? "true" : "false"}"
+        >${isOpen ? "AI候補を閉じる" : "AIでTask案を作る"}</button>
+        <span class="hint">${suggestions.length > 0 ? `${suggestions.length}件の候補あり` : "必要なときだけ展開"}</span>
       </div>
-      <p class="hint">過去の振り返りを反映して提案しています。</p>
-      ${errorMarkup}
-      <div class="task-ai-suggestions">${listMarkup}</div>
+      <div class="task-disclosure-body" ${isOpen ? "" : "hidden"}>
+        <div class="ai-actions task-ai-actions">
+          <button
+            class="button"
+            type="button"
+            data-task-ai-generate="${kpi.id}"
+            ${isLoading ? "disabled" : ""}
+          >${suggestions.length > 0 ? "AI候補を再生成" : "AIでTask案を作る"}</button>
+          ${loadingMarkup}
+        </div>
+        <p class="hint">過去の振り返りを反映して提案しています。</p>
+        ${errorMarkup}
+        <div class="task-ai-suggestions">${listMarkup}</div>
+      </div>
     </div>
   `;
 };
@@ -2712,6 +2726,7 @@ const renderKpiTable = (kpis) => {
       const originalName = typeof kpi.name === "string" && kpi.name.trim() ? kpi.name.trim() : "-";
       const originalDescription = displayDescription(kpi.description);
       const isOpen = Boolean(kpiDetailOpenState[kpi.id]);
+      const isTaskFormOpen = Boolean(taskFormOpenState[kpi.id]);
       const tasks = Array.isArray(kpi.tasks) ? kpi.tasks : [];
 
       const article = document.createElement("article");
@@ -2726,8 +2741,8 @@ const renderKpiTable = (kpis) => {
           <div class="kpi-card-meta">
             <span>進捗 ${formatPercent(progressPercent)}</span>
             <span>タイプ ${escapeHtml(kpi.kpiType === "action" ? "action" : "result")}</span>
-            <span>期限 ${escapeHtml(deadline)}</span>
-            <span class="${remaining.isOverdue ? "overdue-text" : ""}">${escapeHtml(remaining.remainingText)}</span>
+            <span>現在値 ${currentValue}</span>
+            <span>Task ${tasks.length}件</span>
           </div>
           <div class="progress-wrap">
             <div class="progress-bar" aria-label="${escapeHtml(simpleName || kpi.name || "KPI")}の進捗バー">
@@ -2735,7 +2750,7 @@ const renderKpiTable = (kpis) => {
             </div>
           </div>
           <div class="kpi-card-actions">
-            <span class="hint">現在値: ${currentValue}</span>
+            <span class="hint">${escapeHtml(simpleDescription || "-")}</span>
             <button class="button secondary kpi-detail-toggle" type="button" data-kpi-toggle="${kpi.id}" aria-expanded="${isOpen ? "true" : "false"}">${isOpen ? "閉じる" : "開く"}</button>
           </div>
         </div>
@@ -2743,24 +2758,31 @@ const renderKpiTable = (kpis) => {
           <div class="kpi-card-detail-block">
             <div><strong>説明</strong><div>${escapeHtml(simpleDescription || "-")}</div></div>
             ${simpleDescription && simpleDescription !== originalDescription && originalDescription !== "-" ? `<div><strong>元の説明</strong><div>${escapeHtml(originalDescription)}</div></div>` : ""}
+            <div><strong>期限</strong><div>${escapeHtml(deadline)} / <span class="${remaining.isOverdue ? "overdue-text" : ""}">${escapeHtml(remaining.remainingText)}</span></div></div>
           </div>
           <div class="task-panel">
             <h3 class="task-panel-title">Task</h3>
-            <form class="task-form" data-kpi-id="${kpi.id}">
-              <div class="task-grid">
-                <label>Task名<input name="title" type="text" placeholder="例: LPの改善案を3つ作る" required /></label>
-                <label>補足説明<input name="description" type="text" placeholder="任意" /></label>
-                <label>stage<select name="stage"><option value="setup">setup</option><option value="research">research</option><option value="decision">decision</option><option value="build" selected>build</option><option value="launch">launch</option><option value="review">review</option></select></label>
-                <label>タイプ<select name="type" class="task-type-select"><option value="one_time">one_time</option><option value="repeatable">repeatable</option></select></label>
-                <label>進捗値<input name="progressValue" type="number" min="0" step="1" value="1" required /></label>
-                <label>期限<input name="deadline" type="date" /></label>
-                <label>優先度<input name="priority" type="number" min="1" step="1" value="2" /></label>
-                <label>担当<input name="assignee" type="text" placeholder="例: 自分、ナオキ、外注先A" /></label>
-                <label>完了条件<input name="doneDefinition" type="text" placeholder="例: PR作成まで、承認取得まで、初回送信20件完了まで" /></label>
-                <label>メモ<input name="ticketNote" type="text" placeholder="任意" /></label>
+            <div class="task-disclosure">
+              <div class="task-disclosure-header">
+                <button class="button secondary task-disclosure-toggle" type="button" data-task-form-toggle="${kpi.id}" aria-expanded="${isTaskFormOpen ? "true" : "false"}">${isTaskFormOpen ? "Task入力を閉じる" : "Taskを追加"}</button>
+                <span class="hint">入力が必要なときだけ展開</span>
               </div>
-              <button class="button task-add-button" type="submit">Taskを追加</button>
-            </form>
+              <form class="task-form task-disclosure-body" data-kpi-id="${kpi.id}" ${isTaskFormOpen ? "" : "hidden"}>
+                <div class="task-grid">
+                  <label>Task名<input name="title" type="text" placeholder="例: LPの改善案を3つ作る" required /></label>
+                  <label>補足説明<input name="description" type="text" placeholder="任意" /></label>
+                  <label>stage<select name="stage"><option value="setup">setup</option><option value="research">research</option><option value="decision">decision</option><option value="build" selected>build</option><option value="launch">launch</option><option value="review">review</option></select></label>
+                  <label>タイプ<select name="type" class="task-type-select"><option value="one_time">one_time</option><option value="repeatable">repeatable</option></select></label>
+                  <label>進捗値<input name="progressValue" type="number" min="0" step="1" value="1" required /></label>
+                  <label>期限<input name="deadline" type="date" /></label>
+                  <label>優先度<input name="priority" type="number" min="1" step="1" value="2" /></label>
+                  <label>担当<input name="assignee" type="text" placeholder="例: 自分、ナオキ、外注先A" /></label>
+                  <label>完了条件<input name="doneDefinition" type="text" placeholder="例: PR作成まで、承認取得まで、初回送信20件完了まで" /></label>
+                  <label>メモ<input name="ticketNote" type="text" placeholder="任意" /></label>
+                </div>
+                <button class="button task-add-button" type="submit">Taskを追加</button>
+              </form>
+            </div>
             ${renderTaskSuggestionList(kpi)}
             <div class="task-list-wrap">${renderTaskRows(kpi.id, tasks)}</div>
           </div>
@@ -3209,6 +3231,33 @@ kpiTableBody.addEventListener("click", async (event) => {
 
     return;
   }
+
+  const taskFormToggleButton = event.target instanceof HTMLElement ? event.target.closest("[data-task-form-toggle]") : null;
+
+  if (taskFormToggleButton instanceof HTMLButtonElement) {
+    const targetId = taskFormToggleButton.dataset.taskFormToggle;
+
+    if (targetId) {
+      taskFormOpenState = { ...taskFormOpenState, [targetId]: !taskFormOpenState[targetId] };
+      rerenderCurrentKpis();
+    }
+
+    return;
+  }
+
+  const taskAiToggleButton = event.target instanceof HTMLElement ? event.target.closest("[data-task-ai-toggle]") : null;
+
+  if (taskAiToggleButton instanceof HTMLButtonElement) {
+    const targetId = taskAiToggleButton.dataset.taskAiToggle;
+
+    if (targetId) {
+      taskAiPanelOpenState = { ...taskAiPanelOpenState, [targetId]: !taskAiPanelOpenState[targetId] };
+      rerenderCurrentKpis();
+    }
+
+    return;
+  }
+
   const generateButton = event.target instanceof HTMLElement ? event.target.closest("[data-task-ai-generate]") : null;
   const addButton = event.target instanceof HTMLElement ? event.target.closest(".task-ai-add-button") : null;
 
@@ -3249,6 +3298,7 @@ kpiTableBody.addEventListener("click", async (event) => {
       });
       setTaskAiSuggestions(kpiTargetId, nextSuggestions);
       setTaskAiError(kpiTargetId, "");
+      taskAiPanelOpenState = { ...taskAiPanelOpenState, [kpiTargetId]: true };
     } catch (error) {
       console.error(error);
       const errorMessage = error instanceof Error && error.message ? error.message : "Unexpected server error";

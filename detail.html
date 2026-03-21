@@ -519,6 +519,29 @@
         padding: 8px 12px;
       }
 
+      .task-disclosure,
+      .task-ai-panel {
+        display: grid;
+        gap: 10px;
+      }
+
+      .task-disclosure-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+
+      .task-disclosure-toggle {
+        padding: 8px 12px;
+      }
+
+      .task-disclosure-body {
+        display: grid;
+        gap: 12px;
+      }
+
       .task-panel-row td {
         background: #f8fafc;
       }
@@ -558,6 +581,23 @@
         padding-left: 18px;
         display: grid;
         gap: 10px;
+      }
+
+      @media (max-width: 640px) {
+        .kpi-card {
+          padding: 12px;
+          gap: 10px;
+        }
+
+        .kpi-card-meta {
+          gap: 6px 10px;
+          font-size: 0.88rem;
+        }
+
+        .kpi-card-actions,
+        .task-disclosure-header {
+          align-items: flex-start;
+        }
       }
 
       .ai-suggestion-item {
