@@ -523,7 +523,7 @@ const FALLBACK_TASK_DESCRIPTION = "KPI達成に向けて、最初に着手する
 
 const normalizeGeneratedTaskDraft = (suggestion, kpiId, order = 0, ticketNote = "") => {
   const normalizedTitle = displaySuggestionText(suggestion?.title) === "-"
-    ? ""
+    ? (displaySuggestionText(suggestion?.kpi) === "-" ? displaySuggestionText(suggestion?.text) : displaySuggestionText(suggestion?.kpi))
     : displaySuggestionText(suggestion?.title);
   const normalizedDescription = displaySuggestionText(suggestion?.description) === "-"
     ? ""
@@ -1518,7 +1518,9 @@ const ensureMinimumTasksForKpis = async (kpis) => {
   for (const kpi of kpisNeedingTasks) {
     try {
       const suggestions = await requestGeneratedTasksForKpi(kpi);
-      const firstSuggestion = Array.isArray(suggestions) ? suggestions.find((item) => displaySuggestionText(item?.title) !== "-") : null;
+      const firstSuggestion = Array.isArray(suggestions)
+        ? suggestions.find((item) => [item?.title, item?.kpi, item?.text].some((value) => displaySuggestionText(value) !== "-"))
+        : null;
 
       if (!firstSuggestion) {
         throw new Error("Task候補が空でした");

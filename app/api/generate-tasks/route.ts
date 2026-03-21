@@ -66,6 +66,8 @@ type TaskStage = "setup" | "research" | "decision" | "build" | "launch" | "revie
 
 type TaskItem = {
   title?: unknown;
+  text?: unknown;
+  kpi?: unknown;
   description?: unknown;
   stage?: unknown;
   type?: unknown;
@@ -236,9 +238,15 @@ const normalizeTaskStage = (stage: unknown): TaskStage => {
 const FALLBACK_TASK_TITLE = "最初の一歩を決める";
 const FALLBACK_TASK_DESCRIPTION = "KPI達成に向けて、最初に着手する具体的な作業を1つ決めて実行する。";
 
-const normalizeTaskTitle = (value: unknown, index: number) => {
+const normalizeTaskTitle = (value: unknown, index: number, fallbacks: unknown[] = []) => {
   if (isNonEmptyString(value)) {
     return value.trim();
+  }
+
+  for (const fallback of fallbacks) {
+    if (isNonEmptyString(fallback)) {
+      return fallback.trim();
+    }
   }
 
   return index === 0 ? FALLBACK_TASK_TITLE : `補完Task ${index + 1}`;
@@ -277,7 +285,7 @@ const normalizeDependsOnTaskIds = (value: unknown) => {
 };
 
 const normalizeTaskItem = (value: TaskItem, index: number): NormalizedTask => {
-  const title = normalizeTaskTitle(value?.title, index);
+  const title = normalizeTaskTitle(value?.title, index, [value?.kpi, value?.text]);
 
   return {
     title,
@@ -302,23 +310,65 @@ const buildFallbackTasks = (taskTitle = FALLBACK_TASK_TITLE): NormalizedTask[] =
   dependsOnTaskIds: []
 }];
 
+const getTaskItemsFromParsedResponse = (parsed: unknown): TaskItem[] => {
+  if (Array.isArray(parsed)) {
+    return parsed;
+  }
+
+  if (!parsed || typeof parsed !== "object") {
+    return [];
+  }
+
+  const record = parsed as {
+    tasks?: unknown;
+    items?: unknown;
+    data?: { tasks?: unknown; items?: unknown };
+  };
+
+  if (Array.isArray(record.tasks)) {
+    return record.tasks;
+  }
+
+  if (Array.isArray(record.items)) {
+    return record.items;
+  }
+
+  if (Array.isArray(record.data?.tasks)) {
+    return record.data.tasks;
+  }
+
+  if (Array.isArray(record.data?.items)) {
+    return record.data.items;
+  }
+
+  return [];
+};
+
 const safeParseTasks = (outputText: string, kpiName: string) => {
   if (!outputText) {
-    console.warn("[generate-tasks] empty outputText, using fallback", { kpiName });
+    console.error("[generate-tasks] empty outputText, using fallback", { kpiName });
     return buildFallbackTasks(`${kpiName || FALLBACK_TASK_TITLE} の最初の一歩`);
   }
 
   try {
-    const parsed = JSON.parse(outputText) as { tasks?: TaskItem[] };
+    const parsed = JSON.parse(outputText) as unknown;
+    const taskItems = getTaskItemsFromParsedResponse(parsed);
 
-    if (!Array.isArray(parsed?.tasks) || parsed.tasks.length === 0) {
-      console.warn("[generate-tasks] tasks missing or empty, using fallback", { kpiName, outputText });
+    if (!Array.isArray(taskItems) || taskItems.length === 0) {
+      console.error("[generate-tasks] tasks missing or empty, using fallback", { kpiName, outputText, parsed });
       return buildFallbackTasks(`${kpiName || FALLBACK_TASK_TITLE} の最初の一歩`);
     }
 
-    return parsed.tasks.slice(0, 7).map((task, index) => normalizeTaskItem(task, index));
+    return taskItems.slice(0, 7).map((task, index) => {
+      try {
+        return normalizeTaskItem(task ?? {}, index);
+      } catch (taskError) {
+        console.error("[generate-tasks] failed to normalize task item", { kpiName, index, task, taskError });
+        return normalizeTaskItem({}, index);
+      }
+    });
   } catch (error) {
-    console.warn("[generate-tasks] json parse failed, using fallback", { kpiName, error, outputText });
+    console.error("[generate-tasks] json parse failed, using fallback", { kpiName, error, outputText });
     return buildFallbackTasks(`${kpiName || FALLBACK_TASK_TITLE} の最初の一歩`);
   }
 };
