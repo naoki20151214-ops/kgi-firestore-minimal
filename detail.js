@@ -606,9 +606,7 @@ const renderTaskSuggestionList = (kpi) => {
 
   let listMarkup = "";
 
-  if (!isLoading && suggestions.length === 0) {
-    listMarkup = '<p class="hint">候補なし</p>';
-  } else if (suggestions.length > 0) {
+  if (suggestions.length > 0) {
     const itemsMarkup = suggestions.map((item) => {
       const suggestionKey = buildTaskSuggestionKey(item);
       const isSaved = savedSet.has(suggestionKey);
@@ -662,7 +660,7 @@ const renderTaskSuggestionList = (kpi) => {
         </div>
         <p class="hint">過去の振り返りを反映して提案しています。</p>
         ${errorMarkup}
-        <div class="task-ai-suggestions">${listMarkup}</div>
+        ${listMarkup ? `<div class="task-ai-suggestions">${listMarkup}</div>` : ""}
       </div>
     </div>
   `;
@@ -2735,8 +2733,6 @@ const renderKpiTable = (kpis) => {
         <div class="kpi-card-summary">
           <div class="kpi-card-main">
             <strong>${escapeHtml(simpleName || "-")}</strong>
-            <p class="hint">${escapeHtml(simpleDescription || "-")}</p>
-            ${simpleName && simpleName !== originalName ? `<p class="hint">元のKPI: ${escapeHtml(originalName)}</p>` : ""}
           </div>
           <div class="kpi-card-meta">
             <span>進捗 ${formatPercent(progressPercent)}</span>
@@ -2744,21 +2740,26 @@ const renderKpiTable = (kpis) => {
             <span>現在値 ${currentValue}</span>
             <span>Task ${tasks.length}件</span>
           </div>
-          <div class="progress-wrap">
-            <div class="progress-bar" aria-label="${escapeHtml(simpleName || kpi.name || "KPI")}の進捗バー">
-              <div class="progress-fill" style="width: ${progressPercent}%"></div>
-            </div>
-          </div>
           <div class="kpi-card-actions">
-            <span class="hint">${escapeHtml(simpleDescription || "-")}</span>
             <button class="button secondary kpi-detail-toggle" type="button" data-kpi-toggle="${kpi.id}" aria-expanded="${isOpen ? "true" : "false"}">${isOpen ? "閉じる" : "開く"}</button>
           </div>
         </div>
         <div class="kpi-card-detail" ${isOpen ? "" : "hidden"}>
           <div class="kpi-card-detail-block">
+            <div><strong>KPI名</strong><div>${escapeHtml(simpleName || "-")}</div></div>
+            ${simpleName && simpleName !== originalName ? `<div><strong>元のKPI</strong><div>${escapeHtml(originalName)}</div></div>` : ""}
             <div><strong>説明</strong><div>${escapeHtml(simpleDescription || "-")}</div></div>
             ${simpleDescription && simpleDescription !== originalDescription && originalDescription !== "-" ? `<div><strong>元の説明</strong><div>${escapeHtml(originalDescription)}</div></div>` : ""}
+            <div><strong>進捗</strong><div>${formatPercent(progressPercent)}</div></div>
+            <div><strong>タイプ</strong><div>${escapeHtml(kpi.kpiType === "action" ? "action" : "result")}</div></div>
+            <div><strong>現在値</strong><div>${currentValue}</div></div>
+            <div><strong>Task件数</strong><div>${tasks.length}件</div></div>
             <div><strong>期限</strong><div>${escapeHtml(deadline)} / <span class="${remaining.isOverdue ? "overdue-text" : ""}">${escapeHtml(remaining.remainingText)}</span></div></div>
+            <div class="progress-wrap">
+              <div class="progress-bar" aria-label="${escapeHtml(simpleName || kpi.name || "KPI")}の進捗バー">
+                <div class="progress-fill" style="width: ${progressPercent}%"></div>
+              </div>
+            </div>
           </div>
           <div class="task-panel">
             <h3 class="task-panel-title">Task</h3>
@@ -2767,21 +2768,23 @@ const renderKpiTable = (kpis) => {
                 <button class="button secondary task-disclosure-toggle" type="button" data-task-form-toggle="${kpi.id}" aria-expanded="${isTaskFormOpen ? "true" : "false"}">${isTaskFormOpen ? "Task入力を閉じる" : "Taskを追加"}</button>
                 <span class="hint">入力が必要なときだけ展開</span>
               </div>
-              <form class="task-form task-disclosure-body" data-kpi-id="${kpi.id}" ${isTaskFormOpen ? "" : "hidden"}>
-                <div class="task-grid">
-                  <label>Task名<input name="title" type="text" placeholder="例: LPの改善案を3つ作る" required /></label>
-                  <label>補足説明<input name="description" type="text" placeholder="任意" /></label>
-                  <label>stage<select name="stage"><option value="setup">setup</option><option value="research">research</option><option value="decision">decision</option><option value="build" selected>build</option><option value="launch">launch</option><option value="review">review</option></select></label>
-                  <label>タイプ<select name="type" class="task-type-select"><option value="one_time">one_time</option><option value="repeatable">repeatable</option></select></label>
-                  <label>進捗値<input name="progressValue" type="number" min="0" step="1" value="1" required /></label>
-                  <label>期限<input name="deadline" type="date" /></label>
-                  <label>優先度<input name="priority" type="number" min="1" step="1" value="2" /></label>
-                  <label>担当<input name="assignee" type="text" placeholder="例: 自分、ナオキ、外注先A" /></label>
-                  <label>完了条件<input name="doneDefinition" type="text" placeholder="例: PR作成まで、承認取得まで、初回送信20件完了まで" /></label>
-                  <label>メモ<input name="ticketNote" type="text" placeholder="任意" /></label>
-                </div>
-                <button class="button task-add-button" type="submit">Taskを追加</button>
-              </form>
+              ${isTaskFormOpen ? `
+                <form class="task-form task-disclosure-body" data-kpi-id="${kpi.id}">
+                  <div class="task-grid">
+                    <label>Task名<input name="title" type="text" placeholder="例: LPの改善案を3つ作る" required /></label>
+                    <label>補足説明<input name="description" type="text" placeholder="任意" /></label>
+                    <label>stage<select name="stage"><option value="setup">setup</option><option value="research">research</option><option value="decision">decision</option><option value="build" selected>build</option><option value="launch">launch</option><option value="review">review</option></select></label>
+                    <label>タイプ<select name="type" class="task-type-select"><option value="one_time">one_time</option><option value="repeatable">repeatable</option></select></label>
+                    <label>進捗値<input name="progressValue" type="number" min="0" step="1" value="1" required /></label>
+                    <label>期限<input name="deadline" type="date" /></label>
+                    <label>優先度<input name="priority" type="number" min="1" step="1" value="2" /></label>
+                    <label>担当<input name="assignee" type="text" placeholder="例: 自分、ナオキ、外注先A" /></label>
+                    <label>完了条件<input name="doneDefinition" type="text" placeholder="例: PR作成まで、承認取得まで、初回送信20件完了まで" /></label>
+                    <label>メモ<input name="ticketNote" type="text" placeholder="任意" /></label>
+                  </div>
+                  <button class="button task-add-button" type="submit">Taskを追加</button>
+                </form>
+              ` : ""}
             </div>
             ${renderTaskSuggestionList(kpi)}
             <div class="task-list-wrap">${renderTaskRows(kpi.id, tasks)}</div>
