@@ -518,6 +518,48 @@ const setTaskAiError = (kpiTargetId, message = "") => {
   };
 };
 
+const FALLBACK_TASK_TITLE = "最初の一歩を決める";
+const FALLBACK_TASK_DESCRIPTION = "KPI達成に向けて、最初に着手する具体的な作業を1つ決めて実行する。";
+
+const normalizeGeneratedTaskDraft = (suggestion, kpiId, order = 0, ticketNote = "") => {
+  const normalizedTitle = displaySuggestionText(suggestion?.title) === "-"
+    ? ""
+    : displaySuggestionText(suggestion?.title);
+  const normalizedDescription = displaySuggestionText(suggestion?.description) === "-"
+    ? ""
+    : displaySuggestionText(suggestion?.description);
+  const parsedPriority = Number(suggestion?.priority);
+
+  return {
+    title: normalizedTitle || FALLBACK_TASK_TITLE,
+    description: normalizedDescription || FALLBACK_TASK_DESCRIPTION,
+    status: "todo",
+    deadline: "",
+    assignee: "",
+    dueDate: "",
+    doneDefinition: "",
+    ticketStatus: ticketNote ? "ready" : "backlog",
+    ticketNote,
+    stage: normalizeTaskStage(suggestion?.stage),
+    dependsOnTaskIds: normalizeDependsOnTaskIds(suggestion?.dependsOnTaskIds),
+    priority: Number.isFinite(parsedPriority) ? parsedPriority : 0,
+    order,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+    completedAt: null,
+    isSuggestedByAI: true,
+    type: "one_time",
+    progressValue: 1,
+    contributedValue: 0,
+    isCompleted: false,
+    kpiId,
+    checkStatus: "not_checked",
+    checkComment: "",
+    checkResult: "",
+    checkRecordedAt: null
+  };
+};
+
 const setTaskAiSuggestions = (kpiTargetId, suggestions) => {
   taskAiSuggestionsByKpiId = {
     ...taskAiSuggestionsByKpiId,
@@ -1457,34 +1499,10 @@ const requestGeneratedTasksForKpi = async (kpi) => {
 };
 
 const saveGeneratedTaskForKpi = async (kpiId, suggestion, order = 0) => {
-  await addDoc(getTasksRef(kpiId), {
-    title: displaySuggestionText(suggestion?.title) === "-" ? "" : displaySuggestionText(suggestion?.title),
-    description: displaySuggestionText(suggestion?.description) === "-" ? "" : displaySuggestionText(suggestion?.description),
-    status: "todo",
-    deadline: "",
-    assignee: "",
-    dueDate: "",
-    doneDefinition: "",
-    ticketStatus: "ready",
-    ticketNote: "AIが自動生成した最初のNext Actionです",
-    stage: normalizeTaskStage(suggestion?.stage),
-    dependsOnTaskIds: normalizeDependsOnTaskIds(suggestion?.dependsOnTaskIds),
-    priority: Number.isFinite(Number(suggestion?.priority)) ? Number(suggestion.priority) : 1,
-    order,
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
-    completedAt: null,
-    isSuggestedByAI: true,
-    type: "one_time",
-    progressValue: 1,
-    contributedValue: 0,
-    isCompleted: false,
-    kpiId,
-    checkStatus: "not_checked",
-    checkComment: "",
-    checkResult: "",
-    checkRecordedAt: null
-  });
+  await addDoc(
+    getTasksRef(kpiId),
+    normalizeGeneratedTaskDraft(suggestion, kpiId, order, "AIが自動生成した最初のNext Actionです")
+  );
 };
 
 const ensureMinimumTasksForKpis = async (kpis) => {
@@ -1512,7 +1530,12 @@ const ensureMinimumTasksForKpis = async (kpis) => {
       await syncKpiProgressFromTasks(kpi.id, kpiData);
       generatedCount += 1;
     } catch (error) {
-      console.error("Failed to auto-generate minimum task", { kpiId: kpi?.id, error });
+      console.error("Failed to auto-generate minimum task", {
+        kpiId: kpi?.id,
+        kpiName: typeof kpi?.name === "string" ? kpi.name.trim() : "",
+        requestBody: buildTaskGenerationRequestBody(kpi),
+        error
+      });
       failedKpiNames.push(typeof kpi?.name === "string" && kpi.name.trim() ? kpi.name.trim() : "名称未設定KPI");
     }
   }
@@ -3307,34 +3330,10 @@ kpiTableBody.addEventListener("click", async (event) => {
     try {
       const taskSnapshot = await getDocs(getTasksRef(kpiTargetId));
 
-      await addDoc(getTasksRef(kpiTargetId), {
-        title: displaySuggestionText(suggestion?.title) === "-" ? "" : displaySuggestionText(suggestion?.title),
-        description: displaySuggestionText(suggestion?.description) === "-" ? "" : displaySuggestionText(suggestion?.description),
-        status: "todo",
-        deadline: "",
-        assignee: "",
-        dueDate: "",
-        doneDefinition: "",
-        ticketStatus: "backlog",
-        ticketNote: "",
-        stage: normalizeTaskStage(suggestion?.stage),
-        dependsOnTaskIds: normalizeDependsOnTaskIds(suggestion?.dependsOnTaskIds),
-        priority: Number.isFinite(Number(suggestion?.priority)) ? Number(suggestion.priority) : 2,
-        order: taskSnapshot.size,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-        completedAt: null,
-        isSuggestedByAI: true,
-        type: "one_time",
-        progressValue: 1,
-        contributedValue: 0,
-        isCompleted: false,
-        kpiId: kpiTargetId,
-        checkStatus: "not_checked",
-        checkComment: "",
-        checkResult: "",
-        checkRecordedAt: null
-      });
+      await addDoc(
+        getTasksRef(kpiTargetId),
+        normalizeGeneratedTaskDraft(suggestion, kpiTargetId, taskSnapshot.size)
+      );
 
       savedSet.add(suggestionKey);
       const kpiSnapshot = await getDoc(getKpiRef(kpiTargetId));
