@@ -3007,7 +3007,7 @@ const renderKgiMeta = (kgiData) => {
     kgiMeta.innerHTML = `
       <div class="overview-item">
         <strong>紐づくKGI</strong>
-        <div>このKPIは「${escapeHtml(kgiData.name ?? "未設定のKGI")}」に紐づいています。</div>
+        <div>${escapeHtml(kgiData.name ?? "未設定のKGI")}</div>
       </div>
     `;
 
@@ -3285,12 +3285,11 @@ const renderPhasePageMeta = () => {
   isPhaseDescriptionExpanded = false;
   renderPhaseDescription(phase?.description);
   if (pageTitle) {
-    pageTitle.textContent = `${phaseName} のKPI`;
+    pageTitle.textContent = "KPI一覧";
   }
   if (pageLead) {
-    pageLead.textContent = currentKgiData?.name
-      ? `このページでは「${currentKgiData.name}」に紐づく「${phaseName}」のKPIだけを表示しています。`
-      : "今表示しているフェーズのKPIを確認できます。";
+    pageLead.textContent = "";
+    pageLead.hidden = true;
   }
   if (isPhasePage) {
     document.title = `${phaseName} のKPI | KGI Firestore Minimal`;
@@ -5147,7 +5146,7 @@ const initializeDetailPage = async () => {
     selectedPhaseId = resolvePhaseIdFromUrl();
     renderKgiMeta(kgiSnapshot.data());
     enableKpiActions();
-    setStatus("KGI詳細を表示しています。");
+    setStatus("");
     setDebugSummary(`取得したid: ${kgiId}`, "KGI読み込み成功");
     await loadRoutineTasks();
     await loadKpis();
