@@ -243,6 +243,42 @@ const renderPhaseDescription = (description) => {
     renderPhaseDescription(fullText);
   });
 };
+
+const buildRoadmapPhaseTitle = (title, index) => {
+  const safeTitle = typeof title === "string" && title.trim() ? title.trim() : `フェーズ${index + 1}`;
+  return safeTitle.startsWith(`フェーズ${index + 1}`) ? safeTitle : `フェーズ${index + 1} ${safeTitle}`;
+};
+
+const renderRoadmapPhaseDescription = (description) => {
+  const points = splitPhaseDescriptionIntoPoints(description);
+  const visiblePoints = points.slice(0, 2);
+  const hiddenPoints = points.slice(2);
+
+  if (points.length === 0) {
+    return '<p class="hint">このフェーズの説明はまだありません。</p>';
+  }
+
+  const visibleMarkup = `
+    <ul class="roadmap-phase-points">
+      ${visiblePoints.map((point) => `<li>${escapeHtml(point)}</li>`).join("")}
+    </ul>
+  `;
+
+  if (hiddenPoints.length === 0) {
+    return visibleMarkup;
+  }
+
+  return `
+    ${visibleMarkup}
+    <details class="roadmap-phase-details">
+      <summary class="roadmap-phase-summary">続きを読む / 閉じる</summary>
+      <ul class="roadmap-phase-points roadmap-phase-points-extra">
+        ${hiddenPoints.map((point) => `<li>${escapeHtml(point)}</li>`).join("")}
+      </ul>
+    </details>
+  `;
+};
+
 const getAiSuggestionStorageKey = () => kgiId ? `kgi-detail-ai-suggestions:${kgiId}` : "";
 const getSubKgiSavedStorageKey = () => kgiId ? `kgi-detail-subkgi-saved:${kgiId}` : "";
 const TASK_CHECK_RESULT_OPTIONS = [
@@ -1418,11 +1454,11 @@ const renderRoadmap = (phases = currentRoadmapPhases) => {
   const markup = phases.map((phase, index) => `
     <li class="roadmap-phase-item ${phase.status}">
       <div class="roadmap-phase-head">
-        <strong>${escapeHtml(phase.title)}</strong>
+        <strong class="roadmap-phase-title">${escapeHtml(buildRoadmapPhaseTitle(phase.title, index))}</strong>
         <span class="roadmap-phase-status ${phase.status}">${ROADMAP_STATUS_LABELS[phase.status] ?? "予定"}</span>
       </div>
-      <p class="hint">${escapeHtml(phase.description)}</p>
-      <span class="roadmap-phase-meta">フェーズ ${index + 1}</span>
+      ${renderRoadmapPhaseDescription(phase.description)}
+      <span class="roadmap-phase-meta">順番: ${index + 1} / ${phases.length}</span>
       <div class="roadmap-phase-links">
         <a class="roadmap-phase-link" href="${buildPhasePageUrl(phase.id)}">KPIを見る</a>
       </div>
