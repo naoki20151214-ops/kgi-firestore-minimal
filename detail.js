@@ -1472,6 +1472,23 @@ const renderRoadmap = (phases = currentRoadmapPhases) => {
   }
 };
 
+const getPhaseDeadlineSummary = (phaseId, kpis = latestRenderedKpis, fallbackDeadline = currentKgiData?.deadline) => {
+  if (typeof phaseId !== "string" || !phaseId.trim()) {
+    return "フェーズ締切: 未設定";
+  }
+
+  const phaseDeadlines = (Array.isArray(kpis) ? kpis : [])
+    .filter((kpi) => isActiveKpi(kpi) && String(kpi?.phaseId ?? "").trim() === phaseId)
+    .map((kpi) => displayDeadline(kpi?.deadline))
+    .filter((deadline) => parseDeadline(deadline));
+
+  const phaseDeadline = phaseDeadlines.sort((a, b) => getComparableDeadline(b) - getComparableDeadline(a))[0]
+    || displayDeadline(fallbackDeadline);
+  const remaining = calcRemainingDays(phaseDeadline === "未設定" ? "" : phaseDeadline);
+
+  return `フェーズ締切: ${phaseDeadline} / ${remaining.remainingText}`;
+};
+
 const renderCurrentLocation = (phases = currentRoadmapPhases) => {
   if (!currentLocationContainer) {
     return;
@@ -1479,11 +1496,13 @@ const renderCurrentLocation = (phases = currentRoadmapPhases) => {
 
   const currentPhase = getCurrentRoadmapPhase(phases);
   const nextPhase = getNextRoadmapPhase(phases);
+  const currentPhaseDeadlineSummary = getPhaseDeadlineSummary(currentPhase?.id);
 
   currentLocationContainer.innerHTML = `
     <div class="location-card">
       <strong>今いるフェーズ</strong>
       <div>${escapeHtml(currentPhase?.title ?? "未設定")}</div>
+      <p class="hint">${escapeHtml(currentPhaseDeadlineSummary)}</p>
       <p class="hint">${escapeHtml(currentPhase?.description ?? "ロードマップ未生成のため、現在地を特定できていません。")}</p>
     </div>
     <div class="location-card">
@@ -3380,6 +3399,7 @@ const loadKpis = async () => {
   renderKpiTable(kpisWithTasks);
   renderOverallProgress(kpisWithTasks);
   renderKpiSummary(kpisWithTasks, isPhasePage ? phaseScopedKpis : allKpis);
+  renderCurrentLocation(currentRoadmapPhases);
 
   if (!nextAction) {
     latestNextActionStepRequestKey = "";
