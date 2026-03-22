@@ -1703,12 +1703,15 @@ const buildTaskTicketStatusUpdate = (ticketStatus) => {
 };
 
 const buildTaskGenerationRequestBody = (kpi) => ({
+  kgiId,
   kgiName: currentKgiData?.name ?? "",
   kgiGoalText: currentKgiData?.goalText ?? "",
+  kpiId: typeof kpi?.id === "string" ? kpi.id : "",
   kpiName: typeof kpi?.name === "string" ? kpi.name.trim() : "",
   kpiDescription: typeof kpi?.description === "string" ? kpi.description.trim() : "",
   kpiType: kpi?.kpiType === "action" ? "action" : "result",
   targetValue: parsePositiveNumber(kpi?.targetValue ?? kpi?.target, 0),
+  phaseId: typeof kpi?.phaseId === "string" ? kpi.phaseId : "",
   phaseName: getPhaseLabel(kpi?.phaseId, currentRoadmapPhases),
   recentReflections: buildRecentReflections(latestRenderedKpis, { preferredKpiId: kpi?.id, limit: 5 })
 });
