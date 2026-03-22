@@ -181,6 +181,8 @@ let roadmapKpiFeedbackTone = "info";
 let roadmapPhaseOpenState = {};
 let kpiDetailOpenState = {};
 let taskFormOpenState = {};
+let taskSectionOpenState = {};
+let reflectionSectionOpenState = {};
 let taskAiPanelOpenState = {};
 let aiSavingKey = "";
 let aiError = "";
@@ -2891,6 +2893,8 @@ const renderKgiMeta = (kgiData) => {
   currentRoadmapPhases = normalizeRoadmapPhases(kgiData?.roadmapPhases);
   roadmapPhaseOpenState = {};
   kpiDetailOpenState = {};
+  taskSectionOpenState = {};
+  reflectionSectionOpenState = {};
   const deadline = displayDeadline(kgiData.deadline);
   const deadlineInfo = calcRemainingDays(deadline === "未設定" ? "" : deadline);
 
@@ -3403,7 +3407,27 @@ const renderTaskOutline = (tasks) => {
   `;
 };
 
-const renderTaskRows = (kpiIdForTask, tasks) => {
+
+const renderReflectionRows = (kpiIdForTask, tasks) => {
+  if (!Array.isArray(tasks) || tasks.length === 0) {
+    return '<p class="hint">Taskがまだありません。</p>';
+  }
+
+  const reflectionItems = tasks
+    .filter((task) => isTaskCheckAvailable(task))
+    .map((task) => `
+      <section class="task-reflection-item">
+        <h4 class="task-reflection-item-title">${escapeHtml(task.title ?? "-")}</h4>
+        ${renderTaskCheckSection(kpiIdForTask, task)}
+      </section>
+    `)
+    .join("");
+
+  return reflectionItems || '<p class="hint">振り返り対象のTaskはまだありません。</p>';
+};
+
+const renderTaskRows = (kpiIdForTask, tasks, options = {}) => {
+  const showReflections = Boolean(options.showReflections);
   if (tasks.length === 0) {
     return '<p class="hint">Taskがまだありません。</p>';
   }
@@ -3458,7 +3482,7 @@ const renderTaskRows = (kpiIdForTask, tasks) => {
           </div>
         </td>
       </tr>
-      ${isTaskCheckAvailable(task)
+      ${showReflections && isTaskCheckAvailable(task)
     ? `
         <tr class="task-check-row">
           <td colspan="11">
@@ -3545,6 +3569,8 @@ const renderKpiTable = (kpis) => {
       const originalDescription = displayDescription(kpi.description);
       const isOpen = Boolean(kpiDetailOpenState[kpi.id]);
       const isTaskFormOpen = Boolean(taskFormOpenState[kpi.id]);
+      const isTaskSectionOpen = Boolean(taskSectionOpenState[kpi.id]);
+      const isReflectionSectionOpen = Boolean(reflectionSectionOpenState[kpi.id]);
       const tasks = Array.isArray(kpi.tasks) ? kpi.tasks : [];
       const firstIncompleteTask = getFirstIncompleteTaskForKpi(kpi);
       const shouldShowTaskEmptyState = tasks.length === 0;
@@ -3605,33 +3631,47 @@ const renderKpiTable = (kpis) => {
             </div>
           </div>
           <div class="task-panel">
-            <h3 class="task-panel-title">Task</h3>
-            <div class="task-disclosure">
-              <div class="task-disclosure-header">
-                <button class="button secondary task-disclosure-toggle" type="button" data-task-form-toggle="${kpi.id}" aria-expanded="${isTaskFormOpen ? "true" : "false"}">${isTaskFormOpen ? "Task入力を閉じる" : tasks.length === 0 ? "最初のTaskを追加" : "Taskを追加"}</button>
-                <span class="hint">${tasks.length === 0 ? "このKPIの最初の1歩を1件だけ手動追加できます" : "入力が必要なときだけ展開"}</span>
-              </div>
-              ${isTaskFormOpen ? `
-                <form class="task-form task-disclosure-body" data-kpi-id="${kpi.id}">
-                  <div class="task-grid">
-                    <label>Task名<input name="title" type="text" placeholder="例: LPの改善案を3つ作る" required /></label>
-                    <label>補足説明<input name="description" type="text" placeholder="任意" /></label>
-                    <label>stage<select name="stage"><option value="setup">setup</option><option value="research">research</option><option value="decision">decision</option><option value="build" selected>build</option><option value="launch">launch</option><option value="review">review</option></select></label>
-                    <label>タイプ<select name="type" class="task-type-select"><option value="one_time">one_time</option><option value="repeatable">repeatable</option></select></label>
-                    <label>進捗値<input name="progressValue" type="number" min="0" step="1" value="1" required /></label>
-                    <label>期限<input name="deadline" type="date" /></label>
-                    <label>優先度<input name="priority" type="number" min="1" step="1" value="2" /></label>
-                    <label>担当<input name="assignee" type="text" placeholder="例: 自分、ナオキ、外注先A" /></label>
-                    <label>完了条件<input name="doneDefinition" type="text" placeholder="例: PR作成まで、承認取得まで、初回送信20件完了まで" /></label>
-                    <label>メモ<input name="ticketNote" type="text" placeholder="任意" /></label>
-                  </div>
-                  <button class="button task-add-button" type="submit">Taskを追加</button>
-                </form>
-              ` : ""}
+            <div class="task-panel-header">
+              <h3 class="task-panel-title">Task</h3>
+              <button class="button secondary task-disclosure-toggle" type="button" data-task-section-toggle="${kpi.id}" aria-expanded="${isTaskSectionOpen ? "true" : "false"}">${isTaskSectionOpen ? "Taskを閉じる" : "Taskを見る"}</button>
             </div>
-            ${renderTaskOutline(tasks)}
-            ${renderTaskSuggestionList(kpi)}
-            <div class="task-list-wrap">${renderTaskRows(kpi.id, tasks)}</div>
+            <div class="task-panel-body" ${isTaskSectionOpen ? "" : "hidden"}>
+              <div class="task-disclosure">
+                <div class="task-disclosure-header">
+                  <button class="button secondary task-disclosure-toggle" type="button" data-task-form-toggle="${kpi.id}" aria-expanded="${isTaskFormOpen ? "true" : "false"}">${isTaskFormOpen ? "Task入力を閉じる" : tasks.length === 0 ? "最初のTaskを追加" : "Taskを追加"}</button>
+                  <span class="hint">${tasks.length === 0 ? "このKPIの最初の1歩を1件だけ手動追加できます" : "入力が必要なときだけ展開"}</span>
+                </div>
+                ${isTaskFormOpen ? `
+                  <form class="task-form task-disclosure-body" data-kpi-id="${kpi.id}">
+                    <div class="task-grid">
+                      <label>Task名<input name="title" type="text" placeholder="例: LPの改善案を3つ作る" required /></label>
+                      <label>補足説明<input name="description" type="text" placeholder="任意" /></label>
+                      <label>stage<select name="stage"><option value="setup">setup</option><option value="research">research</option><option value="decision">decision</option><option value="build" selected>build</option><option value="launch">launch</option><option value="review">review</option></select></label>
+                      <label>タイプ<select name="type" class="task-type-select"><option value="one_time">one_time</option><option value="repeatable">repeatable</option></select></label>
+                      <label>進捗値<input name="progressValue" type="number" min="0" step="1" value="1" required /></label>
+                      <label>期限<input name="deadline" type="date" /></label>
+                      <label>優先度<input name="priority" type="number" min="1" step="1" value="2" /></label>
+                      <label>担当<input name="assignee" type="text" placeholder="例: 自分、ナオキ、外注先A" /></label>
+                      <label>完了条件<input name="doneDefinition" type="text" placeholder="例: PR作成まで、承認取得まで、初回送信20件完了まで" /></label>
+                      <label>メモ<input name="ticketNote" type="text" placeholder="任意" /></label>
+                    </div>
+                    <button class="button task-add-button" type="submit">Taskを追加</button>
+                  </form>
+                ` : ""}
+              </div>
+              ${renderTaskOutline(tasks)}
+              ${renderTaskSuggestionList(kpi)}
+              <div class="task-list-wrap">${renderTaskRows(kpi.id, tasks, { showReflections: false })}</div>
+            </div>
+            <div class="task-panel reflection-panel">
+              <div class="task-panel-header">
+                <h3 class="task-panel-title">振り返り</h3>
+                <button class="button secondary task-disclosure-toggle" type="button" data-reflection-section-toggle="${kpi.id}" aria-expanded="${isReflectionSectionOpen ? "true" : "false"}">${isReflectionSectionOpen ? "振り返りを閉じる" : "振り返りを見る"}</button>
+              </div>
+              <div class="task-panel-body" ${isReflectionSectionOpen ? "" : "hidden"}>
+                <div class="task-list-wrap">${renderReflectionRows(kpi.id, tasks)}</div>
+              </div>
+            </div>
           </div>
         </div>
       `;
@@ -3653,6 +3693,7 @@ const openTaskFormForKpi = (kpiId) => {
   }
 
   kpiDetailOpenState = { ...kpiDetailOpenState, [kpiId]: true };
+  taskSectionOpenState = { ...taskSectionOpenState, [kpiId]: true };
   taskFormOpenState = { ...taskFormOpenState, [kpiId]: true };
   rerenderCurrentKpis();
 
@@ -4178,6 +4219,32 @@ kpiTableBody.addEventListener("click", async (event) => {
       updatedAt: serverTimestamp()
     });
     await loadKpis();
+    return;
+  }
+
+  const taskSectionToggleButton = event.target instanceof HTMLElement ? event.target.closest("[data-task-section-toggle]") : null;
+
+  if (taskSectionToggleButton instanceof HTMLButtonElement) {
+    const targetId = taskSectionToggleButton.dataset.taskSectionToggle;
+
+    if (targetId) {
+      taskSectionOpenState = { ...taskSectionOpenState, [targetId]: !taskSectionOpenState[targetId] };
+      rerenderCurrentKpis();
+    }
+
+    return;
+  }
+
+  const reflectionSectionToggleButton = event.target instanceof HTMLElement ? event.target.closest("[data-reflection-section-toggle]") : null;
+
+  if (reflectionSectionToggleButton instanceof HTMLButtonElement) {
+    const targetId = reflectionSectionToggleButton.dataset.reflectionSectionToggle;
+
+    if (targetId) {
+      reflectionSectionOpenState = { ...reflectionSectionOpenState, [targetId]: !reflectionSectionOpenState[targetId] };
+      rerenderCurrentKpis();
+    }
+
     return;
   }
 
@@ -4908,6 +4975,8 @@ const initializeDetailPage = async () => {
   latestRenderedKpis = [];
   roadmapPhaseOpenState = {};
   kpiDetailOpenState = {};
+  taskSectionOpenState = {};
+  reflectionSectionOpenState = {};
   setAiError("");
   setStatus("読み込み中...");
   setKpiStatus("KPIの読み込み待機中...");
