@@ -268,6 +268,47 @@ const extractPhasePeriod = (phase = {}) => {
 
 const getPhasePeriodDisplayLabel = (phase = {}) => extractPhasePeriod(phase) || "未設定";
 
+const getPhaseRemainingDays = (phase = {}) => {
+  const periodLabel = extractPhasePeriod(phase);
+
+  if (!periodLabel) {
+    return null;
+  }
+
+  const normalized = periodLabel.replace(/[–−]/g, "-");
+  const match = normalized.match(/(Day|Days|Week|Weeks|Month|Months)\s*(\d+)\s*-\s*(\d+)/i);
+
+  if (!match) {
+    return null;
+  }
+
+  const unit = match[1].toLowerCase();
+  const end = Number(match[3]);
+
+  if (!Number.isFinite(end) || end <= 0) {
+    return null;
+  }
+
+  if (unit.startsWith("day")) {
+    return end;
+  }
+
+  if (unit.startsWith("week")) {
+    return end * 7;
+  }
+
+  if (unit.startsWith("month")) {
+    return end * 30;
+  }
+
+  return null;
+};
+
+const getPhaseRemainingDaysLabel = (phase = {}) => {
+  const remainingDays = getPhaseRemainingDays(phase);
+  return Number.isFinite(remainingDays) ? `あと${remainingDays}日` : "あと日数: 未設定";
+};
+
 const renderRoadmapPhaseDescription = (description) => {
   const points = splitPhaseDescriptionIntoPoints(description);
   const visiblePoints = points.slice(0, 2);
@@ -1472,6 +1513,7 @@ const renderRoadmap = (phases = currentRoadmapPhases) => {
 
   const markup = phases.map((phase, index) => {
     const periodLabel = getPhasePeriodDisplayLabel(phase);
+    const remainingDaysLabel = getPhaseRemainingDaysLabel(phase);
     const phaseName = buildRoadmapPhaseName(phase.title, index);
 
     return `
@@ -1483,6 +1525,7 @@ const renderRoadmap = (phases = currentRoadmapPhases) => {
             <strong class="roadmap-phase-title">${escapeHtml(phaseName)}</strong>
           </div>
           <span class="roadmap-phase-period" aria-label="期間">期限目安: ${escapeHtml(periodLabel)}</span>
+          <span class="roadmap-phase-remaining ${phase.status === "current" ? "current" : ""}" aria-label="残り日数">${escapeHtml(remainingDaysLabel)}</span>
         </div>
         <span class="roadmap-phase-status ${phase.status}">${ROADMAP_STATUS_LABELS[phase.status] ?? "予定"}</span>
       </div>
