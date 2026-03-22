@@ -250,6 +250,11 @@ const buildRoadmapPhaseTitle = (title, index) => {
   return safeTitle.startsWith(`フェーズ${index + 1}`) ? safeTitle : `フェーズ${index + 1} ${safeTitle}`;
 };
 
+const buildRoadmapPhaseName = (title, index) => {
+  const fullTitle = buildRoadmapPhaseTitle(title, index);
+  return fullTitle.replace(new RegExp(`^フェーズ${index + 1}\\s*`), "").trim() || fullTitle;
+};
+
 const PHASE_PERIOD_PATTERN = /(?:Day\s*\d+\s*[–-]\s*\d+|Days\s*\d+\s*[–-]\s*\d+|Week\s*\d+\s*[–-]\s*\d+|Weeks\s*\d+\s*[–-]\s*\d+|Month\s*\d+\s*[–-]\s*\d+|Months\s*\d+\s*[–-]\s*\d+)/i;
 
 const extractPhasePeriod = (phase = {}) => {
@@ -1465,13 +1470,17 @@ const renderRoadmap = (phases = currentRoadmapPhases) => {
 
   const markup = phases.map((phase, index) => {
     const periodLabel = extractPhasePeriod(phase);
+    const phaseName = buildRoadmapPhaseName(phase.title, index);
 
     return `
     <li class="roadmap-phase-item ${phase.status}">
       <div class="roadmap-phase-head">
         <div class="roadmap-phase-title-group">
-          <strong class="roadmap-phase-title">${escapeHtml(buildRoadmapPhaseTitle(phase.title, index))}</strong>
-          ${periodLabel ? `<span class="roadmap-phase-period" aria-label="期間">${escapeHtml(periodLabel)}</span>` : ""}
+          <div class="roadmap-phase-heading-row">
+            <span class="roadmap-phase-number" aria-label="フェーズ番号">フェーズ${index + 1}</span>
+            <strong class="roadmap-phase-title">${escapeHtml(phaseName)}</strong>
+          </div>
+          ${periodLabel ? `<span class="roadmap-phase-period" aria-label="期間">期限目安: ${escapeHtml(periodLabel)}</span>` : ""}
         </div>
         <span class="roadmap-phase-status ${phase.status}">${ROADMAP_STATUS_LABELS[phase.status] ?? "予定"}</span>
       </div>
