@@ -27,8 +27,10 @@ const kpiTableBody = document.getElementById("kpiTableBody");
 const kpiNameInput = document.getElementById("kpiName");
 const kpiDescriptionInput = document.getElementById("kpiDescription");
 const kpiTypeInput = document.getElementById("kpiType");
+const kpiCategoryInput = document.getElementById("kpiCategory");
 const kpiDeadlineInput = document.getElementById("kpiDeadline");
 const addKpiButton = document.getElementById("addKpiButton");
+const showArchivedToggle = document.getElementById("showArchivedToggle");
 let overallProgressValue = document.getElementById("overallProgressValue");
 let overallProgressFill = document.getElementById("overallProgressFill");
 let overallProgressCaption = document.getElementById("overallProgressCaption");
@@ -176,6 +178,7 @@ let latestRenderedKpis = [];
 let taskCheckUiState = {};
 let autoTaskGenerationInFlight = false;
 let autoTaskGenerationPromise = null;
+let showArchivedKpis = false;
 const getAiSuggestionStorageKey = () => kgiId ? `kgi-detail-ai-suggestions:${kgiId}` : "";
 const getSubKgiSavedStorageKey = () => kgiId ? `kgi-detail-subkgi-saved:${kgiId}` : "";
 const TASK_CHECK_RESULT_OPTIONS = [
@@ -459,6 +462,36 @@ const normalizeSuggestionTarget = (value) => {
   return Number.isFinite(parsed) ? parsed : 0;
 };
 
+const KPI_CATEGORY_OPTIONS = ["research", "design", "build", "quality", "validation", "distribution", "monetization"];
+const DEFAULT_KPI_CATEGORY = "build";
+const MAX_ACTIVE_KPIS_PER_PHASE_CATEGORY = 2;
+const NEAR_DUPLICATE_DISTANCE_THRESHOLD = 3;
+
+const normalizeKpiCategory = (value) => KPI_CATEGORY_OPTIONS.includes(String(value ?? "").trim().toLowerCase())
+  ? String(value).trim().toLowerCase()
+  : "";
+
+const getKpiCategory = (kpi) => normalizeKpiCategory(kpi?.category) || inferKpiCategory(kpi?.name, kpi?.description) || DEFAULT_KPI_CATEGORY;
+const normalizeKpiStatus = (value) => String(value ?? "").trim().toLowerCase() === "archived" ? "archived" : "active";
+const isArchivedKpi = (kpi) => normalizeKpiStatus(kpi?.status) === "archived";
+const isActiveKpi = (kpi) => !isArchivedKpi(kpi);
+
+const inferKpiCategory = (name = "", description = "") => {
+  const text = `${name} ${description}`.toLowerCase();
+  const categoryRules = [
+    { category: "research", keywords: ["調査", "分析", "research", "survey", "リサーチ", "仮説"] },
+    { category: "design", keywords: ["設計", "構成", "要件", "ワイヤー", "仕様", "design"] },
+    { category: "build", keywords: ["実装", "開発", "構築", "build", "制作", "作成", "開発完了"] },
+    { category: "quality", keywords: ["テスト", "品質", "安定", "bug", "不具合", "qa", "改善率"] },
+    { category: "validation", keywords: ["ベータ", "検証", "反応", "ユーザー反応", "検証結果", "インタビュー", "validation"] },
+    { category: "distribution", keywords: ["集客", "登録", "流入", "配信", "拡散", "sns", "distribution", "cv"] },
+    { category: "monetization", keywords: ["課金", "売上", "購入", "収益", "単価", "継続課金", "monetization"] }
+  ];
+
+  const matched = categoryRules.find((rule) => rule.keywords.some((keyword) => text.includes(keyword)));
+  return matched?.category ?? "";
+};
+
 const buildSuggestionKey = ({ name = "", description = "", target = 0, type = "result" }) => JSON.stringify({
   name: String(name).trim(),
   description: String(description).trim(),
@@ -478,7 +511,9 @@ const buildSuggestionPayload = (item, fallbackType) => ({
   name: displaySuggestionText(item?.title) === "-" ? "" : displaySuggestionText(item?.title),
   description: displaySuggestionText(item?.description) === "-" ? "" : displaySuggestionText(item?.description),
   target: normalizeSuggestionTarget(item?.targetValue),
-  type: normalizeSuggestionType(item?.type, fallbackType)
+  type: normalizeSuggestionType(item?.type, fallbackType),
+  category: normalizeKpiCategory(item?.category) || inferKpiCategory(item?.title, item?.description) || DEFAULT_KPI_CATEGORY,
+  reason: typeof item?.reason === "string" ? item.reason.trim() : ""
 });
 
 const buildTaskSuggestionKey = (item) => JSON.stringify({
@@ -686,6 +721,10 @@ const renderSuggestionList = (items, container, fallbackType, showTargetValue, a
     const targetValue = showTargetValue
       ? `<span class="ai-suggestion-meta">目標値: ${Number.isFinite(Number(item?.targetValue)) ? Number(item.targetValue) : "-"}</span>`
       : "";
+    const categoryLabel = `<span class="ai-suggestion-meta">カテゴリ: ${escapeHtml(payload.category || DEFAULT_KPI_CATEGORY)}</span>`;
+    const reasonLabel = typeof payload.reason === "string" && payload.reason
+      ? `<span class="ai-suggestion-meta">理由: ${escapeHtml(payload.reason)}</span>`
+      : "";
     const buttonLabel = isSaved ? "追加済み" : "＋追加";
     const buttonMarkup = allowAddButton
       ? `
@@ -705,7 +744,9 @@ const renderSuggestionList = (items, container, fallbackType, showTargetValue, a
           ${buttonMarkup}
         </div>
         <span class="ai-suggestion-meta">説明: ${description}</span>
+        ${categoryLabel}
         ${targetValue}
+        ${reasonLabel}
       </li>
     `;
   }).join("");
@@ -714,6 +755,11 @@ const renderSuggestionList = (items, container, fallbackType, showTargetValue, a
 };
 
 renderAiSuggestions();
+
+showArchivedToggle?.addEventListener("change", async (event) => {
+  showArchivedKpis = Boolean(event.target instanceof HTMLInputElement ? event.target.checked : false);
+  await loadKpis();
+});
 
 const resetAiSuggestions = () => {
   aiHasGenerated = false;
@@ -885,6 +931,129 @@ const normalizeKpiDuplicateText = (value) => String(value ?? "")
   .trim()
   .toLowerCase();
 
+const levenshteinDistance = (source = "", target = "") => {
+  const a = normalizeKpiDuplicateText(source);
+  const b = normalizeKpiDuplicateText(target);
+
+  if (!a) {
+    return b.length;
+  }
+
+  if (!b) {
+    return a.length;
+  }
+
+  const matrix = Array.from({ length: a.length + 1 }, (_, index) => [index]);
+
+  for (let index = 0; index <= b.length; index += 1) {
+    matrix[0][index] = index;
+  }
+
+  for (let row = 1; row <= a.length; row += 1) {
+    for (let col = 1; col <= b.length; col += 1) {
+      const cost = a[row - 1] === b[col - 1] ? 0 : 1;
+      matrix[row][col] = Math.min(
+        matrix[row - 1][col] + 1,
+        matrix[row][col - 1] + 1,
+        matrix[row - 1][col - 1] + cost
+      );
+    }
+  }
+
+  return matrix[a.length][b.length];
+};
+
+const isNearDuplicateKpiName = (left, right) => {
+  const normalizedLeft = normalizeKpiDuplicateText(left);
+  const normalizedRight = normalizeKpiDuplicateText(right);
+
+  if (!normalizedLeft || !normalizedRight) {
+    return false;
+  }
+
+  if (normalizedLeft === normalizedRight) {
+    return true;
+  }
+
+  if (
+    (normalizedLeft.length <= 18 || normalizedRight.length <= 18)
+    && (normalizedLeft.includes(normalizedRight) || normalizedRight.includes(normalizedLeft))
+  ) {
+    return true;
+  }
+
+  return levenshteinDistance(normalizedLeft, normalizedRight) <= NEAR_DUPLICATE_DISTANCE_THRESHOLD;
+};
+
+const buildKpiDuplicateDiagnostics = (candidate, existingKpis = []) => {
+  const candidateName = String(candidate?.name ?? "").trim();
+  const candidatePhaseId = String(candidate?.phaseId ?? "").trim();
+  const candidateCategory = normalizeKpiCategory(candidate?.category) || DEFAULT_KPI_CATEGORY;
+  const normalizedCandidateName = normalizeKpiDuplicateText(candidateName);
+  const activeKpis = existingKpis.filter(isActiveKpi);
+  const samePhaseCategory = activeKpis.filter((kpi) => (
+    String(kpi?.phaseId ?? "").trim() === candidatePhaseId
+    && getKpiCategory(kpi) === candidateCategory
+  ));
+  const exactDuplicate = activeKpis.find((kpi) => normalizeKpiDuplicateText(kpi?.name) === normalizedCandidateName);
+  const nearDuplicate = samePhaseCategory.find((kpi) => isNearDuplicateKpiName(kpi?.name, candidateName));
+  const categoryOverflow = samePhaseCategory.length >= MAX_ACTIVE_KPIS_PER_PHASE_CATEGORY;
+
+  return {
+    exactDuplicate,
+    nearDuplicate,
+    categoryOverflow,
+    samePhaseCategoryCount: samePhaseCategory.length
+  };
+};
+
+const buildKpiSavePayload = async ({
+  name,
+  description,
+  kpiType,
+  deadline = "",
+  targetValue = 100,
+  phaseId = getDefaultPhaseId(),
+  order = 0,
+  category = "",
+  source = "manual"
+}) => {
+  const simplified = await fetchSimpleKpi({
+    name,
+    description,
+    type: kpiType,
+    targetValue
+  });
+
+  const normalizedCategory = normalizeKpiCategory(category) || inferKpiCategory(name, description) || DEFAULT_KPI_CATEGORY;
+
+  return {
+    kgiId,
+    name,
+    description,
+    simpleName: simplified.simpleName,
+    simpleDescription: simplified.simpleDescription,
+    type: kpiType,
+    kpiType,
+    category: normalizedCategory,
+    progressType: "task_based",
+    target: targetValue,
+    targetValue,
+    currentValue: 0,
+    unit: "pt",
+    deadline,
+    progress: 0,
+    percentage: 0,
+    phaseId,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+    status: "active",
+    priority: 2,
+    order,
+    source
+  };
+};
+
 const buildPhaseNameNameKey = (phaseId, name) => `${normalizeKpiDuplicateText(phaseId)}::${normalizeKpiDuplicateText(name)}`;
 
 const ROADMAP_KPI_LOADING_MAX_AGE_MS = 2 * 60 * 1000;
@@ -972,7 +1141,8 @@ const requestRoadmapGeneratedKpis = async () => {
 
 const saveRoadmapGeneratedKpis = async (generatedKpis) => {
   const existingSnapshot = await getDocs(getKpisQuery());
-  const existingKeys = new Set(existingSnapshot.docs.map((snapshotDoc) => buildPhaseNameNameKey(snapshotDoc.data()?.phaseId, snapshotDoc.data()?.name)));
+  const existingKpis = normalizeKpis(existingSnapshot.docs);
+  const existingKeys = new Set(existingKpis.map((kpi) => buildPhaseNameNameKey(kpi?.phaseId, kpi?.name)));
   const batch = writeBatch(db);
   const now = serverTimestamp();
   let nextOrder = existingSnapshot.size;
@@ -981,8 +1151,14 @@ const saveRoadmapGeneratedKpis = async (generatedKpis) => {
 
   generatedKpis.forEach((kpi) => {
     const duplicateKey = buildPhaseNameNameKey(kpi?.phaseId, kpi?.name);
+    const category = normalizeKpiCategory(kpi?.category) || inferKpiCategory(kpi?.name, kpi?.description) || DEFAULT_KPI_CATEGORY;
+    const duplicateDiagnostics = buildKpiDuplicateDiagnostics({
+      name: kpi?.name,
+      phaseId: kpi?.phaseId,
+      category
+    }, existingKpis);
 
-    if (!duplicateKey || existingKeys.has(duplicateKey)) {
+    if (!duplicateKey || existingKeys.has(duplicateKey) || duplicateDiagnostics.nearDuplicate || duplicateDiagnostics.categoryOverflow) {
       skippedCount += 1;
       return;
     }
@@ -997,6 +1173,7 @@ const saveRoadmapGeneratedKpis = async (generatedKpis) => {
       simpleDescription: String(kpi.simpleDescription ?? kpi.description ?? "").trim(),
       type: kpi.type,
       kpiType: kpi.type,
+      category,
       target: Number(kpi.targetValue),
       targetValue: Number(kpi.targetValue),
       currentValue: 0,
@@ -1015,6 +1192,7 @@ const saveRoadmapGeneratedKpis = async (generatedKpis) => {
     batch.set(topLevelRef, payload);
     batch.set(nestedRef, payload);
     existingKeys.add(duplicateKey);
+    existingKpis.push({ ...payload, id: topLevelRef.id });
     nextOrder += 1;
     savedCount += 1;
   });
@@ -2417,7 +2595,15 @@ const renderKgiMeta = (kgiData) => {
 };
 
 const normalizeKpis = (docs) => docs
-  .map((kpiDoc) => ({ id: kpiDoc.id, ...kpiDoc.data() }))
+  .map((kpiDoc) => {
+    const data = kpiDoc.data();
+    return {
+      id: kpiDoc.id,
+      ...data,
+      category: normalizeKpiCategory(data?.category) || inferKpiCategory(data?.name, data?.description) || "",
+      status: normalizeKpiStatus(data?.status)
+    };
+  })
   .sort((a, b) => {
     const orderA = Number.isFinite(Number(a.order)) ? Number(a.order) : Number.MAX_SAFE_INTEGER;
     const orderB = Number.isFinite(Number(b.order)) ? Number(b.order) : Number.MAX_SAFE_INTEGER;
@@ -2722,6 +2908,7 @@ const renderKpiTable = (kpis) => {
       const deadline = displayDeadline(kpi.deadline);
       const remaining = calcRemainingDays(deadline === "未設定" ? "" : deadline);
       const currentValue = parsePositiveNumber(kpi.currentValue, 0);
+      const category = getKpiCategory(kpi);
       const simpleName = getSimpleName(kpi);
       const simpleDescription = getSimpleDescription(kpi);
       const originalName = typeof kpi.name === "string" && kpi.name.trim() ? kpi.name.trim() : "-";
@@ -2740,11 +2927,13 @@ const renderKpiTable = (kpis) => {
           <div class="kpi-card-meta">
             <span>進捗 ${formatPercent(progressPercent)}</span>
             <span>タイプ ${escapeHtml(kpi.kpiType === "action" ? "action" : "result")}</span>
+            <span class="kpi-category-badge">${escapeHtml(category)}</span>
             <span>現在値 ${currentValue}</span>
             <span>Task ${tasks.length}件</span>
           </div>
           <div class="kpi-card-actions">
             <button class="button secondary kpi-detail-toggle" type="button" data-kpi-toggle="${kpi.id}" aria-expanded="${isOpen ? "true" : "false"}">${isOpen ? "閉じる" : "開く"}</button>
+            ${isActiveKpi(kpi) ? `<button class="button secondary" type="button" data-kpi-archive="${kpi.id}">アーカイブ</button>` : `<button class="button secondary" type="button" data-kpi-restore="${kpi.id}">復元</button>`}
           </div>
         </div>
         <div class="kpi-card-detail" ${isOpen ? "" : "hidden"}>
@@ -2753,6 +2942,8 @@ const renderKpiTable = (kpis) => {
             ${simpleName && simpleName !== originalName ? `<div><strong>元のKPI</strong><div>${escapeHtml(originalName)}</div></div>` : ""}
             <div><strong>説明</strong><div>${escapeHtml(simpleDescription || "-")}</div></div>
             ${simpleDescription && simpleDescription !== originalDescription && originalDescription !== "-" ? `<div><strong>元の説明</strong><div>${escapeHtml(originalDescription)}</div></div>` : ""}
+            <div><strong>カテゴリ</strong><div><span class="kpi-category-badge">${escapeHtml(category)}</span></div></div>
+            <div><strong>状態</strong><div><span class="kpi-status-badge">${escapeHtml(normalizeKpiStatus(kpi.status))}</span></div></div>
             <div><strong>進捗</strong><div>${formatPercent(progressPercent)}</div></div>
             <div><strong>タイプ</strong><div>${escapeHtml(kpi.kpiType === "action" ? "action" : "result")}</div></div>
             <div><strong>現在値</strong><div>${currentValue}</div></div>
@@ -2808,8 +2999,10 @@ const rerenderCurrentKpis = () => {
 
 const loadKpis = async () => {
   const snapshot = await getDocs(getKpisQuery());
+  const allKpis = normalizeKpis(snapshot.docs);
+  const visibleKpis = showArchivedKpis ? allKpis : allKpis.filter(isActiveKpi);
 
-  if (snapshot.empty) {
+  if (allKpis.length === 0) {
     updateRoadmapKpiButtonState(0);
     kpiTableBody.innerHTML = "";
     latestRenderedKpis = [];
@@ -2835,12 +3028,11 @@ const loadKpis = async () => {
     return;
   }
 
-  const kpis = normalizeKpis(snapshot.docs);
-  updateRoadmapKpiButtonState(kpis.length);
-  existingKpiKeys = new Set(kpis.map((kpi) => buildSavedSuggestionKeyFromKpi(kpi)));
+  updateRoadmapKpiButtonState(allKpis.filter(isActiveKpi).length);
+  existingKpiKeys = new Set(allKpis.filter(isActiveKpi).map((kpi) => buildSavedSuggestionKeyFromKpi(kpi)));
 
   const kpisWithTasks = await Promise.all(
-    kpis.map(async (kpi) => {
+    visibleKpis.map(async (kpi) => {
       const kpiWithSimpleFields = await ensureSimpleKpiFields(kpi);
       const synced = await syncKpiProgressFromTasks(kpi.id, kpiWithSimpleFields);
       const tasks = synced.tasks;
@@ -2924,7 +3116,13 @@ const loadKpis = async () => {
 
   renderAiSuggestions();
   kpiTable.hidden = false;
-  setKpiStatus(`${snapshot.size}件のKPIを表示しています。必要なKPIだけ開いて確認できます。`);
+  const archivedCount = allKpis.filter(isArchivedKpi).length;
+  const visibilitySuffix = showArchivedKpis && archivedCount > 0
+    ? `（アーカイブ${archivedCount}件を含む）`
+    : archivedCount > 0
+      ? `（アーカイブ${archivedCount}件は非表示）`
+      : "";
+  setKpiStatus(`${visibleKpis.length}件のKPIを表示しています。必要なKPIだけ開いて確認できます。${visibilitySuffix}`);
 };
 
 aiSuggestionsContainer?.addEventListener("click", async (event) => {
@@ -3011,33 +3209,29 @@ aiSuggestionsContainer?.addEventListener("click", async (event) => {
   renderAiSuggestions();
 
   try {
-    const simplified = await fetchSimpleKpi({
+    const existingSnapshot = await getDocs(getKpisQuery());
+    const existingKpis = normalizeKpis(existingSnapshot.docs);
+    const duplicateDiagnostics = buildKpiDuplicateDiagnostics({
       name: payload.name,
-      description: payload.description,
-      type: payload.type,
-      targetValue: payload.target
-    });
-
-    await addDoc(getKpisRef(), {
-      kgiId: payload.kgiId,
-      name: payload.name,
-      description: payload.description,
-      simpleName: simplified.simpleName,
-      simpleDescription: simplified.simpleDescription,
-      target: payload.target,
-      targetValue: payload.target,
-      type: payload.type,
-      kpiType: payload.type,
-      progressType: "task_based",
-      currentValue: 0,
-      unit: "pt",
-      progress: 0,
-      percentage: 0,
-      order: existingKpiKeys.size + 1,
       phaseId: getDefaultPhaseId(),
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp()
-    });
+      category: payload.category
+    }, existingKpis);
+
+    if (duplicateDiagnostics.exactDuplicate || duplicateDiagnostics.nearDuplicate || duplicateDiagnostics.categoryOverflow) {
+      await loadKpis();
+      return;
+    }
+
+    await addDoc(getKpisRef(), await buildKpiSavePayload({
+      name: payload.name,
+      description: payload.description,
+      kpiType: payload.type,
+      targetValue: payload.target,
+      phaseId: getDefaultPhaseId(),
+      order: existingSnapshot.size + 1,
+      category: payload.category,
+      source: "ai"
+    }));
 
     await loadKpis();
   } catch (error) {
@@ -3108,7 +3302,17 @@ generateAiKpisButton?.addEventListener("click", async () => {
       headers: {
         "Content-Type": "application/json"
       },
-      body: JSON.stringify({ goal })
+      body: JSON.stringify({
+        goal,
+        phase: getCurrentRoadmapPhase()?.title ?? getDefaultPhaseId(),
+        existingKpis: latestRenderedKpis.map((kpi) => ({
+          name: kpi?.name ?? "",
+          description: kpi?.description ?? "",
+          phaseId: kpi?.phaseId ?? "",
+          category: getKpiCategory(kpi),
+          status: normalizeKpiStatus(kpi?.status)
+        }))
+      })
     });
 
     const responseText = await response.text();
@@ -3153,6 +3357,7 @@ addKpiButton.addEventListener("click", async () => {
   const name = kpiNameInput.value.trim();
   const description = kpiDescriptionInput.value.trim();
   const kpiType = kpiTypeInput.value === "action" ? "action" : "result";
+  const category = normalizeKpiCategory(kpiCategoryInput?.value) || inferKpiCategory(name, description) || DEFAULT_KPI_CATEGORY;
   const deadline = kpiDeadlineInput.value.trim();
 
   if (!name) {
@@ -3164,41 +3369,42 @@ addKpiButton.addEventListener("click", async () => {
 
   try {
     const existingSnapshot = await getDocs(getKpisQuery());
+    const existingKpis = normalizeKpis(existingSnapshot.docs);
+    const duplicateDiagnostics = buildKpiDuplicateDiagnostics({ name, phaseId: getDefaultPhaseId(), category }, existingKpis);
 
-    const simplified = await fetchSimpleKpi({
+    if (duplicateDiagnostics.exactDuplicate) {
+      alert("同名のKPIが既に存在します。重複保存を停止しました。");
+      return;
+    }
+
+    if (duplicateDiagnostics.nearDuplicate) {
+      alert(`似たKPIが既にあります: ${duplicateDiagnostics.nearDuplicate.name}`);
+      return;
+    }
+
+    if (duplicateDiagnostics.categoryOverflow) {
+      alert(`同じフェーズ内の ${category} カテゴリKPIが多いため保存を停止しました。`);
+      return;
+    }
+
+    await addDoc(getKpisRef(), await buildKpiSavePayload({
       name,
       description,
-      type: kpiType,
-      targetValue: 100
-    });
-
-    await addDoc(getKpisRef(), {
-      kgiId,
-      name,
-      description,
-      simpleName: simplified.simpleName,
-      simpleDescription: simplified.simpleDescription,
-      type: kpiType,
       kpiType,
-      progressType: "task_based",
-      target: 100,
-      targetValue: 100,
-      currentValue: 0,
-      unit: "pt",
       deadline,
-      progress: 0,
-      percentage: 0,
+      targetValue: 100,
       phaseId: getDefaultPhaseId(),
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-      status: "active",
-      priority: 2,
-      order: existingSnapshot.size
-    });
+      order: existingSnapshot.size,
+      category,
+      source: "manual"
+    }));
 
     kpiNameInput.value = "";
     kpiDescriptionInput.value = "";
     kpiTypeInput.value = "result";
+    if (kpiCategoryInput) {
+      kpiCategoryInput.value = "";
+    }
     kpiDeadlineInput.value = "";
 
     await loadKpis();
@@ -3235,6 +3441,24 @@ kpiTableBody.addEventListener("click", async (event) => {
       rerenderCurrentKpis();
     }
 
+    return;
+  }
+
+  const archiveButton = event.target instanceof HTMLElement ? event.target.closest("[data-kpi-archive], [data-kpi-restore]") : null;
+
+  if (archiveButton instanceof HTMLButtonElement) {
+    const targetId = archiveButton.dataset.kpiArchive || archiveButton.dataset.kpiRestore;
+    const nextStatus = archiveButton.dataset.kpiArchive ? "archived" : "active";
+
+    if (!targetId) {
+      return;
+    }
+
+    await updateDoc(getKpiRef(targetId), {
+      status: nextStatus,
+      updatedAt: serverTimestamp()
+    });
+    await loadKpis();
     return;
   }
 
