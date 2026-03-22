@@ -46,6 +46,8 @@ const kpiTypeInput = document.getElementById("kpiType");
 const kpiCategoryInput = document.getElementById("kpiCategory");
 const kpiDeadlineInput = document.getElementById("kpiDeadline");
 const addKpiButton = document.getElementById("addKpiButton");
+const toggleKpiFormButton = document.getElementById("toggleKpiFormButton");
+const kpiAddFormPanel = document.getElementById("kpiAddFormPanel");
 const showArchivedToggle = document.getElementById("showArchivedToggle");
 let overallProgressValue = document.getElementById("overallProgressValue");
 let overallProgressFill = document.getElementById("overallProgressFill");
@@ -566,6 +568,25 @@ openKpiManagementButton?.addEventListener("click", (event) => {
   event.preventDefault();
   openKpiManagement();
 });
+
+let isKpiFormExpanded = false;
+
+const syncKpiFormToggle = () => {
+  if (!(toggleKpiFormButton instanceof HTMLButtonElement) || !kpiAddFormPanel) {
+    return;
+  }
+
+  kpiAddFormPanel.hidden = !isKpiFormExpanded;
+  toggleKpiFormButton.setAttribute("aria-expanded", isKpiFormExpanded ? "true" : "false");
+  toggleKpiFormButton.textContent = isKpiFormExpanded ? "KPI入力を閉じる" : "KPIを追加する";
+};
+
+toggleKpiFormButton?.addEventListener("click", () => {
+  isKpiFormExpanded = !isKpiFormExpanded;
+  syncKpiFormToggle();
+});
+
+syncKpiFormToggle();
 
 
 const updateRoadmapKpiButtonState = (kpiCount = latestRenderedKpis.length) => {

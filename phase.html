@@ -89,6 +89,10 @@
         gap: 16px;
       }
 
+      .kpi-add-form-toggle {
+        margin-bottom: 12px;
+      }
+
       .kpi-management-panel,
       .kpi-management-grid,
       .kpi-group-list,
@@ -1249,40 +1253,43 @@
           <summary>このフェーズのKPI詳細・追加・アーカイブ操作</summary>
           <div class="kpi-management-grid">
             <section>
-              <h2>KPIを追加</h2>
-              <div class="field">
-                <label for="kpiName">KPI名</label>
-                <input id="kpiName" type="text" placeholder="例: 問い合わせ件数" />
+              <button id="toggleKpiFormButton" class="button secondary kpi-add-form-toggle" type="button" aria-expanded="false" aria-controls="kpiAddFormPanel">KPIを追加する</button>
+              <div id="kpiAddFormPanel" hidden>
+                <h2>KPIを追加</h2>
+                <div class="field">
+                  <label for="kpiName">KPI名</label>
+                  <input id="kpiName" type="text" placeholder="例: 問い合わせ件数" />
+                </div>
+                <div class="field">
+                  <label for="kpiDescription">補足説明</label>
+                  <input id="kpiDescription" type="text" placeholder="任意" />
+                </div>
+                <div class="field">
+                  <label for="kpiType">KPIタイプ</label>
+                  <select id="kpiType">
+                    <option value="result">result</option>
+                    <option value="action">action</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label for="kpiCategory">カテゴリ</label>
+                  <select id="kpiCategory">
+                    <option value="">自動推定</option>
+                    <option value="research">research</option>
+                    <option value="design">design</option>
+                    <option value="build">build</option>
+                    <option value="quality">quality</option>
+                    <option value="validation">validation</option>
+                    <option value="distribution">distribution</option>
+                    <option value="monetization">monetization</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label for="kpiDeadline">期限</label>
+                  <input id="kpiDeadline" type="date" />
+                </div>
+                <button id="addKpiButton" class="button" type="button">KPIを保存</button>
               </div>
-              <div class="field">
-                <label for="kpiDescription">補足説明</label>
-                <input id="kpiDescription" type="text" placeholder="任意" />
-              </div>
-              <div class="field">
-                <label for="kpiType">KPIタイプ</label>
-                <select id="kpiType">
-                  <option value="result">result</option>
-                  <option value="action">action</option>
-                </select>
-              </div>
-              <div class="field">
-                <label for="kpiCategory">カテゴリ</label>
-                <select id="kpiCategory">
-                  <option value="">自動推定</option>
-                  <option value="research">research</option>
-                  <option value="design">design</option>
-                  <option value="build">build</option>
-                  <option value="quality">quality</option>
-                  <option value="validation">validation</option>
-                  <option value="distribution">distribution</option>
-                  <option value="monetization">monetization</option>
-                </select>
-              </div>
-              <div class="field">
-                <label for="kpiDeadline">期限</label>
-                <input id="kpiDeadline" type="date" />
-              </div>
-              <button id="addKpiButton" class="button" type="button">KPIを保存</button>
             </section>
 
             <section>
