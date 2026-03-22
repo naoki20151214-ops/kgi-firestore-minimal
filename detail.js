@@ -266,6 +266,8 @@ const extractPhasePeriod = (phase = {}) => {
   return match?.[0]?.replace(/\s*[–-]\s*/g, "–").trim() ?? "";
 };
 
+const getPhasePeriodDisplayLabel = (phase = {}) => extractPhasePeriod(phase) || "未設定";
+
 const renderRoadmapPhaseDescription = (description) => {
   const points = splitPhaseDescriptionIntoPoints(description);
   const visiblePoints = points.slice(0, 2);
@@ -1469,7 +1471,7 @@ const renderRoadmap = (phases = currentRoadmapPhases) => {
   }
 
   const markup = phases.map((phase, index) => {
-    const periodLabel = extractPhasePeriod(phase);
+    const periodLabel = getPhasePeriodDisplayLabel(phase);
     const phaseName = buildRoadmapPhaseName(phase.title, index);
 
     return `
@@ -1480,7 +1482,7 @@ const renderRoadmap = (phases = currentRoadmapPhases) => {
             <span class="roadmap-phase-number" aria-label="フェーズ番号">フェーズ${index + 1}</span>
             <strong class="roadmap-phase-title">${escapeHtml(phaseName)}</strong>
           </div>
-          ${periodLabel ? `<span class="roadmap-phase-period" aria-label="期間">期限目安: ${escapeHtml(periodLabel)}</span>` : ""}
+          <span class="roadmap-phase-period" aria-label="期間">期限目安: ${escapeHtml(periodLabel)}</span>
         </div>
         <span class="roadmap-phase-status ${phase.status}">${ROADMAP_STATUS_LABELS[phase.status] ?? "予定"}</span>
       </div>
@@ -2856,9 +2858,9 @@ const renderPhasePageMeta = () => {
     phaseTitle.textContent = phaseName;
   }
   if (phasePeriodBadge) {
-    const periodLabel = extractPhasePeriod(phase);
+    const periodLabel = getPhasePeriodDisplayLabel(phase);
     phasePeriodBadge.textContent = periodLabel;
-    phasePeriodBadge.hidden = !periodLabel;
+    phasePeriodBadge.hidden = false;
   }
   isPhaseDescriptionExpanded = false;
   renderPhaseDescription(phase?.description);
