@@ -294,6 +294,8 @@ const buildRoadmapPhaseName = (title, index) => {
   return fullTitle.replace(new RegExp(`^フェーズ${index + 1}\\s*`), "").trim() || fullTitle;
 };
 
+const formatListOrderLabel = (index) => String(index + 1).padStart(2, "0");
+
 const PHASE_PERIOD_PATTERN = /(?:Day\s*\d+\s*[–-]\s*\d+|Days\s*\d+\s*[–-]\s*\d+|Week\s*\d+\s*[–-]\s*\d+|Weeks\s*\d+\s*[–-]\s*\d+|Month\s*\d+\s*[–-]\s*\d+|Months\s*\d+\s*[–-]\s*\d+)/i;
 
 const extractPhasePeriod = (phase = {}) => {
@@ -1593,7 +1595,7 @@ const renderRoadmap = (phases = currentRoadmapPhases) => {
   const markup = phases.map((phase, index) => {
     const periodLabel = getPhasePeriodDisplayLabel(phase);
     const remainingDaysLabel = getPhaseRemainingDaysLabel(phase);
-    const phaseName = buildRoadmapPhaseName(phase.title, index);
+    const phaseTitle = buildRoadmapPhaseTitle(phase.title, index);
 
     return `
     <li class="roadmap-phase-item ${phase.status}">
@@ -1601,7 +1603,7 @@ const renderRoadmap = (phases = currentRoadmapPhases) => {
         <div class="roadmap-phase-title-group">
           <div class="roadmap-phase-heading-row">
             <span class="roadmap-phase-number" aria-label="フェーズ番号">フェーズ${index + 1}</span>
-            <strong class="roadmap-phase-title">${escapeHtml(phaseName)}</strong>
+            <strong class="roadmap-phase-title">${escapeHtml(phaseTitle)}</strong>
           </div>
           <span class="roadmap-phase-period" aria-label="期間">期限目安: ${escapeHtml(periodLabel)}</span>
           <span class="roadmap-phase-remaining ${phase.status === "current" ? "current" : ""}" aria-label="残り日数">${escapeHtml(remainingDaysLabel)}</span>
@@ -3268,7 +3270,10 @@ const renderPhasePageMeta = () => {
   }
 
   const phase = currentRoadmapPhases.find((item) => item.id === selectedPhaseId) ?? null;
-  const phaseName = phase?.title ?? "フェーズ未設定";
+  const phaseIndex = currentRoadmapPhases.findIndex((item) => item.id === phase?.id);
+  const phaseName = phase
+    ? buildRoadmapPhaseTitle(phase.title, phaseIndex >= 0 ? phaseIndex : 0)
+    : "フェーズ未設定";
   const normalizedStatus = phase ? normalizeRoadmapStatus(phase.status) : "";
   const statusLabel = phase
     ? ROADMAP_STATUS_LABELS[normalizedStatus] ?? "予定"
@@ -3669,7 +3674,7 @@ const renderKpiTable = (kpis) => {
       return compareRecommendedKpis(a, b);
     });
 
-    sortedItems.forEach((kpi) => {
+    sortedItems.forEach((kpi, kpiIndex) => {
       const progressPercent = displayProgress(kpi);
       const isCompleted = isCompletedKpi(kpi);
       const deadline = displayDeadline(kpi.deadline);
@@ -3693,13 +3698,14 @@ const renderKpiTable = (kpis) => {
         : tasks.length > 0
           ? "未完了Taskはありません"
           : "まだTaskがありません";
+      const kpiDisplayTitle = `${formatListOrderLabel(kpiIndex)} ${simpleName || "-"}`;
 
       const article = document.createElement("article");
       article.className = `kpi-card ${isOpen ? "open" : ""} ${isCompleted ? "completed" : ""}`.trim();
       article.innerHTML = `
         <div class="kpi-card-summary">
           <div class="kpi-card-main">
-            <strong>${escapeHtml(simpleName || "-")}</strong>
+            <strong>${escapeHtml(kpiDisplayTitle)}</strong>
             ${isCompleted ? '<span class="kpi-complete-badge">完了</span>' : ""}
           </div>
           <div class="kpi-card-meta">
@@ -3726,7 +3732,7 @@ const renderKpiTable = (kpis) => {
         </div>
         <div class="kpi-card-detail" ${isOpen ? "" : "hidden"}>
           <div class="kpi-card-detail-block">
-            <div><strong>KPI名</strong><div>${escapeHtml(simpleName || "-")}</div></div>
+            <div><strong>KPI名</strong><div>${escapeHtml(kpiDisplayTitle)}</div></div>
             ${simpleName && simpleName !== originalName ? `<div><strong>元のKPI</strong><div>${escapeHtml(originalName)}</div></div>` : ""}
             <div><strong>説明</strong><div>${escapeHtml(simpleDescription || "-")}</div></div>
             ${simpleDescription && simpleDescription !== originalDescription && originalDescription !== "-" ? `<div><strong>元の説明</strong><div>${escapeHtml(originalDescription)}</div></div>` : ""}
