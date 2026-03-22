@@ -27,6 +27,8 @@ const openKpiManagementButton = document.getElementById("openKpiManagementButton
 const phaseTitle = document.getElementById("phaseTitle");
 const phaseDescription = document.getElementById("phaseDescription");
 const phaseMetaText = document.getElementById("phaseMetaText");
+const pageTitle = document.getElementById("pageTitle");
+const pageLead = document.getElementById("pageLead");
 const backToDetailLink = document.getElementById("backToDetailLink");
 const nextActionContainer = document.getElementById("nextActionContainer");
 const kpiTable = document.getElementById("kpiTable");
@@ -2655,6 +2657,22 @@ const renderKgiMeta = (kgiData) => {
   const deadlineInfo = calcRemainingDays(deadline === "未設定" ? "" : deadline);
 
   kgiMeta.hidden = false;
+  if (isPhasePage) {
+    kgiMeta.innerHTML = `
+      <div class="overview-item">
+        <strong>紐づくKGI</strong>
+        <div>このKPIは「${escapeHtml(kgiData.name ?? "未設定のKGI")}」に紐づいています。</div>
+      </div>
+    `;
+
+    renderRoadmap(currentRoadmapPhases);
+    renderCurrentLocation(currentRoadmapPhases);
+    renderPhasePageMeta();
+    updatePhasePageLinks();
+    updateRoadmapKpiButtonState(latestRenderedKpis.length);
+    return;
+  }
+
   kgiMeta.innerHTML = `
     <div class="overview-grid">
       <div class="overview-item">
@@ -2712,19 +2730,33 @@ const renderPhasePageMeta = () => {
   }
 
   const phase = currentRoadmapPhases.find((item) => item.id === selectedPhaseId) ?? null;
+  const phaseName = phase?.title ?? "フェーズ未設定";
+  const normalizedStatus = phase ? normalizeRoadmapStatus(phase.status) : "";
+  const statusLabel = phase
+    ? ROADMAP_STATUS_LABELS[normalizedStatus] ?? "予定"
+    : "";
 
   if (phaseTitle) {
-    phaseTitle.textContent = phase?.title ?? "フェーズ未設定";
+    phaseTitle.textContent = phaseName;
   }
   if (phaseDescription) {
     phaseDescription.textContent = phase?.description ?? "このフェーズの説明はまだありません。";
   }
+  if (pageTitle) {
+    pageTitle.textContent = `${phaseName} のKPI`;
+  }
+  if (pageLead) {
+    pageLead.textContent = currentKgiData?.name
+      ? `このページでは「${currentKgiData.name}」に紐づく「${phaseName}」のKPIだけを表示しています。`
+      : "今表示しているフェーズのKPIを確認できます。";
+  }
+  if (isPhasePage) {
+    document.title = `${phaseName} のKPI | KGI Firestore Minimal`;
+  }
   if (phaseMetaText) {
     phaseMetaText.textContent = phase
-      ? `${ROADMAP_STATUS_LABELS[normalizeRoadmapStatus(phase.status)] ?? "予定"} / phaseId: ${phase.id}`
-      : selectedPhaseId
-        ? `phaseId: ${selectedPhaseId}`
-        : "phaseId未指定";
+      ? `フェーズ状況: ${statusLabel}`
+      : "フェーズ未指定";
   }
 
   updatePhasePageLinks();
