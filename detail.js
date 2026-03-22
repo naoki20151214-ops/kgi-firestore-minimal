@@ -3137,22 +3137,22 @@ const renderTaskRows = (kpiIdForTask, tasks) => {
 
     return `
       <tr>
-        <td>${escapeHtml(taskTitle || "-")}</td>
-        <td>${taskDescription}</td>
-        <td>${taskStage}</td>
-        <td>${taskType}</td>
-        <td>${contributedValue}</td>
-        <td>
+        <td data-label="Task名">${escapeHtml(taskTitle || "-")}</td>
+        <td data-label="補足説明">${taskDescription}</td>
+        <td data-label="stage">${taskStage}</td>
+        <td data-label="タイプ">${taskType}</td>
+        <td data-label="進捗値">${contributedValue}</td>
+        <td data-label="達成入力">
           ${taskType === "one_time"
     ? `<label><input type="checkbox" class="task-completion-input" data-kpi-id="${kpiIdForTask}" data-task-id="${task.id}" data-task-type="one_time" ${isCompleted ? "checked" : ""} /> 完了</label>`
     : `<input type="number" min="0" step="1" class="task-completion-input" data-kpi-id="${kpiIdForTask}" data-task-id="${task.id}" data-task-type="repeatable" value="${completedCount}" aria-label="${taskTitle || "Task"}の完了回数" />`}
         </td>
-        <td>${taskDeadline}</td>
-        <td>${taskDueDate}</td>
-        <td class="${taskRemaining.isOverdue ? "overdue-text" : ""}">${taskRemaining.remainingText}</td>
-        <td>${taskPriority}</td>
-        <td>${ticketInfoMarkup}</td>
-        <td>
+        <td data-label="期限">${taskDeadline}</td>
+        <td data-label="チケット期限">${taskDueDate}</td>
+        <td data-label="残り日数" class="${taskRemaining.isOverdue ? "overdue-text" : ""}">${taskRemaining.remainingText}</td>
+        <td data-label="優先度">${taskPriority}</td>
+        <td data-label="チケット情報">${ticketInfoMarkup}</td>
+        <td data-label="チケット状態">
           <div class="task-ticket-status-cell">
             <span class="status-badge ${getTaskTicketStatusClassName(ticketStatus)}">${getTaskTicketStatusLabel(ticketStatus)}</span>
             <select class="task-ticket-status-select" data-kpi-id="${kpiIdForTask}" data-task-id="${task.id}" aria-label="${escapeHtml(taskTitle || "Task")}のチケット状態">
