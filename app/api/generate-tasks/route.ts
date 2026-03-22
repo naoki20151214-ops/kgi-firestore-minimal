@@ -462,8 +462,6 @@ export async function POST(request: Request) {
       },
       body: JSON.stringify({
         model: "gpt-5-mini",
-        prompt_cache_key: `generate-tasks:${kgiName}:${kpiName}:${kpiType}:${targetValue}`,
-        prompt_cache_retention: "24h",
         input: [
           {
             role: "system",
@@ -487,8 +485,22 @@ export async function POST(request: Request) {
     });
 
     if (!openAiResponse.ok) {
+      const errorText = await openAiResponse.text().catch(() => "");
+      const normalizedErrorText = errorText.trim();
+      console.error("[generate-tasks] OpenAI API request failed", {
+        kgiId,
+        kpiId,
+        phaseId,
+        status: openAiResponse.status,
+        statusText: openAiResponse.statusText,
+        body: normalizedErrorText
+      });
       console.log("[generate-tasks] response", { success: false, status: openAiResponse.status });
-      return NextResponse.json({ error: "OpenAI API request failed" }, { status: 502 });
+      return NextResponse.json({
+        error: normalizedErrorText
+          ? `OpenAI API request failed: ${normalizedErrorText}`
+          : "OpenAI API request failed"
+      }, { status: 502 });
     }
 
     const responseData = await openAiResponse.json();
