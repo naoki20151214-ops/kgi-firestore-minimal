@@ -24,6 +24,10 @@ const kpiStatusText = document.getElementById("kpiStatusText");
 const kpiSummaryStats = document.getElementById("kpiSummaryStats");
 const kpiManagementPanel = document.getElementById("kpiManagementPanel");
 const openKpiManagementButton = document.getElementById("openKpiManagementButton");
+const phaseTitle = document.getElementById("phaseTitle");
+const phaseDescription = document.getElementById("phaseDescription");
+const phaseMetaText = document.getElementById("phaseMetaText");
+const backToDetailLink = document.getElementById("backToDetailLink");
 const nextActionContainer = document.getElementById("nextActionContainer");
 const kpiTable = document.getElementById("kpiTable");
 const kpiTableBody = document.getElementById("kpiTableBody");
@@ -141,6 +145,9 @@ window.addEventListener("unhandledrejection", (event) => {
 
 let db;
 let kgiId = "";
+const pageMode = document.body?.dataset.page === "phase" ? "phase" : "detail";
+const isPhasePage = pageMode === "phase";
+let selectedPhaseId = "";
 let currentKgiData = null;
 let currentRoadmapPhases = [];
 let nextActionLoading = false;
@@ -331,7 +338,23 @@ const setKpiStatus = (message, isError = false) => {
   kpiStatusText.classList.toggle("error", isError);
 };
 
+const buildPhasePageUrl = (phaseId) => `./phase.html?id=${encodeURIComponent(kgiId)}${phaseId ? `&phaseId=${encodeURIComponent(phaseId)}` : ""}`;
+
+const updatePhasePageLinks = () => {
+  if (backToDetailLink instanceof HTMLAnchorElement) {
+    backToDetailLink.href = `./detail.html?id=${encodeURIComponent(kgiId)}`;
+  }
+
+  if (openKpiManagementButton instanceof HTMLAnchorElement) {
+    openKpiManagementButton.href = buildPhasePageUrl(getDefaultPhaseId());
+  }
+};
+
 const openKpiManagement = () => {
+  if (openKpiManagementButton instanceof HTMLAnchorElement) {
+    openKpiManagementButton.href = buildPhasePageUrl(getDefaultPhaseId());
+  }
+
   if (!kpiManagementPanel) {
     return;
   }
@@ -340,7 +363,12 @@ const openKpiManagement = () => {
   kpiManagementPanel.scrollIntoView({ behavior: "smooth", block: "start" });
 };
 
-openKpiManagementButton?.addEventListener("click", () => {
+openKpiManagementButton?.addEventListener("click", (event) => {
+  if (openKpiManagementButton instanceof HTMLAnchorElement) {
+    return;
+  }
+
+  event.preventDefault();
   openKpiManagement();
 });
 
@@ -778,16 +806,6 @@ showArchivedToggle?.addEventListener("change", async (event) => {
   await loadKpis();
 });
 
-document.addEventListener("click", (event) => {
-  const link = event.target instanceof HTMLElement ? event.target.closest('a[href="#kpiManagementPanel"]') : null;
-
-  if (!(link instanceof HTMLAnchorElement)) {
-    return;
-  }
-
-  event.preventDefault();
-  openKpiManagement();
-});
 
 const resetAiSuggestions = () => {
   aiHasGenerated = false;
@@ -1314,6 +1332,10 @@ const getPhaseLabel = (phaseId, phases = currentRoadmapPhases) => {
   return phases.find((phase) => phase.id === phaseId)?.title ?? "未分類";
 };
 const getDefaultPhaseId = (phases = currentRoadmapPhases) => {
+  if (isPhasePage && selectedPhaseId) {
+    return selectedPhaseId;
+  }
+
   const currentPhase = getCurrentRoadmapPhase(phases);
 
   if (currentPhase?.id) {
@@ -1348,7 +1370,7 @@ const renderRoadmap = (phases = currentRoadmapPhases) => {
       <p class="hint">${escapeHtml(phase.description)}</p>
       <span class="roadmap-phase-meta">フェーズ ${index + 1}</span>
       <div class="roadmap-phase-links">
-        <a class="roadmap-phase-link" href="#kpiManagementPanel">KPIを見る</a>
+        <a class="roadmap-phase-link" href="${buildPhasePageUrl(phase.id)}">KPIを見る</a>
       </div>
     </li>
   `).join("");
@@ -2660,7 +2682,42 @@ const renderKgiMeta = (kgiData) => {
 
   renderRoadmap(currentRoadmapPhases);
   renderCurrentLocation(currentRoadmapPhases);
+  renderPhasePageMeta();
+  updatePhasePageLinks();
   updateRoadmapKpiButtonState(latestRenderedKpis.length);
+};
+
+
+const renderPhasePageMeta = () => {
+  if (!isPhasePage) {
+    updatePhasePageLinks();
+    return;
+  }
+
+  const selectedPhase = currentRoadmapPhases.find((phase) => phase.id === selectedPhaseId) ?? null;
+  const fallbackPhaseId = getDefaultPhaseId();
+
+  if (!selectedPhase && fallbackPhaseId) {
+    selectedPhaseId = fallbackPhaseId;
+  }
+
+  const phase = currentRoadmapPhases.find((item) => item.id === selectedPhaseId) ?? null;
+
+  if (phaseTitle) {
+    phaseTitle.textContent = phase?.title ?? "フェーズ未設定";
+  }
+  if (phaseDescription) {
+    phaseDescription.textContent = phase?.description ?? "このフェーズの説明はまだありません。";
+  }
+  if (phaseMetaText) {
+    phaseMetaText.textContent = phase
+      ? `${ROADMAP_STATUS_LABELS[normalizeRoadmapStatus(phase.status)] ?? "予定"} / phaseId: ${phase.id}`
+      : selectedPhaseId
+        ? `phaseId: ${selectedPhaseId}`
+        : "phaseId未指定";
+  }
+
+  updatePhasePageLinks();
 };
 
 const normalizeKpis = (docs) => docs
@@ -3069,9 +3126,12 @@ const rerenderCurrentKpis = () => {
 const loadKpis = async () => {
   const snapshot = await getDocs(getKpisQuery());
   const allKpis = normalizeKpis(snapshot.docs);
-  const visibleKpis = showArchivedKpis ? allKpis : allKpis.filter(isActiveKpi);
+  const phaseScopedKpis = isPhasePage && selectedPhaseId
+    ? allKpis.filter((kpi) => String(kpi?.phaseId ?? "").trim() === selectedPhaseId)
+    : allKpis;
+  const visibleKpis = showArchivedKpis ? phaseScopedKpis : phaseScopedKpis.filter(isActiveKpi);
 
-  if (allKpis.length === 0) {
+  if (phaseScopedKpis.length === 0) {
     updateRoadmapKpiButtonState(0);
     kpiTableBody.innerHTML = "";
     latestRenderedKpis = [];
@@ -3092,14 +3152,16 @@ const loadKpis = async () => {
     });
     renderNextAction(null);
     renderAiSuggestions();
-    setKpiStatus(currentRoadmapPhases.length > 0 ? "KPIがまだありません。ロードマップから自動作成するか、上のフォームから追加してください。" : "KPIがまだありません。上のフォームから追加してください。");
+    setKpiStatus(isPhasePage
+      ? "このフェーズのKPIがまだありません。上のフォームから追加してください。"
+      : (currentRoadmapPhases.length > 0 ? "KPIがまだありません。ロードマップから自動作成するか、上のフォームから追加してください。" : "KPIがまだありません。上のフォームから追加してください。"));
     setDebugSummary(`KGI読み込み成功: ${kgiId}`, "KPI 0件", "Task 0件");
     updateDebugPanel([]);
     return;
   }
 
   updateRoadmapKpiButtonState(allKpis.filter(isActiveKpi).length);
-  existingKpiKeys = new Set(allKpis.filter(isActiveKpi).map((kpi) => buildSavedSuggestionKeyFromKpi(kpi)));
+  existingKpiKeys = new Set(phaseScopedKpis.filter(isActiveKpi).map((kpi) => buildSavedSuggestionKeyFromKpi(kpi)));
 
   const kpisWithTasks = await Promise.all(
     visibleKpis.map(async (kpi) => {
@@ -3152,7 +3214,7 @@ const loadKpis = async () => {
 
   renderKpiTable(kpisWithTasks);
   renderOverallProgress(kpisWithTasks);
-  renderKpiSummary(kpisWithTasks, allKpis);
+  renderKpiSummary(kpisWithTasks, isPhasePage ? phaseScopedKpis : allKpis);
 
   if (!nextAction) {
     latestNextActionStepRequestKey = "";
@@ -4088,6 +4150,12 @@ const resolveKgiIdFromUrl = () => {
   return typeof rawId === "string" ? rawId.trim() : "";
 };
 
+const resolvePhaseIdFromUrl = () => {
+  const params = new URLSearchParams(window.location.search);
+  const rawPhaseId = params.get("phaseId");
+  return typeof rawPhaseId === "string" ? rawPhaseId.trim() : "";
+};
+
 const initializeDetailPage = async () => {
   resetKpiSection();
   disableKpiActions();
@@ -4140,6 +4208,7 @@ const initializeDetailPage = async () => {
       return;
     }
 
+    selectedPhaseId = resolvePhaseIdFromUrl();
     renderKgiMeta(kgiSnapshot.data());
     enableKpiActions();
     setStatus("KGI詳細を表示しています。");
