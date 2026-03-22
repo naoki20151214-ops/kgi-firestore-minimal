@@ -202,6 +202,8 @@ let isPhaseDescriptionExpanded = false;
 let latestRoutineTasks = [];
 let routineSuggestionSelections = new Set();
 let routineSuggestionsVisible = false;
+let routineSuggestionTemplates = [];
+let routineSuggestionLoading = false;
 
 const TASK_KIND = {
   KPI: "kpi_task",
@@ -219,7 +221,7 @@ const ROUTINE_TASK_CADENCE_LABELS = {
   ad_hoc: "ad_hoc"
 };
 
-const ROUTINE_TASK_TEMPLATES = [
+const DEFAULT_ROUTINE_TASK_TEMPLATES = [
   { id: "daily-top-page-check", title: "毎朝トップページを確認する", description: "", cadence: "daily" },
   { id: "daily-progress-log", title: "進捗を1行記録する", description: "", cadence: "daily" },
   { id: "daily-blocker-note", title: "詰まりをメモする", description: "", cadence: "daily" },
@@ -2985,12 +2987,13 @@ const renderRoutineSuggestionList = () => {
   }
 
   routineSuggestionList.hidden = false;
-  routineSuggestionList.innerHTML = ROUTINE_TASK_TEMPLATES.map((task) => `
+  routineSuggestionList.innerHTML = getRoutineSuggestionTemplates().map((task) => `
     <label class="routine-task-suggestion-item">
       <input type="checkbox" data-routine-template-id="${escapeHtml(task.id)}" ${routineSuggestionSelections.has(task.id) ? "checked" : ""} />
       <span class="routine-task-suggestion-copy">
         <strong>${escapeHtml(task.title)}</strong>
         <span class="hint">${escapeHtml(ROUTINE_TASK_CADENCE_LABELS[normalizeRoutineTaskCadence(task.cadence)])}</span>
+        ${task.description ? `<span class="hint">${escapeHtml(task.description)}</span>` : ""}
       </span>
     </label>
   `).join("");
@@ -3004,6 +3007,122 @@ const renderRoutineSuggestionList = () => {
 const buildExistingRoutineTaskTitleSet = () => new Set(
   latestRoutineTasks.map((task) => String(task?.title ?? "").trim()).filter(Boolean)
 );
+
+const getRoutineSuggestionTemplates = () => (
+  Array.isArray(routineSuggestionTemplates) && routineSuggestionTemplates.length > 0
+    ? routineSuggestionTemplates
+    : DEFAULT_ROUTINE_TASK_TEMPLATES
+);
+
+const createRoutineTemplateId = (cadence, title, index = 0) => `${normalizeRoutineTaskCadence(cadence)}-${String(title ?? "")
+  .trim()
+  .toLowerCase()
+  .replace(/\s+/g, "-")
+  .replace(/[^\p{L}\p{N}-]+/gu, "")
+  .slice(0, 40) || `task-${index + 1}`}`;
+
+const normalizeRoutineSuggestionTemplate = (item, index = 0, cadenceFallback = "ad_hoc") => {
+  const title = typeof item?.title === "string" ? item.title.trim() : "";
+  const description = typeof item?.description === "string" ? item.description.trim() : "";
+  const cadence = normalizeRoutineTaskCadence(item?.cadence ?? cadenceFallback);
+
+  if (!title) {
+    return null;
+  }
+
+  return {
+    id: createRoutineTemplateId(cadence, title, index),
+    title,
+    description,
+    cadence
+  };
+};
+
+const buildRoutineIssueNotes = (kpis = [], maxItems = 3) => buildRecentReflections(kpis, { limit: 5 })
+  .filter((reflection) => reflection?.comment || reflection?.result === "harder_than_expected" || reflection?.result === "could_not_do")
+  .slice(0, maxItems)
+  .map((reflection) => ({
+    taskTitle: reflection.taskTitle,
+    result: reflection.result,
+    comment: reflection.comment
+  }));
+
+const buildRoutineSuggestionRequest = () => {
+  const selectedPhase = getCurrentRoadmapPhase();
+  const phaseScopedKpis = isPhasePage && selectedPhaseId
+    ? latestRenderedKpis.filter((kpi) => String(kpi?.phaseId ?? "").trim() === selectedPhaseId)
+    : latestRenderedKpis;
+  const taskCount = phaseScopedKpis.reduce((total, kpi) => total + (Array.isArray(kpi?.tasks) ? kpi.tasks.length : 0), 0);
+  const nextAction = currentNextAction ?? selectNextAction(latestRenderedKpis, currentRoadmapPhases);
+  const focusTasks = [];
+
+  if (typeof nextAction?.task?.title === "string" && nextAction.task.title.trim()) {
+    focusTasks.push(nextAction.task.title.trim());
+  }
+
+  phaseScopedKpis.forEach((kpi) => {
+    (Array.isArray(kpi?.tasks) ? kpi.tasks : []).forEach((task) => {
+      const title = typeof task?.title === "string" ? task.title.trim() : "";
+      if (title && !getTaskIsCompleted(task) && focusTasks.length < 3 && !focusTasks.includes(title)) {
+        focusTasks.push(title);
+      }
+    });
+  });
+
+  return {
+    kgiName: currentKgiData?.name ?? "",
+    phaseName: selectedPhase?.title ?? getDefaultPhaseId(),
+    phaseDescription: selectedPhase?.description ?? "",
+    nowFocus: focusTasks,
+    kpiCount: phaseScopedKpis.length,
+    taskCount,
+    recentIssues: buildRoutineIssueNotes(phaseScopedKpis)
+  };
+};
+
+const requestRoutineSuggestions = async () => {
+  const response = await fetch("/api/generate-routine-suggestions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(buildRoutineSuggestionRequest())
+  });
+
+  const responseText = await response.text();
+  let data = null;
+
+  if (responseText) {
+    try {
+      data = JSON.parse(responseText);
+    } catch (parseError) {
+      console.error("Failed to parse /api/generate-routine-suggestions response as JSON", parseError, responseText);
+    }
+  }
+
+  if (!response.ok) {
+    const apiErrorMessage = typeof data?.error === "string" && data.error.trim()
+      ? data.error.trim()
+      : responseText.trim() || `HTTP ${response.status}`;
+    throw new Error(apiErrorMessage);
+  }
+
+  const grouped = [
+    ...(Array.isArray(data?.daily) ? data.daily.map((item, index) => normalizeRoutineSuggestionTemplate(item, index, "daily")) : []),
+    ...(Array.isArray(data?.weekly) ? data.weekly.map((item, index) => normalizeRoutineSuggestionTemplate(item, index, "weekly")) : []),
+    ...(Array.isArray(data?.adHoc) ? data.adHoc.map((item, index) => normalizeRoutineSuggestionTemplate(item, index, "ad_hoc")) : [])
+  ]
+    .filter(Boolean);
+  const uniqueByTitle = new Set();
+
+  return grouped.filter((item) => {
+    if (uniqueByTitle.has(item.title)) {
+      return false;
+    }
+    uniqueByTitle.add(item.title);
+    return true;
+  });
+};
 
 
 const renderPhasePageMeta = () => {
@@ -4321,10 +4440,35 @@ routineTaskForm?.addEventListener("submit", async (event) => {
   }
 });
 
-generateRoutineSuggestionsButton?.addEventListener("click", () => {
-  routineSuggestionsVisible = true;
-  routineSuggestionSelections = new Set(ROUTINE_TASK_TEMPLATES.map((task) => task.id));
-  renderRoutineSuggestionList();
+generateRoutineSuggestionsButton?.addEventListener("click", async () => {
+  if (routineSuggestionLoading) {
+    return;
+  }
+
+  routineSuggestionLoading = true;
+  generateRoutineSuggestionsButton.disabled = true;
+  setRoutineTaskStatus("現在のKGI / フェーズ状況に合わせてルーティン案を生成しています...");
+
+  try {
+    const generatedTemplates = await requestRoutineSuggestions();
+    routineSuggestionTemplates = generatedTemplates.length > 0 ? generatedTemplates : DEFAULT_ROUTINE_TASK_TEMPLATES;
+    routineSuggestionsVisible = true;
+    routineSuggestionSelections = new Set(getRoutineSuggestionTemplates().map((task) => task.id));
+    renderRoutineSuggestionList();
+    setRoutineTaskStatus(generatedTemplates.length > 0
+      ? "現在フェーズ向けのルーティン候補を更新しました。"
+      : "候補が少なかったため、既定の候補を表示しています。");
+  } catch (error) {
+    console.error(error);
+    routineSuggestionTemplates = DEFAULT_ROUTINE_TASK_TEMPLATES;
+    routineSuggestionsVisible = true;
+    routineSuggestionSelections = new Set(getRoutineSuggestionTemplates().map((task) => task.id));
+    renderRoutineSuggestionList();
+    setRoutineTaskStatus("AI候補の生成に失敗したため、既定の候補を表示しています。", true);
+  } finally {
+    routineSuggestionLoading = false;
+    generateRoutineSuggestionsButton.disabled = false;
+  }
 });
 
 routineSuggestionList?.addEventListener("change", (event) => {
@@ -4356,7 +4500,7 @@ addSelectedRoutineSuggestionsButton?.addEventListener("click", async () => {
 
   try {
     const existingTitles = buildExistingRoutineTaskTitleSet();
-    const selectedTemplates = ROUTINE_TASK_TEMPLATES.filter((task) => routineSuggestionSelections.has(task.id));
+    const selectedTemplates = getRoutineSuggestionTemplates().filter((task) => routineSuggestionSelections.has(task.id));
     const templatesToAdd = selectedTemplates.filter((task) => !existingTitles.has(task.title));
 
     await Promise.all(templatesToAdd.map((task) => addDoc(getRoutineTasksRef(), {
