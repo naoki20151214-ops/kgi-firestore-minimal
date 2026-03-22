@@ -473,6 +473,11 @@
         gap: 6px;
       }
 
+      .roadmap-phase-title-group {
+        display: grid;
+        gap: 6px;
+      }
+
       .roadmap-phase-head {
         display: flex;
         justify-content: space-between;
@@ -511,6 +516,28 @@
       .roadmap-phase-status.unset {
         background: #e2e8f0;
         color: #334155;
+      }
+
+      .phase-title-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+
+      .roadmap-phase-period,
+      .phase-period-badge {
+        display: inline-flex;
+        width: fit-content;
+        align-items: center;
+        padding: 4px 10px;
+        border-radius: 999px;
+        background: #e0f2fe;
+        color: #075985;
+        font-size: 0.82rem;
+        font-weight: 800;
+        letter-spacing: 0.01em;
+        line-height: 1.2;
       }
 
       .roadmap-phase-item.current {
@@ -1054,7 +1081,7 @@
       <section class="card">
         <div class="section-title-with-note">
           <div>
-            <h2 id="phaseTitle">フェーズ情報</h2>
+            <div class="phase-title-row"><h2 id="phaseTitle">フェーズ情報</h2><span id="phasePeriodBadge" class="phase-period-badge" hidden></span></div>
             <div id="phaseDescription" class="phase-description">
               <p class="hint">読み込み中...</p>
             </div>

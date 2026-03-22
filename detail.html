@@ -462,6 +462,11 @@
         gap: 6px;
       }
 
+      .roadmap-phase-title-group {
+        display: grid;
+        gap: 6px;
+      }
+
       .roadmap-phase-title {
         font-size: 1rem;
         line-height: 1.45;
@@ -505,6 +510,28 @@
       .roadmap-phase-status.unset {
         background: #e2e8f0;
         color: #334155;
+      }
+
+      .phase-title-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+
+      .roadmap-phase-period,
+      .phase-period-badge {
+        display: inline-flex;
+        width: fit-content;
+        align-items: center;
+        padding: 4px 10px;
+        border-radius: 999px;
+        background: #e0f2fe;
+        color: #075985;
+        font-size: 0.82rem;
+        font-weight: 800;
+        letter-spacing: 0.01em;
+        line-height: 1.2;
       }
 
       .roadmap-phase-item.current {
