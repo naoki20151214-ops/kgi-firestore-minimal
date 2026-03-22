@@ -25,6 +25,7 @@ const kpiSummaryStats = document.getElementById("kpiSummaryStats");
 const kpiManagementPanel = document.getElementById("kpiManagementPanel");
 const openKpiManagementButton = document.getElementById("openKpiManagementButton");
 const phaseTitle = document.getElementById("phaseTitle");
+const phasePeriodBadge = document.getElementById("phasePeriodBadge");
 const phaseDescription = document.getElementById("phaseDescription");
 const phaseMetaText = document.getElementById("phaseMetaText");
 const pageTitle = document.getElementById("pageTitle");
@@ -247,6 +248,17 @@ const renderPhaseDescription = (description) => {
 const buildRoadmapPhaseTitle = (title, index) => {
   const safeTitle = typeof title === "string" && title.trim() ? title.trim() : `フェーズ${index + 1}`;
   return safeTitle.startsWith(`フェーズ${index + 1}`) ? safeTitle : `フェーズ${index + 1} ${safeTitle}`;
+};
+
+const PHASE_PERIOD_PATTERN = /(?:Day\s*\d+\s*[–-]\s*\d+|Days\s*\d+\s*[–-]\s*\d+|Week\s*\d+\s*[–-]\s*\d+|Weeks\s*\d+\s*[–-]\s*\d+|Month\s*\d+\s*[–-]\s*\d+|Months\s*\d+\s*[–-]\s*\d+)/i;
+
+const extractPhasePeriod = (phase = {}) => {
+  const title = typeof phase?.title === "string" ? phase.title.trim() : "";
+  const description = typeof phase?.description === "string" ? phase.description.trim() : "";
+  const source = `${title}\n${description}`;
+  const match = source.match(PHASE_PERIOD_PATTERN);
+
+  return match?.[0]?.replace(/\s*[–-]\s*/g, "–").trim() ?? "";
 };
 
 const renderRoadmapPhaseDescription = (description) => {
@@ -1451,10 +1463,16 @@ const renderRoadmap = (phases = currentRoadmapPhases) => {
     return;
   }
 
-  const markup = phases.map((phase, index) => `
+  const markup = phases.map((phase, index) => {
+    const periodLabel = extractPhasePeriod(phase);
+
+    return `
     <li class="roadmap-phase-item ${phase.status}">
       <div class="roadmap-phase-head">
-        <strong class="roadmap-phase-title">${escapeHtml(buildRoadmapPhaseTitle(phase.title, index))}</strong>
+        <div class="roadmap-phase-title-group">
+          <strong class="roadmap-phase-title">${escapeHtml(buildRoadmapPhaseTitle(phase.title, index))}</strong>
+          ${periodLabel ? `<span class="roadmap-phase-period" aria-label="期間">${escapeHtml(periodLabel)}</span>` : ""}
+        </div>
         <span class="roadmap-phase-status ${phase.status}">${ROADMAP_STATUS_LABELS[phase.status] ?? "予定"}</span>
       </div>
       ${renderRoadmapPhaseDescription(phase.description)}
@@ -1463,7 +1481,8 @@ const renderRoadmap = (phases = currentRoadmapPhases) => {
         <a class="roadmap-phase-link" href="${buildPhasePageUrl(phase.id)}">KPIを見る</a>
       </div>
     </li>
-  `).join("");
+  `;
+  }).join("");
 
   roadmapContainer.innerHTML = `<ol class="roadmap-list">${markup}</ol>`;
   if (roadmapStatusText) {
@@ -2826,6 +2845,11 @@ const renderPhasePageMeta = () => {
 
   if (phaseTitle) {
     phaseTitle.textContent = phaseName;
+  }
+  if (phasePeriodBadge) {
+    const periodLabel = extractPhasePeriod(phase);
+    phasePeriodBadge.textContent = periodLabel;
+    phasePeriodBadge.hidden = !periodLabel;
   }
   isPhaseDescriptionExpanded = false;
   renderPhaseDescription(phase?.description);
