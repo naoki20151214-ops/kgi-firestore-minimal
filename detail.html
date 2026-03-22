@@ -702,6 +702,77 @@
         margin-top: 12px;
       }
 
+      .routine-task-card {
+        display: grid;
+        gap: 14px;
+      }
+
+      .routine-task-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+
+      .routine-task-header h2,
+      .routine-task-form h3 {
+        margin: 0;
+      }
+
+      .routine-task-list {
+        display: grid;
+        gap: 10px;
+      }
+
+      .routine-task-item {
+        border: 1px solid #e5e7eb;
+        border-radius: 12px;
+        padding: 12px;
+        background: #ffffff;
+        display: grid;
+        gap: 6px;
+      }
+
+      .routine-task-item-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+
+      .routine-task-meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      .routine-task-badge {
+        display: inline-flex;
+        align-items: center;
+        padding: 3px 8px;
+        border-radius: 999px;
+        background: #eff6ff;
+        color: #1d4ed8;
+        font-size: 0.78rem;
+        font-weight: 700;
+      }
+
+      .routine-task-form {
+        display: grid;
+        gap: 12px;
+        padding: 14px;
+        border: 1px solid #dbeafe;
+        border-radius: 12px;
+        background: #f8fbff;
+      }
+
+      .routine-task-form-grid {
+        display: grid;
+        gap: 10px;
+      }
+
       .kpi-phase-group {
         border: 1px solid #dbeafe;
         border-radius: 12px;
@@ -1408,6 +1479,28 @@
         <h2>今やるべきこと</h2>
         <div id="nextActionContainer" class="next-action-body">
           <p class="hint">算出中...</p>
+        </div>
+      </section>
+
+      <section class="card routine-task-card">
+        <div class="routine-task-header">
+          <div>
+            <h2>運用タスク</h2>
+            <p class="hint">KPIに直接紐づかない、プロジェクト全体の定常タスクを小さく管理します。</p>
+          </div>
+          <p id="routineTaskStatusText" class="hint">読み込み中...</p>
+        </div>
+        <form id="routineTaskForm" class="routine-task-form">
+          <h3>運用タスクを追加</h3>
+          <div class="routine-task-form-grid">
+            <div class="field"><label for="routineTaskTitle">タイトル</label><input id="routineTaskTitle" name="title" type="text" placeholder="例: 毎朝トップページを確認する" required /></div>
+            <div class="field"><label for="routineTaskDescription">補足説明</label><input id="routineTaskDescription" name="description" type="text" placeholder="任意" /></div>
+            <div class="field"><label for="routineTaskCadence">頻度</label><select id="routineTaskCadence" name="cadence"><option value="daily">daily</option><option value="weekly">weekly</option><option value="ad_hoc">ad_hoc</option></select></div>
+          </div>
+          <button class="button" type="submit">運用タスクを追加</button>
+        </form>
+        <div id="routineTaskList" class="routine-task-list">
+          <p class="hint">運用タスクを読み込み中...</p>
         </div>
       </section>
 
