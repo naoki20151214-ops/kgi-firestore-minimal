@@ -311,6 +311,24 @@
         justify-items: start;
       }
 
+      .phase-description {
+        display: grid;
+        gap: 8px;
+      }
+
+      .phase-description-list {
+        margin: 0;
+        padding-left: 20px;
+        display: grid;
+        gap: 4px;
+        color: #475569;
+      }
+
+      .phase-description-toggle {
+        justify-self: start;
+        font-size: 0.92rem;
+      }
+
       .roadmap-phase-links {
         margin-top: 8px;
       }
@@ -1037,7 +1055,9 @@
         <div class="section-title-with-note">
           <div>
             <h2 id="phaseTitle">フェーズ情報</h2>
-            <p id="phaseDescription" class="hint">読み込み中...</p>
+            <div id="phaseDescription" class="phase-description">
+              <p class="hint">読み込み中...</p>
+            </div>
           </div>
           <p id="phaseMetaText" class="hint"></p>
         </div>

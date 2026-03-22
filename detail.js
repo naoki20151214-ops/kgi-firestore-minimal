@@ -191,6 +191,58 @@ let taskCheckUiState = {};
 let autoTaskGenerationInFlight = false;
 let autoTaskGenerationPromise = null;
 let showArchivedKpis = false;
+let isPhaseDescriptionExpanded = false;
+
+const splitPhaseDescriptionIntoPoints = (description) => String(description ?? "")
+  .replace(/\r\n?/g, "\n")
+  .split(/(?:\n+|(?<=[。！？]))/)
+  .map((item) => item.trim())
+  .filter(Boolean);
+
+const buildPhaseDescriptionSummaryPoints = (description, maxItems = 3) => {
+  const points = splitPhaseDescriptionIntoPoints(description);
+
+  if (points.length > 0) {
+    return points.slice(0, maxItems);
+  }
+
+  const compact = String(description ?? "").trim();
+  return compact ? [compact] : [];
+};
+
+const renderPhaseDescription = (description) => {
+  if (!phaseDescription) {
+    return;
+  }
+
+  const fullText = typeof description === "string" && description.trim()
+    ? description.trim()
+    : "このフェーズの説明はまだありません。";
+  const summaryPoints = buildPhaseDescriptionSummaryPoints(fullText);
+  const fullPoints = splitPhaseDescriptionIntoPoints(fullText);
+  const shouldEnableToggle = fullPoints.length > summaryPoints.length || fullText.length > 80;
+  const pointsToRender = isPhaseDescriptionExpanded || !shouldEnableToggle
+    ? (fullPoints.length > 0 ? fullPoints : [fullText])
+    : summaryPoints;
+  const buttonLabel = isPhaseDescriptionExpanded ? "閉じる" : "続きを読む";
+
+  phaseDescription.innerHTML = `
+    <ul class="phase-description-list">
+      ${pointsToRender.map((point) => `<li>${escapeHtml(point)}</li>`).join("")}
+    </ul>
+    ${shouldEnableToggle ? `<button id="phaseDescriptionToggle" class="button text phase-description-toggle" type="button" aria-expanded="${isPhaseDescriptionExpanded ? "true" : "false"}">${buttonLabel}</button>` : ""}
+  `;
+
+  const toggleButton = document.getElementById("phaseDescriptionToggle");
+  if (!toggleButton) {
+    return;
+  }
+
+  toggleButton.addEventListener("click", () => {
+    isPhaseDescriptionExpanded = !isPhaseDescriptionExpanded;
+    renderPhaseDescription(fullText);
+  });
+};
 const getAiSuggestionStorageKey = () => kgiId ? `kgi-detail-ai-suggestions:${kgiId}` : "";
 const getSubKgiSavedStorageKey = () => kgiId ? `kgi-detail-subkgi-saved:${kgiId}` : "";
 const TASK_CHECK_RESULT_OPTIONS = [
@@ -2739,9 +2791,8 @@ const renderPhasePageMeta = () => {
   if (phaseTitle) {
     phaseTitle.textContent = phaseName;
   }
-  if (phaseDescription) {
-    phaseDescription.textContent = phase?.description ?? "このフェーズの説明はまだありません。";
-  }
+  isPhaseDescriptionExpanded = false;
+  renderPhaseDescription(phase?.description);
   if (pageTitle) {
     pageTitle.textContent = `${phaseName} のKPI`;
   }
