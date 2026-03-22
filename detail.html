@@ -464,12 +464,34 @@
 
       .roadmap-phase-title-group {
         display: grid;
-        gap: 6px;
+        gap: 8px;
+      }
+
+      .roadmap-phase-heading-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+
+      .roadmap-phase-number {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 4px 10px;
+        border-radius: 999px;
+        background: #e2e8f0;
+        color: #334155;
+        font-size: 0.78rem;
+        font-weight: 800;
+        line-height: 1.2;
+        white-space: nowrap;
       }
 
       .roadmap-phase-title {
         font-size: 1rem;
         line-height: 1.45;
+        margin: 0;
       }
 
       .roadmap-phase-head {
@@ -524,19 +546,30 @@
         display: inline-flex;
         width: fit-content;
         align-items: center;
-        padding: 4px 10px;
+        padding: 6px 12px;
         border-radius: 999px;
         background: #e0f2fe;
         color: #075985;
-        font-size: 0.82rem;
+        font-size: 0.88rem;
         font-weight: 800;
         letter-spacing: 0.01em;
         line-height: 1.2;
       }
 
       .roadmap-phase-item.current {
-        border-color: #93c5fd;
+        border-color: #60a5fa;
         background: #eff6ff;
+        box-shadow: inset 0 0 0 1px #bfdbfe;
+      }
+
+      .roadmap-phase-item.current .roadmap-phase-number {
+        background: #2563eb;
+        color: #ffffff;
+      }
+
+      .roadmap-phase-item.current .roadmap-phase-period {
+        background: #dbeafe;
+        color: #1d4ed8;
       }
 
       .roadmap-phase-item.next {
@@ -546,6 +579,11 @@
       .roadmap-phase-meta {
         color: #64748b;
         font-size: 0.9rem;
+      }
+
+      .roadmap-phase-item.current .roadmap-phase-meta {
+        color: #1d4ed8;
+        font-weight: 600;
       }
 
       .roadmap-phase-points {
