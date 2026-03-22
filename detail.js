@@ -1796,20 +1796,22 @@ const getCandidateTasksForCurrentPhase = (kpis, phases = currentRoadmapPhases) =
   const currentPhaseId = typeof currentPhase?.id === "string" ? currentPhase.id.trim() : "";
 
   const buildCandidates = (targetKpis, reason) => targetKpis.flatMap((kpi) => {
-    const tasks = sortTasks(Array.isArray(kpi?.tasks) ? kpi.tasks : []);
+    const firstIncompleteTask = getFirstIncompleteTaskForKpi(kpi);
     const phaseId = typeof kpi?.phaseId === "string" ? kpi.phaseId.trim() : "";
 
-    return tasks
-      .filter((task) => normalizeTaskTicketStatus(task) !== "done" && !getTaskIsCompleted(task))
-      .map((task) => ({
-        task,
-        kpiId: kpi.id,
-        kpiName: kpi.name ?? "",
-        kpiType: kpi?.kpiType === "action" ? "action" : "result",
-        phaseId,
-        phaseName: getPhaseLabel(phaseId, phases),
-        selectionReason: reason
-      }));
+    if (!firstIncompleteTask) {
+      return [];
+    }
+
+    return [{
+      task: firstIncompleteTask,
+      kpiId: kpi.id,
+      kpiName: kpi.name ?? "",
+      kpiType: kpi?.kpiType === "action" ? "action" : "result",
+      phaseId,
+      phaseName: getPhaseLabel(phaseId, phases),
+      selectionReason: reason
+    }];
   });
 
   if (currentPhaseId) {
@@ -1867,6 +1869,11 @@ const getTaskActionableStatus = (task) => {
   }
 
   return getTaskIsCompleted(task) ? "done" : "todo";
+};
+
+const getFirstIncompleteTaskForKpi = (kpi) => {
+  const tasks = sortTasks(Array.isArray(kpi?.tasks) ? kpi.tasks : []);
+  return tasks.find((task) => normalizeTaskTicketStatus(task) !== "done" && !getTaskIsCompleted(task)) ?? null;
 };
 
 const NEXT_ACTION_STEP_LABELS = ["まずやる", "次にやる", "その次"];
@@ -3042,6 +3049,13 @@ const renderKpiTable = (kpis) => {
       const isOpen = Boolean(kpiDetailOpenState[kpi.id]);
       const isTaskFormOpen = Boolean(taskFormOpenState[kpi.id]);
       const tasks = Array.isArray(kpi.tasks) ? kpi.tasks : [];
+      const firstIncompleteTask = getFirstIncompleteTaskForKpi(kpi);
+      const shouldShowQuickFirstTaskButton = isPhasePage && tasks.length === 0;
+      const taskSummaryText = firstIncompleteTask
+        ? `最初の未完了Task: ${firstIncompleteTask.title ?? "-"}`
+        : tasks.length > 0
+          ? "未完了Taskはありません"
+          : "まだTaskがありません";
 
       const article = document.createElement("article");
       article.className = `kpi-card ${isOpen ? "open" : ""}`;
@@ -3058,6 +3072,7 @@ const renderKpiTable = (kpis) => {
             <span>Task ${tasks.length}件</span>
           </div>
           <div class="kpi-card-actions">
+            ${shouldShowQuickFirstTaskButton ? `<button class="button" type="button" data-kpi-add-first-task="${kpi.id}">最初のTaskを追加</button>` : ""}
             <button class="button secondary kpi-detail-toggle" type="button" data-kpi-toggle="${kpi.id}" aria-expanded="${isOpen ? "true" : "false"}">${isOpen ? "閉じる" : "開く"}</button>
             ${isActiveKpi(kpi) ? `<button class="button secondary" type="button" data-kpi-archive="${kpi.id}">アーカイブ</button>` : `<button class="button secondary" type="button" data-kpi-restore="${kpi.id}">復元</button>`}
           </div>
@@ -3074,6 +3089,7 @@ const renderKpiTable = (kpis) => {
             <div><strong>タイプ</strong><div>${escapeHtml(kpi.kpiType === "action" ? "action" : "result")}</div></div>
             <div><strong>現在値</strong><div>${currentValue}</div></div>
             <div><strong>Task件数</strong><div>${tasks.length}件</div></div>
+            <div><strong>最初の一歩</strong><div>${escapeHtml(taskSummaryText)}</div></div>
             <div><strong>期限</strong><div>${escapeHtml(deadline)} / <span class="${remaining.isOverdue ? "overdue-text" : ""}">${escapeHtml(remaining.remainingText)}</span></div></div>
             <div class="progress-wrap">
               <div class="progress-bar" aria-label="${escapeHtml(simpleName || kpi.name || "KPI")}の進捗バー">
@@ -3085,8 +3101,8 @@ const renderKpiTable = (kpis) => {
             <h3 class="task-panel-title">Task</h3>
             <div class="task-disclosure">
               <div class="task-disclosure-header">
-                <button class="button secondary task-disclosure-toggle" type="button" data-task-form-toggle="${kpi.id}" aria-expanded="${isTaskFormOpen ? "true" : "false"}">${isTaskFormOpen ? "Task入力を閉じる" : "Taskを追加"}</button>
-                <span class="hint">入力が必要なときだけ展開</span>
+                <button class="button secondary task-disclosure-toggle" type="button" data-task-form-toggle="${kpi.id}" aria-expanded="${isTaskFormOpen ? "true" : "false"}">${isTaskFormOpen ? "Task入力を閉じる" : tasks.length === 0 ? "最初のTaskを追加" : "Taskを追加"}</button>
+                <span class="hint">${tasks.length === 0 ? "このKPIの最初の1歩を1件だけ手動追加できます" : "入力が必要なときだけ展開"}</span>
               </div>
               ${isTaskFormOpen ? `
                 <form class="task-form task-disclosure-body" data-kpi-id="${kpi.id}">
@@ -3121,6 +3137,23 @@ const renderKpiTable = (kpis) => {
 
 const rerenderCurrentKpis = () => {
   renderKpiTable(latestRenderedKpis);
+};
+
+const openTaskFormForKpi = (kpiId) => {
+  if (!kpiId) {
+    return;
+  }
+
+  kpiDetailOpenState = { ...kpiDetailOpenState, [kpiId]: true };
+  taskFormOpenState = { ...taskFormOpenState, [kpiId]: true };
+  rerenderCurrentKpis();
+
+  window.requestAnimationFrame(() => {
+    const taskTitleInput = document.querySelector(`form.task-form[data-kpi-id="${kpiId}"] input[name="title"]`);
+    if (taskTitleInput instanceof HTMLInputElement) {
+      taskTitleInput.focus();
+    }
+  });
 };
 
 const loadKpis = async () => {
@@ -3551,6 +3584,14 @@ addKpiButton.addEventListener("click", async () => {
 });
 
 kpiTableBody.addEventListener("click", async (event) => {
+  const addFirstTaskButton = event.target instanceof HTMLElement ? event.target.closest("[data-kpi-add-first-task]") : null;
+
+  if (addFirstTaskButton instanceof HTMLButtonElement) {
+    const kpiId = addFirstTaskButton.dataset.kpiAddFirstTask;
+    openTaskFormForKpi(kpiId);
+    return;
+  }
+
   const phaseToggleButton = event.target instanceof HTMLElement ? event.target.closest("[data-phase-toggle]") : null;
 
   if (phaseToggleButton instanceof HTMLButtonElement) {
@@ -3601,8 +3642,12 @@ kpiTableBody.addEventListener("click", async (event) => {
     const targetId = taskFormToggleButton.dataset.taskFormToggle;
 
     if (targetId) {
-      taskFormOpenState = { ...taskFormOpenState, [targetId]: !taskFormOpenState[targetId] };
-      rerenderCurrentKpis();
+      if (taskFormOpenState[targetId]) {
+        taskFormOpenState = { ...taskFormOpenState, [targetId]: false };
+        rerenderCurrentKpis();
+      } else {
+        openTaskFormForKpi(targetId);
+      }
     }
 
     return;
