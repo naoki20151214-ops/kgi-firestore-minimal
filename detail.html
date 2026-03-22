@@ -965,6 +965,7 @@
         gap: 10px;
       }
 
+      .task-panel-header,
       .task-disclosure-header {
         display: flex;
         justify-content: space-between;
@@ -973,8 +974,37 @@
         flex-wrap: wrap;
       }
 
+      .task-panel-header {
+        margin-bottom: 10px;
+      }
+
+      .task-panel-body[hidden] {
+        display: none !important;
+      }
+
       .task-disclosure-toggle {
         padding: 8px 12px;
+      }
+
+      .reflection-panel {
+        margin-top: 12px;
+        padding-top: 12px;
+        border-top: 1px solid #e5e7eb;
+      }
+
+      .task-reflection-item {
+        border: 1px solid #e5e7eb;
+        border-radius: 12px;
+        padding: 12px;
+        background: #f8fafc;
+      }
+
+      .task-reflection-item + .task-reflection-item {
+        margin-top: 12px;
+      }
+
+      .task-reflection-item-title {
+        margin: 0 0 8px;
       }
 
       .task-disclosure-body {
