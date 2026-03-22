@@ -2820,6 +2820,19 @@ const displayProgress = (kpi) => {
   return clampPercent(progress);
 };
 
+const isCompletedKpi = (kpi) => {
+  if (!kpi || isArchivedKpi(kpi)) {
+    return false;
+  }
+
+  if (displayProgress(kpi) >= 100) {
+    return true;
+  }
+
+  const tasks = Array.isArray(kpi.tasks) ? kpi.tasks : [];
+  return tasks.length > 0 && tasks.every((task) => getTaskIsCompleted(task));
+};
+
 const renderOverallProgress = (kpis) => {
   if (!overallProgressValue || !overallProgressFill || !overallProgressCaption) {
     return;
@@ -3557,8 +3570,19 @@ const renderKpiTable = (kpis) => {
       phaseBody.appendChild(desc);
     }
 
-    group.items.forEach((kpi) => {
+    const sortedItems = [...group.items].sort((a, b) => {
+      const completionDiff = Number(isCompletedKpi(a)) - Number(isCompletedKpi(b));
+
+      if (completionDiff !== 0) {
+        return completionDiff;
+      }
+
+      return 0;
+    });
+
+    sortedItems.forEach((kpi) => {
       const progressPercent = displayProgress(kpi);
+      const isCompleted = isCompletedKpi(kpi);
       const deadline = displayDeadline(kpi.deadline);
       const remaining = calcRemainingDays(deadline === "未設定" ? "" : deadline);
       const currentValue = parsePositiveNumber(kpi.currentValue, 0);
@@ -3582,11 +3606,12 @@ const renderKpiTable = (kpis) => {
           : "まだTaskがありません";
 
       const article = document.createElement("article");
-      article.className = `kpi-card ${isOpen ? "open" : ""}`;
+      article.className = `kpi-card ${isOpen ? "open" : ""} ${isCompleted ? "completed" : ""}`.trim();
       article.innerHTML = `
         <div class="kpi-card-summary">
           <div class="kpi-card-main">
             <strong>${escapeHtml(simpleName || "-")}</strong>
+            ${isCompleted ? '<span class="kpi-complete-badge">完了</span>' : ""}
           </div>
           <div class="kpi-card-meta">
             <span>進捗 ${formatPercent(progressPercent)}</span>
