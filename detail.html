@@ -35,6 +35,60 @@
         text-align: center;
       }
 
+      .kpi-summary-card {
+        display: grid;
+        gap: 16px;
+      }
+
+      .kpi-summary-header {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+
+      .kpi-summary-stats {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+        gap: 12px;
+      }
+
+      .kpi-summary-stat {
+        border: 1px solid #e5e7eb;
+        border-radius: 12px;
+        padding: 12px;
+        background: #f8fafc;
+      }
+
+      .kpi-summary-stat strong {
+        display: block;
+        color: #475569;
+        margin-bottom: 6px;
+        font-size: 0.88rem;
+      }
+
+      .kpi-summary-stat span {
+        font-size: 1.4rem;
+        font-weight: 800;
+        color: #0f172a;
+      }
+
+      .kpi-management-panel[open] summary {
+        margin-bottom: 16px;
+      }
+
+      .kpi-management-panel summary {
+        cursor: pointer;
+        font-weight: 700;
+        color: #1f2937;
+      }
+
+      .kpi-management-grid {
+        display: grid;
+        gap: 16px;
+      }
+
       .next-action-card {
         border: 1px solid #dbeafe;
         background: linear-gradient(180deg, #f8fbff 0%, #ffffff 100%);
@@ -235,11 +289,35 @@
         background: #ea580c;
       }
 
+      .button.text {
+        background: transparent;
+        color: #2563eb;
+        padding: 0;
+      }
+
       .roadmap-kpi-actions {
         margin-top: 16px;
         display: grid;
         gap: 8px;
         justify-items: start;
+      }
+
+      .roadmap-phase-links {
+        margin-top: 8px;
+      }
+
+      .roadmap-phase-link {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        color: #2563eb;
+        font-size: 0.88rem;
+        font-weight: 600;
+        text-decoration: none;
+      }
+
+      .roadmap-phase-link:hover {
+        text-decoration: underline;
       }
 
       .field {
@@ -911,79 +989,102 @@
         </div>
       </section>
 
-      <section class="card">
-        <h2>KPIを追加</h2>
-        <div class="field">
-          <label for="kpiName">KPI名</label>
-          <input id="kpiName" type="text" placeholder="例: 問い合わせ件数" />
+      <section class="card kpi-summary-card">
+        <div class="kpi-summary-header">
+          <div>
+            <h2>KPIサマリー</h2>
+            <p class="hint">トップでは要点だけを表示し、詳細管理は必要なときに開きます。</p>
+          </div>
+          <button id="openKpiManagementButton" class="button secondary" type="button">KPI管理を開く</button>
         </div>
-        <div class="field">
-          <label for="kpiDescription">補足説明</label>
-          <input id="kpiDescription" type="text" placeholder="任意" />
+        <div id="kpiSummaryStats" class="kpi-summary-stats">
+          <div class="kpi-summary-stat">
+            <strong>表示中KPI</strong>
+            <span>0件</span>
+          </div>
         </div>
-        <div class="field">
-          <label for="kpiType">KPIタイプ</label>
-          <select id="kpiType">
-            <option value="result">result</option>
-            <option value="action">action</option>
-          </select>
-        </div>
-        <div class="field">
-          <label for="kpiCategory">カテゴリ</label>
-          <select id="kpiCategory">
-            <option value="">自動推定</option>
-            <option value="research">research</option>
-            <option value="design">design</option>
-            <option value="build">build</option>
-            <option value="quality">quality</option>
-            <option value="validation">validation</option>
-            <option value="distribution">distribution</option>
-            <option value="monetization">monetization</option>
-          </select>
-        </div>
-        <div class="field">
-          <label for="kpiDeadline">期限</label>
-          <input id="kpiDeadline" type="date" />
-        </div>
-        <button id="addKpiButton" class="button" type="button">KPIを保存</button>
-      </section>
-
-      <section class="card" hidden>
-        <h2>AIでKPI案を作る</h2>
-        <div class="ai-actions">
-          <button id="generateAiKpisButton" class="button" type="button">AIでKPI案を作る</button>
-          <p id="aiLoadingText" class="hint" hidden>AIがKPI案を作成中...</p>
-        </div>
-        <p id="aiErrorText" class="hint error" hidden></p>
-        <div id="aiSuggestions" class="ai-suggestion-groups" hidden>
-          <section class="ai-suggestion-group">
-            <h3>結果KPI候補</h3>
-            <div id="resultKpiSuggestions"></div>
-          </section>
-          <section class="ai-suggestion-group">
-            <h3>行動KPI候補</h3>
-            <div id="actionKpiSuggestions"></div>
-          </section>
-          <section class="ai-suggestion-group">
-            <h3>サブKGI候補</h3>
-            <div id="subKgiSuggestions"></div>
-          </section>
-        </div>
-      </section>
-
-      <section class="card">
-        <h2>KPI一覧</h2>
-        <p class="hint">ロードマップ各フェーズの進行指標として表示します。</p>
         <p id="kpiStatusText" class="hint">読み込み中...</p>
-        <div class="kpi-list-toolbar">
-          <label class="toolbar-toggle" for="showArchivedToggle">
-            <input id="showArchivedToggle" type="checkbox" />
-            アーカイブ済みを表示
-          </label>
-        </div>
-        <div id="kpiTable" class="kpi-group-list" hidden>
-          <div id="kpiTableBody"></div>
-        </div>
+      </section>
+
+      <section class="card">
+        <details id="kpiManagementPanel" class="kpi-management-panel">
+          <summary>KPI詳細・追加・アーカイブ操作</summary>
+          <div class="kpi-management-grid">
+            <section>
+              <h2>KPIを追加</h2>
+              <div class="field">
+                <label for="kpiName">KPI名</label>
+                <input id="kpiName" type="text" placeholder="例: 問い合わせ件数" />
+              </div>
+              <div class="field">
+                <label for="kpiDescription">補足説明</label>
+                <input id="kpiDescription" type="text" placeholder="任意" />
+              </div>
+              <div class="field">
+                <label for="kpiType">KPIタイプ</label>
+                <select id="kpiType">
+                  <option value="result">result</option>
+                  <option value="action">action</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="kpiCategory">カテゴリ</label>
+                <select id="kpiCategory">
+                  <option value="">自動推定</option>
+                  <option value="research">research</option>
+                  <option value="design">design</option>
+                  <option value="build">build</option>
+                  <option value="quality">quality</option>
+                  <option value="validation">validation</option>
+                  <option value="distribution">distribution</option>
+                  <option value="monetization">monetization</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="kpiDeadline">期限</label>
+                <input id="kpiDeadline" type="date" />
+              </div>
+              <button id="addKpiButton" class="button" type="button">KPIを保存</button>
+            </section>
+
+            <section class="card" hidden>
+              <h2>AIでKPI案を作る</h2>
+              <div class="ai-actions">
+                <button id="generateAiKpisButton" class="button" type="button">AIでKPI案を作る</button>
+                <p id="aiLoadingText" class="hint" hidden>AIがKPI案を作成中...</p>
+              </div>
+              <p id="aiErrorText" class="hint error" hidden></p>
+              <div id="aiSuggestions" class="ai-suggestion-groups" hidden>
+                <section class="ai-suggestion-group">
+                  <h3>結果KPI候補</h3>
+                  <div id="resultKpiSuggestions"></div>
+                </section>
+                <section class="ai-suggestion-group">
+                  <h3>行動KPI候補</h3>
+                  <div id="actionKpiSuggestions"></div>
+                </section>
+                <section class="ai-suggestion-group">
+                  <h3>サブKGI候補</h3>
+                  <div id="subKgiSuggestions"></div>
+                </section>
+              </div>
+            </section>
+
+            <section>
+              <h2>KPI一覧</h2>
+              <p class="hint">ロードマップ各フェーズの進行指標として表示します。</p>
+              <div class="kpi-list-toolbar">
+                <label class="toolbar-toggle" for="showArchivedToggle">
+                  <input id="showArchivedToggle" type="checkbox" />
+                  アーカイブ済みを表示
+                </label>
+              </div>
+              <div id="kpiTable" class="kpi-group-list" hidden>
+                <div id="kpiTableBody"></div>
+              </div>
+            </section>
+          </div>
+        </details>
       </section>
     </main>
 

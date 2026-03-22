@@ -21,6 +21,9 @@ const generateRoadmapKpisButton = document.getElementById("generateRoadmapKpisBu
 const roadmapKpiLoadingText = document.getElementById("roadmapKpiLoadingText");
 const roadmapKpiErrorText = document.getElementById("roadmapKpiErrorText");
 const kpiStatusText = document.getElementById("kpiStatusText");
+const kpiSummaryStats = document.getElementById("kpiSummaryStats");
+const kpiManagementPanel = document.getElementById("kpiManagementPanel");
+const openKpiManagementButton = document.getElementById("openKpiManagementButton");
 const nextActionContainer = document.getElementById("nextActionContainer");
 const kpiTable = document.getElementById("kpiTable");
 const kpiTableBody = document.getElementById("kpiTableBody");
@@ -327,6 +330,20 @@ const setKpiStatus = (message, isError = false) => {
   kpiStatusText.textContent = message;
   kpiStatusText.classList.toggle("error", isError);
 };
+
+const openKpiManagement = () => {
+  if (!kpiManagementPanel) {
+    return;
+  }
+
+  kpiManagementPanel.open = true;
+  kpiManagementPanel.scrollIntoView({ behavior: "smooth", block: "start" });
+};
+
+openKpiManagementButton?.addEventListener("click", () => {
+  openKpiManagement();
+});
+
 
 const updateRoadmapKpiButtonState = (kpiCount = latestRenderedKpis.length) => {
   if (!generateRoadmapKpisButton) {
@@ -759,6 +776,17 @@ renderAiSuggestions();
 showArchivedToggle?.addEventListener("change", async (event) => {
   showArchivedKpis = Boolean(event.target instanceof HTMLInputElement ? event.target.checked : false);
   await loadKpis();
+});
+
+document.addEventListener("click", (event) => {
+  const link = event.target instanceof HTMLElement ? event.target.closest('a[href="#kpiManagementPanel"]') : null;
+
+  if (!(link instanceof HTMLAnchorElement)) {
+    return;
+  }
+
+  event.preventDefault();
+  openKpiManagement();
 });
 
 const resetAiSuggestions = () => {
@@ -1319,6 +1347,9 @@ const renderRoadmap = (phases = currentRoadmapPhases) => {
       </div>
       <p class="hint">${escapeHtml(phase.description)}</p>
       <span class="roadmap-phase-meta">フェーズ ${index + 1}</span>
+      <div class="roadmap-phase-links">
+        <a class="roadmap-phase-link" href="#kpiManagementPanel">KPIを見る</a>
+      </div>
     </li>
   `).join("");
 
@@ -2537,6 +2568,44 @@ const renderOverallProgress = (kpis) => {
   overallProgressCaption.textContent = `${kpis.length}件のKPI平均`;
 };
 
+const renderKpiSummary = (kpis = [], allKpis = kpis) => {
+  if (!kpiSummaryStats) {
+    return;
+  }
+
+  const visibleItems = Array.isArray(kpis) ? kpis : [];
+  const sourceItems = Array.isArray(allKpis) ? allKpis : visibleItems;
+  const activeCount = sourceItems.filter(isActiveKpi).length;
+  const archivedCount = sourceItems.filter(isArchivedKpi).length;
+  const taskCount = visibleItems.reduce((sum, kpi) => sum + (Array.isArray(kpi.tasks) ? kpi.tasks.length : 0), 0);
+  const averageProgress = visibleItems.length > 0
+    ? clampPercent(visibleItems.reduce((sum, kpi) => sum + displayProgress(kpi), 0) / visibleItems.length)
+    : 0;
+
+  kpiSummaryStats.innerHTML = `
+    <div class="kpi-summary-stat">
+      <strong>表示中KPI</strong>
+      <span>${visibleItems.length}件</span>
+    </div>
+    <div class="kpi-summary-stat">
+      <strong>進行中</strong>
+      <span>${activeCount}件</span>
+    </div>
+    <div class="kpi-summary-stat">
+      <strong>Task総数</strong>
+      <span>${taskCount}件</span>
+    </div>
+    <div class="kpi-summary-stat">
+      <strong>平均進捗</strong>
+      <span>${formatPercent(averageProgress)}</span>
+    </div>
+    <div class="kpi-summary-stat">
+      <strong>アーカイブ</strong>
+      <span>${archivedCount}件</span>
+    </div>
+  `;
+};
+
 const getKgisRef = () => collection(db, "kgis");
 const getKgiRef = () => doc(getKgisRef(), kgiId);
 const getNestedKpisRef = () => collection(db, "kgis", kgiId, "kpis");
@@ -3008,6 +3077,7 @@ const loadKpis = async () => {
     latestRenderedKpis = [];
     kpiTable.hidden = true;
     renderOverallProgress([]);
+    renderKpiSummary([], []);
     existingKpiKeys = new Set();
     taskAiSavedByKpiId = {};
     taskAiSavingByKpiId = {};
@@ -3082,6 +3152,7 @@ const loadKpis = async () => {
 
   renderKpiTable(kpisWithTasks);
   renderOverallProgress(kpisWithTasks);
+  renderKpiSummary(kpisWithTasks, allKpis);
 
   if (!nextAction) {
     latestNextActionStepRequestKey = "";
