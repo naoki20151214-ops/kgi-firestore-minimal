@@ -515,6 +515,42 @@
         flex-wrap: wrap;
       }
 
+      .kpi-category-badge,
+      .kpi-status-badge {
+        display: inline-flex;
+        align-items: center;
+        border-radius: 999px;
+        padding: 3px 8px;
+        font-size: 0.8rem;
+        font-weight: 700;
+      }
+
+      .kpi-category-badge {
+        background: #dbeafe;
+        color: #1d4ed8;
+      }
+
+      .kpi-status-badge {
+        background: #e5e7eb;
+        color: #475569;
+      }
+
+      .kpi-list-toolbar {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+
+      .toolbar-toggle {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 0.92rem;
+        color: #334155;
+      }
+
       .kpi-detail-toggle {
         padding: 8px 12px;
       }
@@ -893,6 +929,19 @@
           </select>
         </div>
         <div class="field">
+          <label for="kpiCategory">カテゴリ</label>
+          <select id="kpiCategory">
+            <option value="">自動推定</option>
+            <option value="research">research</option>
+            <option value="design">design</option>
+            <option value="build">build</option>
+            <option value="quality">quality</option>
+            <option value="validation">validation</option>
+            <option value="distribution">distribution</option>
+            <option value="monetization">monetization</option>
+          </select>
+        </div>
+        <div class="field">
           <label for="kpiDeadline">期限</label>
           <input id="kpiDeadline" type="date" />
         </div>
@@ -926,6 +975,12 @@
         <h2>KPI一覧</h2>
         <p class="hint">ロードマップ各フェーズの進行指標として表示します。</p>
         <p id="kpiStatusText" class="hint">読み込み中...</p>
+        <div class="kpi-list-toolbar">
+          <label class="toolbar-toggle" for="showArchivedToggle">
+            <input id="showArchivedToggle" type="checkbox" />
+            アーカイブ済みを表示
+          </label>
+        </div>
         <div id="kpiTable" class="kpi-group-list" hidden>
           <div id="kpiTableBody"></div>
         </div>
