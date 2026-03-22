@@ -3053,7 +3053,7 @@ const renderKpiTable = (kpis) => {
       const isTaskFormOpen = Boolean(taskFormOpenState[kpi.id]);
       const tasks = Array.isArray(kpi.tasks) ? kpi.tasks : [];
       const firstIncompleteTask = getFirstIncompleteTaskForKpi(kpi);
-      const shouldShowQuickFirstTaskButton = isPhasePage && tasks.length === 0;
+      const shouldShowTaskEmptyState = tasks.length === 0;
       const taskSummaryText = firstIncompleteTask
         ? `最初の未完了Task: ${firstIncompleteTask.title ?? "-"}`
         : tasks.length > 0
@@ -3075,10 +3075,20 @@ const renderKpiTable = (kpis) => {
             <span>Task ${tasks.length}件</span>
           </div>
           <div class="kpi-card-actions">
-            ${shouldShowQuickFirstTaskButton ? `<button class="button" type="button" data-kpi-add-first-task="${kpi.id}">最初のTaskを追加</button>` : ""}
-            <button class="button secondary kpi-detail-toggle" type="button" data-kpi-toggle="${kpi.id}" aria-expanded="${isOpen ? "true" : "false"}">${isOpen ? "閉じる" : "開く"}</button>
-            ${isActiveKpi(kpi) ? `<button class="button secondary" type="button" data-kpi-archive="${kpi.id}">アーカイブ</button>` : `<button class="button secondary" type="button" data-kpi-restore="${kpi.id}">復元</button>`}
+            <div class="kpi-card-actions-primary">
+              ${shouldShowTaskEmptyState ? `<button class="button" type="button" data-kpi-add-first-task="${kpi.id}">最初のTaskを追加</button>` : ""}
+            </div>
+            <div class="kpi-card-actions-secondary">
+              <button class="button secondary kpi-detail-toggle" type="button" data-kpi-toggle="${kpi.id}" aria-expanded="${isOpen ? "true" : "false"}">${isOpen ? "閉じる" : "開く"}</button>
+              ${isActiveKpi(kpi) ? `<button class="button secondary" type="button" data-kpi-archive="${kpi.id}">アーカイブ</button>` : `<button class="button secondary" type="button" data-kpi-restore="${kpi.id}">復元</button>`}
+            </div>
           </div>
+          ${shouldShowTaskEmptyState ? `
+            <div class="kpi-empty-task-guide">
+              <strong>まだTaskがありません</strong>
+              <span class="hint">まず最初の1歩を作ってください</span>
+            </div>
+          ` : ""}
         </div>
         <div class="kpi-card-detail" ${isOpen ? "" : "hidden"}>
           <div class="kpi-card-detail-block">
