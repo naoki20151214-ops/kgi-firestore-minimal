@@ -414,8 +414,6 @@ module.exports = async function handler(req, res) {
       },
       body: JSON.stringify({
         model: "gpt-5-mini",
-        prompt_cache_key: `generate-tasks:${kgiName}:${kpiName}:${kpiType}:${targetValue}`,
-        prompt_cache_retention: "24h",
         input: [
           {
             role: "system",
@@ -439,8 +437,22 @@ module.exports = async function handler(req, res) {
     });
 
     if (!openAiResponse.ok) {
+      const errorText = await openAiResponse.text().catch(() => "");
+      const normalizedErrorText = errorText.trim();
+      console.error("[generate-tasks] OpenAI API request failed", {
+        kgiId,
+        kpiId,
+        phaseId,
+        status: openAiResponse.status,
+        statusText: openAiResponse.statusText,
+        body: normalizedErrorText
+      });
       console.log("[generate-tasks] response", { success: false, status: openAiResponse.status });
-      return sendJson(res, 502, { error: "OpenAI API request failed" });
+      return sendJson(res, 502, {
+        error: normalizedErrorText
+          ? `OpenAI API request failed: ${normalizedErrorText}`
+          : "OpenAI API request failed"
+      });
     }
 
     const responseData = await openAiResponse.json();
