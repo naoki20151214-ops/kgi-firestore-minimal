@@ -3076,7 +3076,7 @@ const renderKpiTable = (kpis) => {
           </div>
           <div class="kpi-card-actions">
             <div class="kpi-card-actions-primary">
-              ${shouldShowTaskEmptyState ? `<button class="button" type="button" data-kpi-add-first-task="${kpi.id}">最初のTaskを追加</button>` : ""}
+              ${shouldShowTaskEmptyState ? `<button class="button" type="button" data-kpi-add-first-task="${kpi.id}" aria-expanded="${isTaskFormOpen ? "true" : "false"}">${isTaskFormOpen ? "Task入力を閉じる" : "最初のTaskを追加"}</button>` : ""}
             </div>
             <div class="kpi-card-actions-secondary">
               <button class="button secondary kpi-detail-toggle" type="button" data-kpi-toggle="${kpi.id}" aria-expanded="${isOpen ? "true" : "false"}">${isOpen ? "閉じる" : "開く"}</button>
@@ -3601,7 +3601,16 @@ kpiTableBody.addEventListener("click", async (event) => {
 
   if (addFirstTaskButton instanceof HTMLButtonElement) {
     const kpiId = addFirstTaskButton.dataset.kpiAddFirstTask;
-    openTaskFormForKpi(kpiId);
+
+    if (kpiId) {
+      if (taskFormOpenState[kpiId]) {
+        taskFormOpenState = { ...taskFormOpenState, [kpiId]: false };
+        rerenderCurrentKpis();
+      } else {
+        openTaskFormForKpi(kpiId);
+      }
+    }
+
     return;
   }
 
