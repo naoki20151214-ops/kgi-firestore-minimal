@@ -32,6 +32,9 @@ const pageTitle = document.getElementById("pageTitle");
 const pageLead = document.getElementById("pageLead");
 const backToDetailLink = document.getElementById("backToDetailLink");
 const nextActionContainer = document.getElementById("nextActionContainer");
+const routineTaskStatusText = document.getElementById("routineTaskStatusText");
+const routineTaskForm = document.getElementById("routineTaskForm");
+const routineTaskList = document.getElementById("routineTaskList");
 const kpiTable = document.getElementById("kpiTable");
 const kpiTableBody = document.getElementById("kpiTableBody");
 const kpiNameInput = document.getElementById("kpiName");
@@ -193,6 +196,23 @@ let autoTaskGenerationInFlight = false;
 let autoTaskGenerationPromise = null;
 let showArchivedKpis = false;
 let isPhaseDescriptionExpanded = false;
+let latestRoutineTasks = [];
+
+const TASK_KIND = {
+  KPI: "kpi_task",
+  ROUTINE: "routine_task"
+};
+
+const ROUTINE_TASK_STATUS = {
+  ACTIVE: "active",
+  DONE: "done"
+};
+
+const ROUTINE_TASK_CADENCE_LABELS = {
+  daily: "daily",
+  weekly: "weekly",
+  ad_hoc: "ad_hoc"
+};
 
 const splitPhaseDescriptionIntoPoints = (description) => String(description ?? "")
   .replace(/\r\n?/g, "\n")
@@ -486,6 +506,17 @@ const setStatus = (message, isError = false) => {
 const setKpiStatus = (message, isError = false) => {
   kpiStatusText.textContent = message;
   kpiStatusText.classList.toggle("error", isError);
+};
+
+const setRoutineTaskStatus = (message, isError = false) => {
+  if (!routineTaskStatusText) {
+    return;
+  }
+
+  routineTaskStatusText.hidden = false;
+  routineTaskStatusText.textContent = message;
+  routineTaskStatusText.classList.toggle("error", isError);
+  routineTaskStatusText.classList.toggle("info", !isError);
 };
 
 const buildPhasePageUrl = (phaseId) => `./phase.html?id=${encodeURIComponent(kgiId)}${phaseId ? `&phaseId=${encodeURIComponent(phaseId)}` : ""}`;
@@ -784,6 +815,7 @@ const normalizeGeneratedTaskDraft = (suggestion, kpiId, order = 0, ticketNote = 
     progressValue: 1,
     contributedValue: 0,
     isCompleted: false,
+    taskKind: TASK_KIND.KPI,
     kpiId,
     checkStatus: "not_checked",
     checkComment: "",
@@ -993,6 +1025,15 @@ const formatDate = (value) => {
   }
 
   return "-";
+};
+
+const normalizeRoutineTaskStatus = (value) => String(value ?? "").trim().toLowerCase() === ROUTINE_TASK_STATUS.DONE
+  ? ROUTINE_TASK_STATUS.DONE
+  : ROUTINE_TASK_STATUS.ACTIVE;
+
+const normalizeRoutineTaskCadence = (value) => {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  return Object.hasOwn(ROUTINE_TASK_CADENCE_LABELS, normalized) ? normalized : "ad_hoc";
 };
 
 const displayGoalText = (goalText) => {
@@ -2804,6 +2845,7 @@ const renderKpiSummary = (kpis = [], allKpis = kpis) => {
 const getKgisRef = () => collection(db, "kgis");
 const getKgiRef = () => doc(getKgisRef(), kgiId);
 const getNestedKpisRef = () => collection(db, "kgis", kgiId, "kpis");
+const getRoutineTasksRef = () => collection(getKgiRef(), "routineTasks");
 const getKpisRef = () => collection(db, "kpis");
 const getKpisQuery = () => query(getKpisRef(), where("kgiId", "==", kgiId));
 const getTasksRef = (kpiId) => collection(getKpisRef(), kpiId, "tasks");
@@ -2874,6 +2916,41 @@ const renderKgiMeta = (kgiData) => {
   renderPhasePageMeta();
   updatePhasePageLinks();
   updateRoadmapKpiButtonState(latestRenderedKpis.length);
+};
+
+const renderRoutineTasks = (routineTasks = []) => {
+  if (!routineTaskList) {
+    return;
+  }
+
+  const activeTasks = (Array.isArray(routineTasks) ? routineTasks : [])
+    .filter((task) => normalizeRoutineTaskStatus(task?.status) === ROUTINE_TASK_STATUS.ACTIVE);
+
+  if (activeTasks.length === 0) {
+    routineTaskList.innerHTML = '<p class="hint">active な運用タスクはまだありません。</p>';
+    return;
+  }
+
+  routineTaskList.innerHTML = activeTasks.slice(0, 5).map((task) => {
+    const title = typeof task?.title === "string" && task.title.trim() ? task.title.trim() : "名称未設定";
+    const description = typeof task?.description === "string" ? task.description.trim() : "";
+    const cadence = normalizeRoutineTaskCadence(task?.cadence ?? task?.frequency);
+    const createdAt = formatDate(task?.createdAt);
+
+    return `
+      <article class="routine-task-item">
+        <div class="routine-task-item-header">
+          <strong>${escapeHtml(title)}</strong>
+          <div class="routine-task-meta">
+            <span class="routine-task-badge">${escapeHtml(ROUTINE_TASK_CADENCE_LABELS[cadence])}</span>
+            <span class="routine-task-badge">${escapeHtml(normalizeRoutineTaskStatus(task?.status))}</span>
+          </div>
+        </div>
+        ${description ? `<p class="hint">${escapeHtml(description)}</p>` : ""}
+        <p class="hint">作成日: ${escapeHtml(createdAt)}</p>
+      </article>
+    `;
+  }).join("");
 };
 
 
@@ -3530,6 +3607,34 @@ const loadKpis = async () => {
   setKpiStatus(`${visibleKpis.length}件のKPIを表示しています。必要なKPIだけ開いて確認できます。${visibilitySuffix}`);
 };
 
+const loadRoutineTasks = async () => {
+  if (!db || !kgiId) {
+    latestRoutineTasks = [];
+    renderRoutineTasks([]);
+    return;
+  }
+
+  const snapshot = await getDocs(getRoutineTasksRef());
+  latestRoutineTasks = snapshot.docs
+    .map((taskDoc) => ({
+      id: taskDoc.id,
+      ...taskDoc.data(),
+      taskKind: String(taskDoc.data()?.taskKind ?? TASK_KIND.ROUTINE),
+      status: normalizeRoutineTaskStatus(taskDoc.data()?.status),
+      cadence: normalizeRoutineTaskCadence(taskDoc.data()?.cadence ?? taskDoc.data()?.frequency)
+    }))
+    .filter((task) => task.taskKind === TASK_KIND.ROUTINE)
+    .sort((a, b) => {
+      const createdAtA = getComparableTimestamp(a?.createdAt);
+      const createdAtB = getComparableTimestamp(b?.createdAt);
+      return createdAtB - createdAtA;
+    });
+
+  const activeCount = latestRoutineTasks.filter((task) => task.status === ROUTINE_TASK_STATUS.ACTIVE).length;
+  renderRoutineTasks(latestRoutineTasks);
+  setRoutineTaskStatus(`active な運用タスクを ${activeCount}件表示しています。`);
+};
+
 aiSuggestionsContainer?.addEventListener("click", async (event) => {
   const button = event.target instanceof HTMLElement ? event.target.closest(".ai-add-button") : null;
 
@@ -4062,6 +4167,7 @@ kpiTableBody.addEventListener("submit", async (event) => {
       title,
       description,
       kpiId: kpiTargetId,
+      taskKind: TASK_KIND.KPI,
       type: taskType,
       stage: taskStage,
       dependsOnTaskIds: [],
@@ -4106,6 +4212,58 @@ kpiTableBody.addEventListener("submit", async (event) => {
     setKpiStatus("Taskの保存に失敗しました。", true);
   } finally {
     if (submitButton) {
+      submitButton.disabled = false;
+    }
+  }
+});
+
+routineTaskForm?.addEventListener("submit", async (event) => {
+  event.preventDefault();
+
+  if (!db || !kgiId || !routineTaskForm) {
+    return;
+  }
+
+  const formData = new FormData(routineTaskForm);
+  const title = String(formData.get("title") ?? "").trim();
+  const description = String(formData.get("description") ?? "").trim();
+  const cadence = normalizeRoutineTaskCadence(formData.get("cadence"));
+
+  if (!title) {
+    alert("運用タスクのタイトルを入力してください。");
+    return;
+  }
+
+  const submitButton = routineTaskForm.querySelector("button[type='submit']");
+  if (submitButton instanceof HTMLButtonElement) {
+    submitButton.disabled = true;
+  }
+
+  try {
+    await addDoc(getRoutineTasksRef(), {
+      kgiId,
+      title,
+      description,
+      cadence,
+      frequency: cadence,
+      status: ROUTINE_TASK_STATUS.ACTIVE,
+      taskKind: TASK_KIND.ROUTINE,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp()
+    });
+
+    routineTaskForm.reset();
+    const cadenceInput = document.getElementById("routineTaskCadence");
+    if (cadenceInput instanceof HTMLSelectElement) {
+      cadenceInput.value = "daily";
+    }
+    await loadRoutineTasks();
+  } catch (error) {
+    console.error(error);
+    setRoutineTaskStatus("運用タスクの保存に失敗しました。", true);
+    alert("運用タスクの保存に失敗しました。");
+  } finally {
+    if (submitButton instanceof HTMLButtonElement) {
       submitButton.disabled = false;
     }
   }
@@ -4471,6 +4629,7 @@ const initializeDetailPage = async () => {
   setAiError("");
   setStatus("読み込み中...");
   setKpiStatus("KPIの読み込み待機中...");
+  setRoutineTaskStatus("運用タスクの読み込み待機中...");
 
   kgiId = resolveKgiIdFromUrl();
   roadmapKpiLoading = restoreRoadmapKpiLoadingState();
@@ -4506,12 +4665,14 @@ const initializeDetailPage = async () => {
     enableKpiActions();
     setStatus("KGI詳細を表示しています。");
     setDebugSummary(`取得したid: ${kgiId}`, "KGI読み込み成功");
+    await loadRoutineTasks();
     await loadKpis();
   } catch (error) {
     console.error(error);
     reportDebugError("initializeDetailPage", error);
     setStatus("KGIの読み込みに失敗しました", true);
     setKpiStatus("KPIを表示できません。", true);
+    setRoutineTaskStatus("運用タスクを表示できません。", true);
     setDebugSummary(`取得したid: ${kgiId}`, "KGI読み込み失敗");
     updateDebugPanel([]);
   }
