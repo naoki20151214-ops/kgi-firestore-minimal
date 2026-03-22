@@ -89,6 +89,54 @@
         gap: 16px;
       }
 
+      .kpi-management-panel,
+      .kpi-management-grid,
+      .kpi-group-list,
+      .kpi-phase-group,
+      .kpi-phase-body,
+      .kpi-card,
+      .kpi-card-summary,
+      .kpi-card-main,
+      .kpi-card-meta,
+      .kpi-card-actions,
+      .kpi-card-actions-primary,
+      .kpi-card-actions-secondary,
+      .kpi-card-detail,
+      .kpi-card-detail-block,
+      .task-panel,
+      .task-disclosure,
+      .task-disclosure-header,
+      .task-disclosure-body,
+      .task-grid,
+      .task-grid label,
+      .task-list-wrap,
+      .task-ticket-meta,
+      .task-ticket-status-cell {
+        max-width: 100%;
+        min-width: 0;
+      }
+
+      .kpi-management-panel,
+      .kpi-group-list,
+      .kpi-phase-group,
+      .kpi-phase-body,
+      .kpi-card,
+      .kpi-card-detail,
+      .kpi-card-detail-block,
+      .task-panel,
+      .task-disclosure,
+      .task-disclosure-body,
+      .task-list-wrap {
+        overflow-x: hidden;
+      }
+
+      .kpi-management-panel :where(div, p, span, strong, a, button, label),
+      .kpi-card :where(div, p, span, strong, a, button, label),
+      .task-panel :where(div, p, span, strong, a, button, label) {
+        word-break: break-word;
+        overflow-wrap: anywhere;
+      }
+
       .next-action-card {
         border: 1px solid #dbeafe;
         background: linear-gradient(180deg, #f8fbff 0%, #ffffff 100%);
@@ -361,6 +409,9 @@
       input,
       select {
         font-size: 1rem;
+        width: 100%;
+        max-width: 100%;
+        box-sizing: border-box;
         padding: 10px 12px;
         border-radius: 10px;
         border: 1px solid #d1d5db;
@@ -793,6 +844,7 @@
         .kpi-card-actions,
         .task-disclosure-header {
           align-items: flex-start;
+          flex-direction: column;
         }
 
         .kpi-card-actions-secondary {
@@ -966,6 +1018,9 @@
 
       textarea {
         font-size: 1rem;
+        width: 100%;
+        max-width: 100%;
+        box-sizing: border-box;
         padding: 10px 12px;
         border-radius: 10px;
         border: 1px solid #d1d5db;
