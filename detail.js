@@ -32,6 +32,7 @@ const pageTitle = document.getElementById("pageTitle");
 const pageLead = document.getElementById("pageLead");
 const backToDetailLink = document.getElementById("backToDetailLink");
 const nextActionContainer = document.getElementById("nextActionContainer");
+const phaseRecommendedKpiContainer = document.getElementById("phaseRecommendedKpiContainer");
 const routineTaskStatusText = document.getElementById("routineTaskStatusText");
 const routineTaskForm = document.getElementById("routineTaskForm");
 const routineTaskList = document.getElementById("routineTaskList");
@@ -2120,6 +2121,96 @@ const getFirstIncompleteTaskForKpi = (kpi) => {
   return tasks.find((task) => normalizeTaskTicketStatus(task) !== "done" && !getTaskIsCompleted(task)) ?? null;
 };
 
+const getKpiListStatus = (kpi) => {
+  if (isCompletedKpi(kpi)) {
+    return "completed";
+  }
+
+  const tasks = Array.isArray(kpi?.tasks) ? kpi.tasks : [];
+  const hasDoingTask = tasks.some((task) => getTaskActionableStatus(task) === "doing");
+  const hasCompletedTask = tasks.some((task) => getTaskIsCompleted(task));
+
+  if (hasDoingTask || displayProgress(kpi) > 0 || hasCompletedTask) {
+    return "in_progress";
+  }
+
+  return "not_started";
+};
+
+const getKpiListPriority = (kpi) => {
+  const status = getKpiListStatus(kpi);
+
+  if (status === "in_progress") {
+    return 0;
+  }
+
+  if (status === "not_started") {
+    return 1;
+  }
+
+  return 2;
+};
+
+const compareRecommendedKpis = (a, b) => {
+  const aHasTasks = Array.isArray(a?.tasks) && a.tasks.length > 0 ? 0 : 1;
+  const bHasTasks = Array.isArray(b?.tasks) && b.tasks.length > 0 ? 0 : 1;
+
+  if (aHasTasks !== bHasTasks) {
+    return aHasTasks - bHasTasks;
+  }
+
+  const aHasDoingTask = Array.isArray(a?.tasks) && a.tasks.some((task) => getTaskActionableStatus(task) === "doing") ? 0 : 1;
+  const bHasDoingTask = Array.isArray(b?.tasks) && b.tasks.some((task) => getTaskActionableStatus(task) === "doing") ? 0 : 1;
+
+  if (aHasDoingTask !== bHasDoingTask) {
+    return aHasDoingTask - bHasDoingTask;
+  }
+
+  return getKpiListPriority(a) - getKpiListPriority(b);
+};
+
+const getPrimaryTaskButtonLabel = (kpi, isTaskFormOpen = false) => {
+  const tasks = Array.isArray(kpi?.tasks) ? kpi.tasks : [];
+  return tasks.length > 0
+    ? "Taskを見る"
+    : (isTaskFormOpen ? "Task入力を閉じる" : "最初のTaskを作る");
+};
+
+const renderPhaseRecommendedKpi = (kpis) => {
+  if (!phaseRecommendedKpiContainer || !isPhasePage) {
+    return;
+  }
+
+  const recommendedKpi = [...(Array.isArray(kpis) ? kpis : [])]
+    .filter((kpi) => !isCompletedKpi(kpi))
+    .sort(compareRecommendedKpis)[0] ?? null;
+
+  if (!recommendedKpi) {
+    phaseRecommendedKpiContainer.innerHTML = '<p class="next-action-empty">今おすすめできる未完了KPIはありません。</p>';
+    return;
+  }
+
+  const tasks = Array.isArray(recommendedKpi.tasks) ? recommendedKpi.tasks : [];
+  const simpleName = getSimpleName(recommendedKpi) || recommendedKpi.name || "-";
+  const simpleDescription = getSimpleDescription(recommendedKpi) || recommendedKpi.description || "このKPIから着手すると進めやすいです。";
+  const kpiStatus = getKpiListStatus(recommendedKpi);
+  const statusLabel = kpiStatus === "in_progress" ? "進行中" : "未着手";
+  const statusClassName = kpiStatus === "in_progress" ? "doing" : "todo";
+
+  phaseRecommendedKpiContainer.innerHTML = `
+    <p class="next-action-title">${escapeHtml(simpleName)}</p>
+    <p class="next-action-inline-status">${escapeHtml(displayDescription(simpleDescription))}</p>
+    <div class="next-action-status-row">
+      <span class="status-badge ${statusClassName}">${statusLabel}</span>
+      <span class="status-badge">Task ${tasks.length}件</span>
+      <span class="status-badge">進捗 ${formatPercent(displayProgress(recommendedKpi))}</span>
+    </div>
+    <div class="next-action-actions">
+      <button class="button" type="button" data-kpi-primary-action="${recommendedKpi.id}">${getPrimaryTaskButtonLabel(recommendedKpi)}</button>
+    </div>
+  `;
+};
+
 const NEXT_ACTION_STEP_LABELS = ["まずやる", "次にやる", "その次"];
 const FALLBACK_NEXT_ACTION_STEPS = [
   "まずやる：Taskの内容を1回読み、最初に触る対象を1つ決める",
@@ -3571,13 +3662,12 @@ const renderKpiTable = (kpis) => {
     }
 
     const sortedItems = [...group.items].sort((a, b) => {
-      const completionDiff = Number(isCompletedKpi(a)) - Number(isCompletedKpi(b));
-
-      if (completionDiff !== 0) {
-        return completionDiff;
+      const priorityDiff = getKpiListPriority(a) - getKpiListPriority(b);
+      if (priorityDiff !== 0) {
+        return priorityDiff;
       }
 
-      return 0;
+      return compareRecommendedKpis(a, b);
     });
 
     sortedItems.forEach((kpi) => {
@@ -3621,7 +3711,7 @@ const renderKpiTable = (kpis) => {
           </div>
           <div class="kpi-card-actions">
             <div class="kpi-card-actions-primary">
-              ${shouldShowTaskEmptyState ? `<button class="button" type="button" data-kpi-add-first-task="${kpi.id}" aria-expanded="${isTaskFormOpen ? "true" : "false"}">${isTaskFormOpen ? "Task入力を閉じる" : "最初のTaskを追加"}</button>` : ""}
+              <button class="button" type="button" data-kpi-primary-action="${kpi.id}" aria-expanded="${isTaskFormOpen ? "true" : "false"}">${getPrimaryTaskButtonLabel(kpi, isTaskFormOpen)}</button>
             </div>
             <div class="kpi-card-actions-secondary">
               <button class="button secondary kpi-detail-toggle" type="button" data-kpi-toggle="${kpi.id}" aria-expanded="${isOpen ? "true" : "false"}">${isOpen ? "閉じる" : "開く"}</button>
@@ -3710,6 +3800,18 @@ const renderKpiTable = (kpis) => {
 
 const rerenderCurrentKpis = () => {
   renderKpiTable(latestRenderedKpis);
+  renderPhaseRecommendedKpi(latestRenderedKpis);
+};
+
+const openTaskSectionForKpi = (kpiId) => {
+  if (!kpiId) {
+    return;
+  }
+
+  kpiDetailOpenState = { ...kpiDetailOpenState, [kpiId]: true };
+  taskSectionOpenState = { ...taskSectionOpenState, [kpiId]: true };
+  taskFormOpenState = { ...taskFormOpenState, [kpiId]: false };
+  rerenderCurrentKpis();
 };
 
 const openTaskFormForKpi = (kpiId) => {
@@ -3759,6 +3861,7 @@ const loadKpis = async () => {
     });
     renderNextAction(null);
     renderAiSuggestions();
+    renderPhaseRecommendedKpi([]);
     setKpiStatus(isPhasePage
       ? "このフェーズのKPIがまだありません。上のフォームから追加してください。"
       : (currentRoadmapPhases.length > 0 ? "KPIがまだありません。ロードマップから自動作成するか、上のフォームから追加してください。" : "KPIがまだありません。上のフォームから追加してください。"));
@@ -3820,6 +3923,7 @@ const loadKpis = async () => {
   const nextAction = selectNextAction(kpisWithTasks, currentRoadmapPhases);
 
   renderKpiTable(kpisWithTasks);
+  renderPhaseRecommendedKpi(kpisWithTasks);
   renderOverallProgress(kpisWithTasks);
   renderKpiSummary(kpisWithTasks, isPhasePage ? phaseScopedKpis : allKpis);
 
@@ -4186,13 +4290,17 @@ addKpiButton.addEventListener("click", async () => {
 });
 
 kpiTableBody.addEventListener("click", async (event) => {
-  const addFirstTaskButton = event.target instanceof HTMLElement ? event.target.closest("[data-kpi-add-first-task]") : null;
+  const primaryTaskActionButton = event.target instanceof HTMLElement ? event.target.closest("[data-kpi-primary-action]") : null;
 
-  if (addFirstTaskButton instanceof HTMLButtonElement) {
-    const kpiId = addFirstTaskButton.dataset.kpiAddFirstTask;
+  if (primaryTaskActionButton instanceof HTMLButtonElement) {
+    const kpiId = primaryTaskActionButton.dataset.kpiPrimaryAction;
+    const targetKpi = latestRenderedKpis.find((kpi) => kpi.id === kpiId);
+    const taskCount = Array.isArray(targetKpi?.tasks) ? targetKpi.tasks.length : 0;
 
     if (kpiId) {
-      if (taskFormOpenState[kpiId]) {
+      if (taskCount > 0) {
+        openTaskSectionForKpi(kpiId);
+      } else if (taskFormOpenState[kpiId]) {
         taskFormOpenState = { ...taskFormOpenState, [kpiId]: false };
         rerenderCurrentKpis();
       } else {
