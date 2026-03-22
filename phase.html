@@ -266,11 +266,13 @@
       .top-actions {
         display: grid;
         gap: 8px;
+        margin: 8px 0 16px;
       }
 
       .top-actions-secondary {
         display: grid;
         gap: 8px;
+        justify-content: start;
       }
 
       .button {
@@ -600,6 +602,18 @@
         flex-wrap: wrap;
       }
 
+      .kpi-card-actions-secondary {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+
+      .kpi-card-actions-secondary .kpi-detail-toggle {
+        background: #2563eb;
+        color: #ffffff;
+      }
+
       .kpi-category-badge,
       .kpi-status-badge {
         display: inline-flex;
@@ -723,6 +737,17 @@
         .kpi-card-actions,
         .task-disclosure-header {
           align-items: flex-start;
+        }
+
+        .kpi-card-actions-secondary {
+          width: 100%;
+          flex-direction: column;
+          align-items: stretch;
+        }
+
+        .kpi-card-actions-secondary .button {
+          width: 100%;
+          text-align: center;
         }
       }
 
@@ -934,6 +959,7 @@
 
         .top-actions-secondary {
           grid-template-columns: repeat(2, minmax(0, max-content));
+          align-items: center;
         }
 
         .button {
