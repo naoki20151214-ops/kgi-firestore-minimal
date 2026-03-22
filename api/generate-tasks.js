@@ -90,6 +90,38 @@ const extractOutputText = (responseData) => {
   return "";
 };
 
+const extractStructuredOutput = (responseData) => {
+  if (responseData?.output_parsed && typeof responseData.output_parsed === "object") {
+    return responseData.output_parsed;
+  }
+
+  if (!Array.isArray(responseData?.output)) {
+    return null;
+  }
+
+  for (const outputItem of responseData.output) {
+    if (!Array.isArray(outputItem?.content)) {
+      continue;
+    }
+
+    for (const contentItem of outputItem.content) {
+      if (contentItem?.type === "output_json" && contentItem.json && typeof contentItem.json === "object") {
+        return contentItem.json;
+      }
+
+      if (contentItem?.type === "json_schema" && contentItem.json && typeof contentItem.json === "object") {
+        return contentItem.json;
+      }
+
+      if (contentItem?.parsed && typeof contentItem.parsed === "object") {
+        return contentItem.parsed;
+      }
+    }
+  }
+
+  return null;
+};
+
 const sendJson = (res, status, body) => {
   res.statusCode = status;
   res.setHeader("Content-Type", "application/json; charset=utf-8");
@@ -290,18 +322,18 @@ const getTaskItemsFromParsedResponse = (parsed) => {
   return [];
 };
 
-const safeParseTasks = (outputText, kpiName) => {
-  if (!outputText) {
-    console.error("[generate-tasks] empty outputText, using fallback", { kpiName });
+const safeParseTasks = (rawOutput, kpiName) => {
+  if (!rawOutput) {
+    console.error("[generate-tasks] empty output payload, using fallback", { kpiName });
     return buildFallbackTasks(`${kpiName || FALLBACK_TASK_TITLE} の最初の一歩`);
   }
 
   try {
-    const parsed = JSON.parse(outputText);
+    const parsed = typeof rawOutput === "string" ? JSON.parse(rawOutput) : rawOutput;
     const taskItems = getTaskItemsFromParsedResponse(parsed);
 
     if (!Array.isArray(taskItems) || taskItems.length === 0) {
-      console.error("[generate-tasks] tasks missing or empty, using fallback", { kpiName, outputText, parsed });
+      console.error("[generate-tasks] tasks missing or empty, using fallback", { kpiName, rawOutput, parsed });
       return buildFallbackTasks(`${kpiName || FALLBACK_TASK_TITLE} の最初の一歩`);
     }
 
@@ -314,7 +346,7 @@ const safeParseTasks = (outputText, kpiName) => {
       }
     });
   } catch (error) {
-    console.error("[generate-tasks] json parse failed, using fallback", { kpiName, error, outputText });
+    console.error("[generate-tasks] json parse failed, using fallback", { kpiName, error, rawOutput });
     return buildFallbackTasks(`${kpiName || FALLBACK_TASK_TITLE} の最初の一歩`);
   }
 };
@@ -332,12 +364,15 @@ module.exports = async function handler(req, res) {
   }
 
   const requestBody = getRequestBody(req);
+  const kgiId = typeof requestBody?.kgiId === "string" ? requestBody.kgiId.trim() : "";
   const kgiName = typeof requestBody?.kgiName === "string" ? requestBody.kgiName.trim() : "";
   const kgiGoalText = typeof requestBody?.kgiGoalText === "string" ? requestBody.kgiGoalText.trim() : "";
+  const kpiId = typeof requestBody?.kpiId === "string" ? requestBody.kpiId.trim() : "";
   const kpiName = typeof requestBody?.kpiName === "string" ? requestBody.kpiName.trim() : "";
   const kpiDescription = typeof requestBody?.kpiDescription === "string" ? requestBody.kpiDescription.trim() : "";
   const kpiType = requestBody?.kpiType;
   const targetValue = Number(requestBody?.targetValue);
+  const phaseId = typeof requestBody?.phaseId === "string" ? requestBody.phaseId.trim() : "";
   const phaseName = typeof requestBody?.phaseName === "string" ? requestBody.phaseName.trim() : "";
   const recentReflections = normalizeRecentReflections(requestBody?.recentReflections);
   const adaptationHints = buildAdaptationHints(recentReflections);
@@ -359,7 +394,18 @@ module.exports = async function handler(req, res) {
       phaseName,
       adaptationHints
     });
-    console.log("[generate-tasks] request", { rawReflectionsCount: recentReflections.length, adaptationHintsCount: adaptationHints.length, promptChars: SYSTEM_PROMPT.length + promptText.length });
+    console.log("[generate-tasks] request", {
+      kgiId,
+      kpiId,
+      phaseId,
+      kgiName,
+      kpiName,
+      kpiType,
+      targetValue,
+      rawReflectionsCount: recentReflections.length,
+      adaptationHintsCount: adaptationHints.length,
+      promptChars: SYSTEM_PROMPT.length + promptText.length
+    });
     const openAiResponse = await fetch(OPENAI_API_URL, {
       method: "POST",
       headers: {
@@ -399,10 +445,18 @@ module.exports = async function handler(req, res) {
 
     const responseData = await openAiResponse.json();
     const outputText = extractOutputText(responseData);
+    const structuredOutput = extractStructuredOutput(responseData);
+    const tasks = safeParseTasks(structuredOutput ?? outputText, kpiName);
 
-    const tasks = safeParseTasks(outputText, kpiName);
-
-    console.log("[generate-tasks] response", { success: true, taskCount: tasks.length, fallbackUsed: !outputText || tasks.some((task) => task.priority === 0) });
+    console.log("[generate-tasks] response", {
+      success: true,
+      kgiId,
+      kpiId,
+      phaseId,
+      taskCount: tasks.length,
+      usedStructuredOutput: Boolean(structuredOutput),
+      fallbackUsed: (!structuredOutput && !outputText) || tasks.some((task) => task.priority === 0)
+    });
     return sendJson(res, 200, { tasks });
   } catch (error) {
     console.log("[generate-tasks] response", { success: false });
