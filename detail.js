@@ -35,6 +35,9 @@ const nextActionContainer = document.getElementById("nextActionContainer");
 const routineTaskStatusText = document.getElementById("routineTaskStatusText");
 const routineTaskForm = document.getElementById("routineTaskForm");
 const routineTaskList = document.getElementById("routineTaskList");
+const generateRoutineSuggestionsButton = document.getElementById("generateRoutineSuggestionsButton");
+const routineSuggestionList = document.getElementById("routineSuggestionList");
+const addSelectedRoutineSuggestionsButton = document.getElementById("addSelectedRoutineSuggestionsButton");
 const kpiTable = document.getElementById("kpiTable");
 const kpiTableBody = document.getElementById("kpiTableBody");
 const kpiNameInput = document.getElementById("kpiName");
@@ -197,6 +200,8 @@ let autoTaskGenerationPromise = null;
 let showArchivedKpis = false;
 let isPhaseDescriptionExpanded = false;
 let latestRoutineTasks = [];
+let routineSuggestionSelections = new Set();
+let routineSuggestionsVisible = false;
 
 const TASK_KIND = {
   KPI: "kpi_task",
@@ -213,6 +218,13 @@ const ROUTINE_TASK_CADENCE_LABELS = {
   weekly: "weekly",
   ad_hoc: "ad_hoc"
 };
+
+const ROUTINE_TASK_TEMPLATES = [
+  { id: "daily-top-page-check", title: "毎朝トップページを確認する", description: "", cadence: "daily" },
+  { id: "daily-progress-log", title: "進捗を1行記録する", description: "", cadence: "daily" },
+  { id: "daily-blocker-note", title: "詰まりをメモする", description: "", cadence: "daily" },
+  { id: "weekly-review", title: "週1で全体を見直す", description: "", cadence: "weekly" }
+];
 
 const splitPhaseDescriptionIntoPoints = (description) => String(description ?? "")
   .replace(/\r\n?/g, "\n")
@@ -2953,6 +2965,46 @@ const renderRoutineTasks = (routineTasks = []) => {
   }).join("");
 };
 
+const updateRoutineSuggestionActionState = () => {
+  if (addSelectedRoutineSuggestionsButton instanceof HTMLButtonElement) {
+    addSelectedRoutineSuggestionsButton.disabled = routineSuggestionSelections.size === 0;
+  }
+};
+
+const renderRoutineSuggestionList = () => {
+  if (!routineSuggestionList) {
+    return;
+  }
+
+  if (!routineSuggestionsVisible) {
+    routineSuggestionList.hidden = true;
+    if (addSelectedRoutineSuggestionsButton) {
+      addSelectedRoutineSuggestionsButton.hidden = true;
+    }
+    return;
+  }
+
+  routineSuggestionList.hidden = false;
+  routineSuggestionList.innerHTML = ROUTINE_TASK_TEMPLATES.map((task) => `
+    <label class="routine-task-suggestion-item">
+      <input type="checkbox" data-routine-template-id="${escapeHtml(task.id)}" ${routineSuggestionSelections.has(task.id) ? "checked" : ""} />
+      <span class="routine-task-suggestion-copy">
+        <strong>${escapeHtml(task.title)}</strong>
+        <span class="hint">${escapeHtml(ROUTINE_TASK_CADENCE_LABELS[normalizeRoutineTaskCadence(task.cadence)])}</span>
+      </span>
+    </label>
+  `).join("");
+
+  if (addSelectedRoutineSuggestionsButton) {
+    addSelectedRoutineSuggestionsButton.hidden = false;
+  }
+  updateRoutineSuggestionActionState();
+};
+
+const buildExistingRoutineTaskTitleSet = () => new Set(
+  latestRoutineTasks.map((task) => String(task?.title ?? "").trim()).filter(Boolean)
+);
+
 
 const renderPhasePageMeta = () => {
   if (!isPhasePage) {
@@ -4266,6 +4318,71 @@ routineTaskForm?.addEventListener("submit", async (event) => {
     if (submitButton instanceof HTMLButtonElement) {
       submitButton.disabled = false;
     }
+  }
+});
+
+generateRoutineSuggestionsButton?.addEventListener("click", () => {
+  routineSuggestionsVisible = true;
+  routineSuggestionSelections = new Set(ROUTINE_TASK_TEMPLATES.map((task) => task.id));
+  renderRoutineSuggestionList();
+});
+
+routineSuggestionList?.addEventListener("change", (event) => {
+  const checkbox = event.target instanceof HTMLInputElement
+    ? event.target
+    : null;
+  const templateId = checkbox?.dataset.routineTemplateId;
+
+  if (!checkbox || !templateId) {
+    return;
+  }
+
+  if (checkbox.checked) {
+    routineSuggestionSelections.add(templateId);
+  } else {
+    routineSuggestionSelections.delete(templateId);
+  }
+
+  updateRoutineSuggestionActionState();
+});
+
+addSelectedRoutineSuggestionsButton?.addEventListener("click", async () => {
+  if (!db || !kgiId || routineSuggestionSelections.size === 0) {
+    return;
+  }
+
+  const submitButton = addSelectedRoutineSuggestionsButton;
+  submitButton.disabled = true;
+
+  try {
+    const existingTitles = buildExistingRoutineTaskTitleSet();
+    const selectedTemplates = ROUTINE_TASK_TEMPLATES.filter((task) => routineSuggestionSelections.has(task.id));
+    const templatesToAdd = selectedTemplates.filter((task) => !existingTitles.has(task.title));
+
+    await Promise.all(templatesToAdd.map((task) => addDoc(getRoutineTasksRef(), {
+      kgiId,
+      title: task.title,
+      description: task.description,
+      cadence: normalizeRoutineTaskCadence(task.cadence),
+      frequency: normalizeRoutineTaskCadence(task.cadence),
+      status: ROUTINE_TASK_STATUS.ACTIVE,
+      taskKind: TASK_KIND.ROUTINE,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp()
+    })));
+
+    await loadRoutineTasks();
+    setRoutineTaskStatus(
+      templatesToAdd.length > 0
+        ? `AI候補から ${templatesToAdd.length}件の運用タスクを追加しました。`
+        : "選択した候補はすでに追加済みです。"
+    );
+  } catch (error) {
+    console.error(error);
+    setRoutineTaskStatus("AI候補からの運用タスク追加に失敗しました。", true);
+    alert("AI候補からの運用タスク追加に失敗しました。");
+  } finally {
+    updateRoutineSuggestionActionState();
   }
 });
 
