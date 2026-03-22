@@ -3572,6 +3572,7 @@ const renderKpiTable = (kpis) => {
       const isTaskSectionOpen = Boolean(taskSectionOpenState[kpi.id]);
       const isReflectionSectionOpen = Boolean(reflectionSectionOpenState[kpi.id]);
       const tasks = Array.isArray(kpi.tasks) ? kpi.tasks : [];
+      const completedTaskCount = tasks.filter((task) => getTaskIsCompleted(task)).length;
       const firstIncompleteTask = getFirstIncompleteTaskForKpi(kpi);
       const shouldShowTaskEmptyState = tasks.length === 0;
       const taskSummaryText = firstIncompleteTask
@@ -3591,8 +3592,7 @@ const renderKpiTable = (kpis) => {
             <span>進捗 ${formatPercent(progressPercent)}</span>
             <span>タイプ ${escapeHtml(kpi.kpiType === "action" ? "action" : "result")}</span>
             <span class="kpi-category-badge">${escapeHtml(category)}</span>
-            <span>現在値 ${currentValue}</span>
-            <span>Task ${tasks.length}件</span>
+            <span>${completedTaskCount} / ${tasks.length}件完了</span>
           </div>
           <div class="kpi-card-actions">
             <div class="kpi-card-actions-primary">
