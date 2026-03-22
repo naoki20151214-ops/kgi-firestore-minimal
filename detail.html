@@ -1048,6 +1048,49 @@
         width: 100%;
       }
 
+      .task-outline {
+        display: grid;
+        gap: 10px;
+        padding: 12px;
+        border: 1px solid #e2e8f0;
+        border-radius: 12px;
+        background: #f8fafc;
+      }
+
+      .task-outline-title {
+        margin: 0;
+        font-size: 0.95rem;
+      }
+
+      .task-outline-list {
+        display: grid;
+        gap: 8px;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+      }
+
+      .task-outline-item {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr) auto;
+        gap: 8px;
+        align-items: start;
+        padding: 10px 12px;
+        border-radius: 10px;
+        background: #ffffff;
+        border: 1px solid #e2e8f0;
+      }
+
+      .task-outline-number {
+        font-weight: 700;
+        color: #334155;
+      }
+
+      .task-outline-main {
+        min-width: 0;
+        word-break: break-word;
+      }
+
       .task-table {
         width: 100%;
         table-layout: fixed;
@@ -1253,6 +1296,14 @@
 
         .task-list-wrap {
           overflow-x: visible;
+        }
+
+        .task-outline-item {
+          grid-template-columns: auto 1fr;
+        }
+
+        .task-outline-item .status-badge {
+          justify-self: start;
         }
 
         .task-table {

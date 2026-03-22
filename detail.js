@@ -3106,6 +3106,34 @@ const syncKpiProgressFromTasks = async (kpiIdForTask, kpiDataForTarget) => {
   return { currentValue, progress, tasks };
 };
 
+const renderTaskOutline = (tasks) => {
+  if (!Array.isArray(tasks) || tasks.length === 0) {
+    return "";
+  }
+
+  const outlineItems = tasks.map((task, index) => {
+    const taskTitle = typeof task?.title === "string" && task.title.trim() ? task.title.trim() : "-";
+    const taskStatus = getTaskStatusLabel(getTaskActionableStatus(task));
+
+    return `
+      <li class="task-outline-item">
+        <span class="task-outline-number">${index + 1}</span>
+        <span class="task-outline-main">${escapeHtml(taskTitle)}</span>
+        <span class="status-badge ${getTaskStatusClassName(getTaskActionableStatus(task))}">${escapeHtml(taskStatus)}</span>
+      </li>
+    `;
+  }).join("");
+
+  return `
+    <section class="task-outline" aria-label="Task目次">
+      <h4 class="task-outline-title">Task目次</h4>
+      <ol class="task-outline-list">
+        ${outlineItems}
+      </ol>
+    </section>
+  `;
+};
+
 const renderTaskRows = (kpiIdForTask, tasks) => {
   if (tasks.length === 0) {
     return '<p class="hint">Taskがまだありません。</p>';
@@ -3332,6 +3360,7 @@ const renderKpiTable = (kpis) => {
                 </form>
               ` : ""}
             </div>
+            ${renderTaskOutline(tasks)}
             ${renderTaskSuggestionList(kpi)}
             <div class="task-list-wrap">${renderTaskRows(kpi.id, tasks)}</div>
           </div>
