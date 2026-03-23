@@ -1426,6 +1426,20 @@ const buildKpiDuplicateDiagnostics = (candidate, existingKpis = []) => {
   };
 };
 
+const getPhaseIndexById = (phaseId, phases = currentRoadmapPhases) => phases.findIndex((phase) => phase.id === phaseId);
+
+const resolvePhaseMetadata = (phaseId, phases = currentRoadmapPhases) => {
+  const normalizedPhaseId = typeof phaseId === "string" ? phaseId.trim() : "";
+  const phaseIndex = getPhaseIndexById(normalizedPhaseId, phases);
+  const phase = phaseIndex >= 0 ? phases[phaseIndex] : null;
+
+  return {
+    phaseId: phase?.id ?? normalizedPhaseId,
+    phaseName: phase?.title ?? "",
+    phaseNumber: phaseIndex >= 0 ? phaseIndex + 1 : null
+  };
+};
+
 const buildKpiSavePayload = async ({
   name,
   description,
@@ -1445,6 +1459,7 @@ const buildKpiSavePayload = async ({
   });
 
   const normalizedCategory = normalizeKpiCategory(category) || inferKpiCategory(name, description) || DEFAULT_KPI_CATEGORY;
+  const phaseMeta = resolvePhaseMetadata(phaseId);
 
   return {
     kgiId,
@@ -1463,7 +1478,9 @@ const buildKpiSavePayload = async ({
     deadline,
     progress: 0,
     percentage: 0,
-    phaseId,
+    phaseId: phaseMeta.phaseId,
+    phaseName: phaseMeta.phaseName,
+    phaseNumber: phaseMeta.phaseNumber,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
     status: "active",
@@ -1584,6 +1601,7 @@ const saveRoadmapGeneratedKpis = async (generatedKpis) => {
 
     const topLevelRef = doc(getKpisRef());
     const nestedRef = doc(getNestedKpisRef(), topLevelRef.id);
+    const phaseMeta = resolvePhaseMetadata(kpi?.phaseId);
     const payload = {
       kgiId,
       name: String(kpi.name ?? "").trim(),
@@ -1600,7 +1618,9 @@ const saveRoadmapGeneratedKpis = async (generatedKpis) => {
       unit: "pt",
       progress: 0,
       percentage: 0,
-      phaseId: String(kpi.phaseId ?? "").trim(),
+      phaseId: phaseMeta.phaseId,
+      phaseName: phaseMeta.phaseName,
+      phaseNumber: phaseMeta.phaseNumber,
       status: "active",
       priority: 2,
       order: nextOrder,
@@ -2188,6 +2208,7 @@ const getCandidateTasksForCurrentPhase = (kpis, phases = currentRoadmapPhases) =
   const buildCandidates = (targetKpis, reason) => targetKpis.flatMap((kpi) => {
     const firstIncompleteTask = getFirstIncompleteTaskForKpi(kpi);
     const phaseId = typeof kpi?.phaseId === "string" ? kpi.phaseId.trim() : "";
+    const phaseMeta = resolvePhaseMetadata(phaseId, phases);
 
     if (!firstIncompleteTask) {
       return [];
@@ -2198,8 +2219,9 @@ const getCandidateTasksForCurrentPhase = (kpis, phases = currentRoadmapPhases) =
       kpiId: kpi.id,
       kpiName: kpi.name ?? "",
       kpiType: kpi?.kpiType === "action" ? "action" : "result",
-      phaseId,
-      phaseName: getPhaseLabel(phaseId, phases),
+      phaseId: phaseMeta.phaseId,
+      phaseName: phaseMeta.phaseName || getPhaseLabel(phaseId, phases),
+      phaseNumber: phaseMeta.phaseNumber,
       selectionReason: reason
     }];
   });
@@ -3552,9 +3574,15 @@ const renderPhasePageMeta = () => {
 const normalizeKpis = (docs) => docs
   .map((kpiDoc) => {
     const data = kpiDoc.data();
+    const phaseMeta = resolvePhaseMetadata(data?.phaseId);
+    const storedPhaseName = typeof data?.phaseName === "string" && data.phaseName.trim() ? data.phaseName.trim() : "";
+    const storedPhaseNumber = Number.isFinite(Number(data?.phaseNumber)) ? Number(data.phaseNumber) : null;
     return {
       id: kpiDoc.id,
       ...data,
+      phaseId: phaseMeta.phaseId,
+      phaseName: storedPhaseName || phaseMeta.phaseName,
+      phaseNumber: storedPhaseNumber ?? phaseMeta.phaseNumber,
       category: normalizeKpiCategory(data?.category) || inferKpiCategory(data?.name, data?.description) || "",
       status: normalizeKpiStatus(data?.status)
     };
