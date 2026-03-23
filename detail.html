@@ -548,6 +548,20 @@
         background: #ea580c;
       }
 
+      .button.danger {
+        background: #b91c1c;
+      }
+
+      .button.danger-subtle {
+        background: #fff7f7;
+        color: #b91c1c;
+        border: 1px solid #f1c7c7;
+      }
+
+      .button.danger-subtle:hover {
+        background: #feecec;
+      }
+
       .button.text {
         background: transparent;
         color: #2563eb;
@@ -611,6 +625,58 @@
         display: grid;
         gap: 6px;
         margin-bottom: 12px;
+      }
+
+      .danger-zone {
+        display: grid;
+        gap: 10px;
+        border: 1px solid #f3d2d2;
+        background: linear-gradient(180deg, #fffafa 0%, #ffffff 100%);
+      }
+
+      .danger-zone h2 {
+        margin-bottom: 4px;
+      }
+
+      .danger-zone .hint {
+        margin: 0;
+      }
+
+      .danger-zone-actions {
+        display: grid;
+        gap: 10px;
+      }
+
+      .danger-zone-status {
+        min-height: 1.2em;
+      }
+
+      dialog.confirm-dialog {
+        width: min(92vw, 520px);
+        border: none;
+        border-radius: 16px;
+        padding: 0;
+        box-shadow: 0 24px 64px rgba(15, 23, 42, 0.22);
+      }
+
+      dialog.confirm-dialog::backdrop {
+        background: rgba(15, 23, 42, 0.42);
+      }
+
+      .confirm-dialog-body {
+        display: grid;
+        gap: 14px;
+        padding: 20px;
+      }
+
+      .confirm-dialog-body h2,
+      .confirm-dialog-body p {
+        margin: 0;
+      }
+
+      .confirm-dialog-actions {
+        display: grid;
+        gap: 8px;
       }
 
       label {
@@ -1943,9 +2009,31 @@
             </div>
           </details>
         </section>
+
+        <section class="card danger-zone" aria-labelledby="dangerZoneTitle">
+          <div>
+            <h2 id="dangerZoneTitle">KGIの整理</h2>
+            <p class="hint">一覧カードには削除操作を置かず、この画面の最下部からのみアーカイブできます。</p>
+          </div>
+          <div class="danger-zone-actions">
+            <button id="archiveKgiButton" class="button danger-subtle" type="button">このKGIを削除</button>
+            <p id="archiveKgiStatus" class="hint danger-zone-status"></p>
+          </div>
+        </section>
       </div>
 
     </main>
+
+    <dialog id="archiveKgiDialog" class="confirm-dialog" aria-labelledby="archiveKgiDialogTitle">
+      <form method="dialog" class="confirm-dialog-body">
+        <h2 id="archiveKgiDialogTitle">このKGIを削除しますか？</h2>
+        <p>このKGIに紐づくKPIやTask、振り返りも一覧に表示されなくなる可能性があります。あとから戻せるよう、まずは完全削除ではなくアーカイブ方式を優先してください。</p>
+        <div class="confirm-dialog-actions">
+          <button id="confirmArchiveKgiButton" class="button danger" value="confirm">削除する</button>
+          <button class="button secondary" value="cancel">キャンセル</button>
+        </div>
+      </form>
+    </dialog>
 
 
     <script type="module" src="./detail.js"></script>
