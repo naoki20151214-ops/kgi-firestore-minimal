@@ -7,6 +7,7 @@ const deadlineInput = document.getElementById("kgiDeadline");
 const levelInput = document.getElementById("kgiLevel");
 const saveButton = document.getElementById("saveButton");
 const statusText = document.getElementById("statusText");
+const buildInitialDetailEntryStorageKey = (kgiId) => `kgi-detail-entry:${kgiId}`;
 
 let db;
 
@@ -107,6 +108,11 @@ saveButton.addEventListener("click", async () => {
       console.error("Failed to generate roadmap", roadmapError);
     }
 
+    window.sessionStorage.setItem(buildInitialDetailEntryStorageKey(kgiDocRef.id), JSON.stringify({
+      source: "new-kgi",
+      createdAt: Date.now(),
+      roadmapKpiStarted: false
+    }));
     location.href = `./detail.html?id=${kgiDocRef.id}`;
   } catch (error) {
     console.error(error);
