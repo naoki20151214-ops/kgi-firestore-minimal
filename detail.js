@@ -18,10 +18,14 @@ const roadmapContainer = document.getElementById("roadmapContainer");
 const roadmapStatusText = document.getElementById("roadmapStatusText");
 const currentLocationContainer = document.getElementById("currentLocationContainer");
 const currentLocationSection = document.getElementById("currentLocationSection");
+const postRoadmapKpiSections = document.getElementById("postRoadmapKpiSections");
 const generateRoadmapKpisButton = document.getElementById("generateRoadmapKpisButton");
 const roadmapKpiIntro = document.getElementById("roadmapKpiIntro");
 const roadmapKpiLoadingText = document.getElementById("roadmapKpiLoadingText");
 const roadmapKpiErrorText = document.getElementById("roadmapKpiErrorText");
+const isFirstKpiGuidanceValue = document.getElementById("isFirstKpiGuidanceValue");
+const kpiCountValue = document.getElementById("kpiCountValue");
+const roadmapGeneratedValue = document.getElementById("roadmapGeneratedValue");
 const kpiStatusText = document.getElementById("kpiStatusText");
 const kpiSummarySection = document.getElementById("kpiSummarySection");
 const kpiSummaryStats = document.getElementById("kpiSummaryStats");
@@ -669,46 +673,50 @@ const restoreInitialDetailEntryState = () => {
   }
 };
 
-const getIsFirstKpiGuidance = (kpiCount = latestRenderedKpis.length) => {
-  const hasNoKpis = Number(kpiCount) === 0;
+const getInitialKpiGuidanceState = (kpiCount = latestRenderedKpis.length) => {
+  const normalizedKpiCount = Number(kpiCount);
+  const hasNoKpis = normalizedKpiCount === 0;
   const roadmapGenerated = Boolean(initialDetailEntryState?.roadmapKpiStarted);
   const isFirstKpiGuidance = Boolean(initialDetailEntryState?.source === "new-kgi") && hasNoKpis && roadmapGenerated === false;
 
-  console.log("[kgi-detail] first KPI guidance condition", {
+  const guidanceState = {
     isFirstKpiGuidance,
-    kpiCount: Number(kpiCount),
+    kpiCount: normalizedKpiCount,
     hasNoKpis,
     roadmapGenerated,
     initialDetailEntrySource: initialDetailEntryState?.source ?? null
-  });
+  };
 
-  return isFirstKpiGuidance;
+  console.log("[kgi-detail] first KPI guidance condition", guidanceState);
+
+  return guidanceState;
 };
 
 const updateInitialRoadmapKpiGuide = (kpiCount = latestRenderedKpis.length) => {
-  const isFirstKpiGuidance = getIsFirstKpiGuidance(kpiCount);
+  const guidanceState = getInitialKpiGuidanceState(kpiCount);
+  const { isFirstKpiGuidance, roadmapGenerated, kpiCount: normalizedKpiCount } = guidanceState;
 
   if (roadmapKpiIntro) {
     roadmapKpiIntro.hidden = !isFirstKpiGuidance;
   }
 
-  if (currentLocationSection) {
-    currentLocationSection.hidden = isFirstKpiGuidance;
+  if (postRoadmapKpiSections) {
+    postRoadmapKpiSections.hidden = isFirstKpiGuidance;
   }
 
-  if (nextActionSection) {
-    nextActionSection.hidden = isFirstKpiGuidance;
+  if (isFirstKpiGuidanceValue) {
+    isFirstKpiGuidanceValue.textContent = String(isFirstKpiGuidance);
   }
 
-  if (routineTaskSection) {
-    routineTaskSection.hidden = isFirstKpiGuidance;
+  if (kpiCountValue) {
+    kpiCountValue.textContent = String(normalizedKpiCount);
   }
 
-  if (kpiSummarySection) {
-    kpiSummarySection.hidden = isFirstKpiGuidance;
+  if (roadmapGeneratedValue) {
+    roadmapGeneratedValue.textContent = String(roadmapGenerated);
   }
 
-  if (!isFirstKpiGuidance && Number(kpiCount) > 0 && initialDetailEntryState) {
+  if (!isFirstKpiGuidance && normalizedKpiCount > 0 && initialDetailEntryState) {
     initialDetailEntryState = null;
     persistInitialDetailEntryState();
   }
