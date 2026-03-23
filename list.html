@@ -46,6 +46,10 @@
         color: #fff;
         text-decoration: none;
         font-weight: 600;
+        line-height: 1.4;
+        white-space: normal;
+        word-break: keep-all;
+        text-align: center;
       }
 
       .hint {
@@ -56,38 +60,6 @@
 
       .hint.error {
         color: #b91c1c;
-      }
-
-      .today-card {
-        display: grid;
-        gap: 8px;
-        margin-bottom: 14px;
-        padding: 14px;
-        background: #fffdfa;
-        border: 1px solid #ddd4c6;
-        border-radius: 8px;
-      }
-
-      .today-label {
-        margin: 0;
-        font-size: 0.84rem;
-        font-weight: 700;
-        color: #6b7280;
-      }
-
-      .today-task-name {
-        font-size: 1rem;
-        line-height: 1.5;
-      }
-
-      .today-task-kpi {
-        margin: 0;
-        font-size: 0.92rem;
-        color: #4b5563;
-      }
-
-      .today-task-button {
-        margin-top: 4px;
       }
 
       .table-wrap {
@@ -228,17 +200,10 @@
       <h1>KGI一覧</h1>
 
       <div class="top-actions">
-        <a class="button" href="./index.html">新しいKGIを追加</a>
+        <a class="button" href="./index.html">KGIを追加</a>
       </div>
 
       <p id="statusText" class="hint">読み込み中...</p>
-
-      <section class="today-card" id="todayTaskSection" hidden>
-        <p class="today-label">今日やること</p>
-        <strong id="todayTaskName" class="today-task-name">-</strong>
-        <p id="todayTaskKpi" class="today-task-kpi">対象KPI: -</p>
-        <a id="todayTaskLink" class="button today-task-button" href="./list.html">このTaskを見る</a>
-      </section>
 
       <div class="table-wrap" id="tableWrap" hidden>
         <table id="kgiTable">

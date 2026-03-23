@@ -10,10 +10,6 @@ const statusText = document.getElementById("statusText");
 const tableWrap = document.getElementById("tableWrap");
 const tableBody = document.getElementById("kgiTableBody");
 const emptyState = document.getElementById("emptyState");
-const todayTaskSection = document.getElementById("todayTaskSection");
-const todayTaskName = document.getElementById("todayTaskName");
-const todayTaskKpi = document.getElementById("todayTaskKpi");
-const todayTaskLink = document.getElementById("todayTaskLink");
 
 const setStatus = (message, isError = false) => {
   statusText.textContent = message;
@@ -50,81 +46,7 @@ const displayDeadline = (deadline) => {
   return trimmed || "未設定";
 };
 
-const getComparableCreatedAt = (value) => {
-  if (value && typeof value.toDate === "function") {
-    return value.toDate().getTime();
-  }
-
-  return Number.MAX_SAFE_INTEGER;
-};
-
-const getTaskIsCompleted = (task) => {
-  if (typeof task?.isCompleted === "boolean") {
-    return task.isCompleted;
-  }
-
-  if (typeof task?.isCompleted === "string") {
-    return task.isCompleted === "true";
-  }
-
-  if (typeof task?.completed === "boolean") {
-    return task.completed;
-  }
-
-  if (typeof task?.completionStatus === "string") {
-    return task.completionStatus === "completed";
-  }
-
-  return task?.status === "done" || task?.status === "completed";
-};
-
-const normalizeTaskTicketStatus = (task) => {
-  const rawStatus = String(task?.ticketStatus ?? task?.status ?? "").trim().toLowerCase();
-
-  if (rawStatus === "done" || rawStatus === "completed") {
-    return "done";
-  }
-
-  return getTaskIsCompleted(task) ? "done" : "todo";
-};
-
-const sortTasks = (tasks) => (Array.isArray(tasks) ? [...tasks] : []).sort((a, b) => {
-  const orderA = Number.isFinite(Number(a?.order)) ? Number(a.order) : Number.MAX_SAFE_INTEGER;
-  const orderB = Number.isFinite(Number(b?.order)) ? Number(b.order) : Number.MAX_SAFE_INTEGER;
-
-  if (orderA !== orderB) {
-    return orderA - orderB;
-  }
-
-  const createdAtA = getComparableCreatedAt(a?.createdAt);
-  const createdAtB = getComparableCreatedAt(b?.createdAt);
-
-  if (createdAtA !== createdAtB) {
-    return createdAtA - createdAtB;
-  }
-
-  return String(a?.id ?? "").localeCompare(String(b?.id ?? ""), "ja");
-});
-
-const getFirstIncompleteTask = (tasks) => sortTasks(tasks)
-  .find((task) => normalizeTaskTicketStatus(task) !== "done" && !getTaskIsCompleted(task)) ?? null;
-
-const isArchivedKpi = (kpi) => String(kpi?.status ?? "").trim().toLowerCase() === "archived";
 const isArchivedKgi = (kgi) => kgi?.archived === true || String(kgi?.status ?? "").trim().toLowerCase() === "archived";
-
-const isCompletedKpi = (kpi) => {
-  if (!kpi || isArchivedKpi(kpi)) {
-    return false;
-  }
-
-  const progress = Number(kpi?.progress ?? kpi?.overallProgress ?? 0);
-  if (Number.isFinite(progress) && progress >= 100) {
-    return true;
-  }
-
-  const tasks = Array.isArray(kpi?.tasks) ? kpi.tasks : [];
-  return tasks.length > 0 && tasks.every((task) => getTaskIsCompleted(task));
-};
 
 const renderRows = (docs) => {
   tableBody.innerHTML = "";
@@ -144,55 +66,6 @@ const renderRows = (docs) => {
   });
 };
 
-const renderTodayTask = (todayTask) => {
-  if (!todayTaskSection || !todayTaskName || !todayTaskKpi || !todayTaskLink) {
-    return;
-  }
-
-  if (!todayTask) {
-    todayTaskSection.hidden = true;
-    return;
-  }
-
-  todayTaskName.textContent = todayTask.taskTitle;
-  todayTaskKpi.textContent = `対象KPI: ${todayTask.kpiName}`;
-  todayTaskLink.href = `./detail.html?id=${todayTask.kgiId}`;
-  todayTaskSection.hidden = false;
-};
-
-const findTodayTask = async (db, kgis) => {
-  const kgisById = new Map(kgis.map((docItem) => [docItem.id, docItem.data()]));
-  const kpisSnapshot = await getDocs(query(collection(db, "kpis"), orderBy("createdAt", "asc")));
-
-  const kpis = kpisSnapshot.docs
-    .map((docItem) => ({ id: docItem.id, ...docItem.data() }))
-    .filter((kpi) => kgisById.has(kpi.kgiId) && !isArchivedKpi(kpi));
-
-  for (const kpi of kpis) {
-    const tasksSnapshot = await getDocs(collection(db, "kpis", kpi.id, "tasks"));
-    const tasks = tasksSnapshot.docs.map((docItem) => ({ id: docItem.id, ...docItem.data() }));
-    const firstIncompleteTask = getFirstIncompleteTask(tasks);
-
-    if (!firstIncompleteTask) {
-      continue;
-    }
-
-    if (isCompletedKpi({ ...kpi, tasks })) {
-      continue;
-    }
-
-    return {
-      kgiId: kpi.kgiId,
-      kpiName: typeof kpi.name === "string" && kpi.name.trim() ? kpi.name.trim() : "名称未設定KPI",
-      taskTitle: typeof firstIncompleteTask.title === "string" && firstIncompleteTask.title.trim()
-        ? firstIncompleteTask.title.trim()
-        : "名称未設定Task"
-    };
-  }
-
-  return null;
-};
-
 (async () => {
   try {
     const db = await getDb();
@@ -204,16 +77,12 @@ const findTodayTask = async (db, kgis) => {
     if (visibleKgiDocs.length === 0) {
       setStatus("データは0件です。");
       emptyState.hidden = false;
-      renderTodayTask(null);
       return;
     }
 
     renderRows(visibleKgiDocs);
     tableWrap.hidden = false;
     emptyState.hidden = true;
-
-    const todayTask = await findTodayTask(db, visibleKgiDocs);
-    renderTodayTask(todayTask);
 
     setStatus(`${visibleKgiDocs.length}件のKGIを表示しています。`);
   } catch (error) {
