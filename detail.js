@@ -36,6 +36,7 @@ const kpiSummarySection = document.getElementById("kpiSummarySection");
 const kpiSummaryStats = document.getElementById("kpiSummaryStats");
 const kpiManagementPanel = document.getElementById("kpiManagementPanel");
 const openKpiManagementButton = document.getElementById("openKpiManagementButton");
+const openMindmapPageButton = document.getElementById("openMindmapPageButton");
 const phaseTitle = document.getElementById("phaseTitle");
 const phasePeriodBadge = document.getElementById("phasePeriodBadge");
 const phaseDescription = document.getElementById("phaseDescription");
@@ -530,6 +531,10 @@ const buildPhasePageUrl = (phaseId) => `./phase.html?id=${encodeURIComponent(kgi
 const updatePhasePageLinks = () => {
   if (backToDetailLink instanceof HTMLAnchorElement) {
     backToDetailLink.href = `./detail.html?id=${encodeURIComponent(kgiId)}`;
+  }
+
+  if (openMindmapPageButton instanceof HTMLAnchorElement) {
+    openMindmapPageButton.href = `./mindmap.html?id=${encodeURIComponent(kgiId)}`;
   }
 
   if (openKpiManagementButton instanceof HTMLAnchorElement) {
@@ -3297,7 +3302,6 @@ const renderKgiMeta = (kgiData) => {
   renderPhasePageMeta();
   updatePhasePageLinks();
   updateRoadmapKpiButtonState(latestRenderedKpis.length);
-  renderMindmap(currentKgiData, latestRenderedKpis);
 };
 
 const renderRoutineTasks = (routineTasks = []) => {
@@ -4219,7 +4223,6 @@ const renderKpiTable = (kpis) => {
 const rerenderCurrentKpis = () => {
   renderKpiTable(latestRenderedKpis);
   renderPhaseRecommendedKpi(latestRenderedKpis);
-  renderMindmap(currentKgiData, latestRenderedKpis);
 };
 
 const openTaskSectionForKpi = (kpiId) => {
@@ -4281,7 +4284,6 @@ const loadKpis = async () => {
     renderNextAction(null);
     renderAiSuggestions();
     renderPhaseRecommendedKpi([]);
-    renderMindmap(currentKgiData, []);
     updateInitialRoadmapKpiGuide(allKpis.length);
     setKpiStatus(isPhasePage
       ? "このフェーズのKPIがまだありません。上のフォームから追加してください。"
@@ -4348,7 +4350,6 @@ const loadKpis = async () => {
   renderPhaseRecommendedKpi(kpisWithTasks);
   renderOverallProgress(kpisWithTasks);
   renderKpiSummary(kpisWithTasks, isPhasePage ? phaseScopedKpis : allKpis);
-  renderMindmap(currentKgiData, kpisWithTasks);
 
   if (!nextAction) {
     latestNextActionStepRequestKey = "";
