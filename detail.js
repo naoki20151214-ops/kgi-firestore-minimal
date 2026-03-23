@@ -384,8 +384,8 @@ const getAiSuggestionStorageKey = () => kgiId ? `kgi-detail-ai-suggestions:${kgi
 const getSubKgiSavedStorageKey = () => kgiId ? `kgi-detail-subkgi-saved:${kgiId}` : "";
 const TASK_CHECK_RESULT_OPTIONS = [
   { value: "as_planned", label: "予定通りできた" },
-  { value: "harder_than_expected", label: "思ったより大変だった" },
-  { value: "needs_improvement", label: "完了したがやり方を見直したい" },
+  { value: "harder_than_expected", label: "思ったより難しかった" },
+  { value: "needs_improvement", label: "やり方を変えたい" },
   { value: "could_not_do", label: "できなかった" }
 ];
 
@@ -2829,7 +2829,7 @@ const renderTaskCheckSection = (kpiIdForTask, task) => {
       <div class="task-check-saved">
         <p class="task-check-badge">振り返り済み</p>
         <div class="task-check-saved-item"><strong>結果</strong><span>${escapeHtml(getTaskCheckResultLabel(savedResult))}</span></div>
-        <div class="task-check-saved-item"><strong>コメント</strong><span>${escapeHtml(savedComment || "（コメントなし）")}</span></div>
+        <div class="task-check-saved-item"><strong>改善メモ</strong><span>${escapeHtml(savedComment || "（未入力）")}</span></div>
         <div class="task-check-saved-item"><strong>記録日時</strong><span>${escapeHtml(formatDate(recordedAt))}</span></div>
         <button class="button ghost task-check-edit-button" type="button" data-task-check-edit="${taskId}">編集する</button>
       </div>
@@ -2845,15 +2845,15 @@ const renderTaskCheckSection = (kpiIdForTask, task) => {
           </div>
         </div>
         <label class="task-check-field">
-          <span class="task-check-label">コメント</span>
+          <span class="task-check-label">次に変えること</span>
           <textarea
             name="checkComment"
-            rows="3"
-            placeholder="やってみて気づいたこと・次回の改善点"
+            rows="2"
+            placeholder="例: 先に画面数を3枚に絞る"
             ${uiState.isSaving ? "disabled" : ""}
           >${escapeHtml(uiState.comment)}</textarea>
         </label>
-        <p class="hint">結果は必須です。コメントは空でも保存できます。</p>
+        <p class="hint">結果は必須です。改善メモは任意です。</p>
         ${errorMarkup}
         <div class="task-check-actions">
           <button class="button" type="submit" ${uiState.isSaving ? "disabled" : ""}>${uiState.isSaving ? "保存中..." : "振り返りを保存"}</button>
@@ -2864,7 +2864,7 @@ const renderTaskCheckSection = (kpiIdForTask, task) => {
 
   return `
     <div class="task-check-panel">
-      <h4 class="task-check-title">振り返り</h4>
+      <h4 class="task-check-title">完了メモ</h4>
       ${savedMarkup}
       ${formMarkup}
     </div>
@@ -3593,7 +3593,7 @@ const renderTaskRows = (kpiIdForTask, tasks, options = {}) => {
       ${showReflections && isTaskCheckAvailable(task)
     ? `
         <tr class="task-check-row">
-          <td colspan="11">
+          <td colspan="12">
             ${renderTaskCheckSection(kpiIdForTask, task)}
           </td>
         </tr>
@@ -3781,16 +3781,7 @@ const renderKpiTable = (kpis) => {
               </div>
               ${renderTaskOutline(tasks)}
               ${renderTaskSuggestionList(kpi)}
-              <div class="task-list-wrap">${renderTaskRows(kpi.id, tasks, { showReflections: false })}</div>
-            </div>
-            <div class="task-panel reflection-panel">
-              <div class="task-panel-header">
-                <h3 class="task-panel-title">振り返り</h3>
-                <button class="button secondary task-disclosure-toggle" type="button" data-reflection-section-toggle="${kpi.id}" aria-expanded="${isReflectionSectionOpen ? "true" : "false"}">${isReflectionSectionOpen ? "振り返りを閉じる" : "振り返りを見る"}</button>
-              </div>
-              <div class="task-panel-body" ${isReflectionSectionOpen ? "" : "hidden"}>
-                <div class="task-list-wrap">${renderReflectionRows(kpi.id, tasks)}</div>
-              </div>
+              <div class="task-list-wrap">${renderTaskRows(kpi.id, tasks, { showReflections: true })}</div>
             </div>
           </div>
         </div>
@@ -4957,6 +4948,18 @@ kpiTableBody.addEventListener("change", async (event) => {
       updatePayload.contributedValue = isCompleted ? 1 : 0;
       updatePayload.progressValue = isCompleted ? 1 : 0;
       updatePayload.completedAt = isCompleted ? serverTimestamp() : null;
+
+      if (isCompleted) {
+        setTaskCheckUiState(taskId, {
+          isEditing: true,
+          isSaving: false,
+          error: "",
+          result: normalizeTaskCheckResult({}),
+          comment: ""
+        });
+      } else {
+        clearTaskCheckUiState(taskId);
+      }
     }
 
     await updateDoc(doc(getKpisRef(), kpiTargetId, "tasks", taskId), updatePayload);
