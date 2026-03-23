@@ -121,7 +121,8 @@
 
       td {
         line-height: 1.7;
-        word-break: break-word;
+        word-break: normal;
+        overflow-wrap: anywhere;
         white-space: normal;
       }
 
@@ -157,10 +158,67 @@
       }
 
       @media (max-width: 640px) {
-        th,
+        .table-wrap {
+          padding: 0;
+          border: none;
+          background: transparent;
+          overflow-x: visible;
+        }
+
+        table {
+          min-width: 0;
+        }
+
+        thead {
+          display: none;
+        }
+
+        tbody {
+          display: grid;
+          gap: 12px;
+        }
+
+        tr {
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+          padding: 14px;
+          background: #fffdfa;
+          border: 1px solid #ddd4c6;
+          border-radius: 8px;
+        }
+
         td {
-          padding: 12px 10px;
-          font-size: 0.9rem;
+          display: block;
+          padding: 0;
+          border-bottom: none;
+          font-size: 0.92rem;
+        }
+
+        td::before {
+          content: attr(data-label);
+          display: block;
+          margin-bottom: 2px;
+          font-size: 0.78rem;
+          font-weight: 700;
+          color: #6b7280;
+          letter-spacing: 0.04em;
+        }
+
+        td:nth-child(1) {
+          order: 3;
+        }
+
+        td:nth-child(2) {
+          order: 1;
+        }
+
+        td:nth-child(3) {
+          order: 2;
+        }
+
+        td:nth-child(4) {
+          order: 4;
         }
       }
     </style>

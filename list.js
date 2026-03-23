@@ -133,10 +133,10 @@ const renderRows = (docs) => {
     const row = document.createElement("tr");
 
     row.innerHTML = `
-      <td>${formatTimestampToYmd(data.createdAt)}</td>
-      <td><a href="./detail.html?id=${docItem.id}">${data.name ?? ""}</a></td>
-      <td>${displayGoalText(data.goalText)}</td>
-      <td>${displayDeadline(data.deadline)}</td>
+      <td data-label="作成日">${formatTimestampToYmd(data.createdAt)}</td>
+      <td data-label="KGI名"><a href="./detail.html?id=${docItem.id}">${data.name ?? ""}</a></td>
+      <td data-label="ゴール">${displayGoalText(data.goalText)}</td>
+      <td data-label="期限">${displayDeadline(data.deadline)}</td>
     `;
 
     tableBody.appendChild(row);
