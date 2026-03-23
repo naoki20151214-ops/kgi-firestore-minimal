@@ -110,6 +110,7 @@ const getFirstIncompleteTask = (tasks) => sortTasks(tasks)
   .find((task) => normalizeTaskTicketStatus(task) !== "done" && !getTaskIsCompleted(task)) ?? null;
 
 const isArchivedKpi = (kpi) => String(kpi?.status ?? "").trim().toLowerCase() === "archived";
+const isArchivedKgi = (kgi) => kgi?.archived === true || String(kgi?.status ?? "").trim().toLowerCase() === "archived";
 
 const isCompletedKpi = (kpi) => {
   if (!kpi || isArchivedKpi(kpi)) {
@@ -198,21 +199,23 @@ const findTodayTask = async (db, kgis) => {
     const kgisRef = collection(db, "kgis");
     const kgisQuery = query(kgisRef, orderBy("createdAt", "desc"));
     const snapshot = await getDocs(kgisQuery);
+    const visibleKgiDocs = snapshot.docs.filter((docItem) => !isArchivedKgi(docItem.data()));
 
-    if (snapshot.empty) {
+    if (visibleKgiDocs.length === 0) {
       setStatus("データは0件です。");
       emptyState.hidden = false;
       renderTodayTask(null);
       return;
     }
 
-    renderRows(snapshot.docs);
+    renderRows(visibleKgiDocs);
     tableWrap.hidden = false;
+    emptyState.hidden = true;
 
-    const todayTask = await findTodayTask(db, snapshot.docs);
+    const todayTask = await findTodayTask(db, visibleKgiDocs);
     renderTodayTask(todayTask);
 
-    setStatus(`${snapshot.size}件のKGIを表示しています。`);
+    setStatus(`${visibleKgiDocs.length}件のKGIを表示しています。`);
   } catch (error) {
     console.error(error);
     setStatus("一覧の読み込みに失敗しました。Firebase設定とルールを確認してください。", true);
