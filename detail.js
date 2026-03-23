@@ -229,6 +229,7 @@ let routineSuggestionSelections = new Set();
 let routineSuggestionsVisible = false;
 let routineSuggestionTemplates = [];
 let routineSuggestionLoading = false;
+let archiveKgiInFlight = false;
 let realtimeUnsubscribers = [];
 let latestKpiDocs = [];
 let latestTaskDocsByKpiId = new Map();
@@ -1119,7 +1120,7 @@ showArchivedToggle?.addEventListener("change", async (event) => {
 });
 
 archiveKgiButton?.addEventListener("click", () => {
-  if (!(archiveKgiDialog instanceof HTMLDialogElement) || isArchivedKgi(currentKgiData)) {
+  if (!(archiveKgiDialog instanceof HTMLDialogElement) || isArchivedKgi(currentKgiData) || archiveKgiInFlight) {
     return;
   }
 
@@ -1127,10 +1128,13 @@ archiveKgiButton?.addEventListener("click", () => {
   archiveKgiDialog.showModal();
 });
 
-archiveKgiDialog?.addEventListener("close", async () => {
-  if (archiveKgiDialog.returnValue === "confirm") {
-    await archiveCurrentKgi();
-  }
+confirmArchiveKgiButton?.addEventListener("click", async (event) => {
+  event.preventDefault();
+  await archiveCurrentKgi();
+});
+
+archiveKgiDialog?.addEventListener("close", () => {
+  archiveKgiDialog.returnValue = "";
 });
 
 
@@ -3203,14 +3207,15 @@ const getKpiRef = (kpiId) => doc(getKpisRef(), kpiId);
 const getKgiListPageUrl = () => "./list.html";
 
 const redirectToKgiList = () => {
-  window.location.href = getKgiListPageUrl();
+  window.location.replace(getKgiListPageUrl());
 };
 
 const archiveCurrentKgi = async () => {
-  if (!currentKgiData || !db || !kgiId || isArchivedKgi(currentKgiData)) {
+  if (!currentKgiData || !db || !kgiId || isArchivedKgi(currentKgiData) || archiveKgiInFlight) {
     return;
   }
 
+  archiveKgiInFlight = true;
   setArchiveKgiStatus("KGIをアーカイブしています...");
   updateArchiveKgiButtonState({ ...currentKgiData, archived: true, status: "archived" });
 
@@ -3218,26 +3223,52 @@ const archiveCurrentKgi = async () => {
     confirmArchiveKgiButton.disabled = true;
   }
 
+  if (archiveKgiButton instanceof HTMLButtonElement) {
+    archiveKgiButton.disabled = true;
+  }
+
   try {
-    await updateDoc(getKgiRef(), {
+    const targetKgiId = String(currentKgiData?.id ?? kgiId).trim();
+
+    if (!targetKgiId) {
+      throw new Error("KGI document id を取得できませんでした。");
+    }
+
+    console.info("Archiving KGI", { kgiId: targetKgiId });
+
+    await updateDoc(doc(getKgisRef(), targetKgiId), {
       archived: true,
       status: "archived",
       archivedAt: serverTimestamp(),
       updatedAt: serverTimestamp()
     });
 
+    currentKgiData = {
+      ...currentKgiData,
+      id: targetKgiId,
+      archived: true,
+      status: "archived"
+    };
+
+    if (archiveKgiDialog instanceof HTMLDialogElement && archiveKgiDialog.open) {
+      archiveKgiDialog.close();
+    }
+
     redirectToKgiList();
   } catch (error) {
-    console.error(error);
+    const message = error instanceof Error ? error.message : String(error ?? "Unknown error");
+    console.error("Failed to archive KGI", { kgiId, message, error });
     setArchiveKgiStatus("KGIのアーカイブに失敗しました。もう一度お試しください。", true);
     updateArchiveKgiButtonState(currentKgiData);
   } finally {
+    archiveKgiInFlight = false;
+
     if (confirmArchiveKgiButton instanceof HTMLButtonElement) {
       confirmArchiveKgiButton.disabled = false;
     }
 
-    if (archiveKgiDialog instanceof HTMLDialogElement && archiveKgiDialog.open) {
-      archiveKgiDialog.close();
+    if (archiveKgiButton instanceof HTMLButtonElement) {
+      updateArchiveKgiButtonState(currentKgiData);
     }
   }
 };
@@ -3328,6 +3359,7 @@ const renderKgiMeta = (kgiData) => {
   const normalizedPhases = normalizeRoadmapPhases(kgiData?.roadmapPhases);
   const schedule = buildKgiSchedule(kgiData, normalizedPhases);
   currentKgiData = {
+    id: kgiId,
     ...(kgiData ?? {}),
     startDate: schedule.startDate,
     deadline: schedule.deadline
