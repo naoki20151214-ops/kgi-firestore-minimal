@@ -23,9 +23,6 @@ const generateRoadmapKpisButton = document.getElementById("generateRoadmapKpisBu
 const roadmapKpiIntro = document.getElementById("roadmapKpiIntro");
 const roadmapKpiLoadingText = document.getElementById("roadmapKpiLoadingText");
 const roadmapKpiErrorText = document.getElementById("roadmapKpiErrorText");
-const isFirstKpiGuidanceValue = document.getElementById("isFirstKpiGuidanceValue");
-const kpiCountValue = document.getElementById("kpiCountValue");
-const roadmapGeneratedValue = document.getElementById("roadmapGeneratedValue");
 const kpiStatusText = document.getElementById("kpiStatusText");
 const kpiSummarySection = document.getElementById("kpiSummarySection");
 const kpiSummaryStats = document.getElementById("kpiSummaryStats");
@@ -666,7 +663,7 @@ const restoreInitialDetailEntryState = () => {
     }
 
     const parsed = JSON.parse(raw);
-    return parsed?.source === "new-kgi" ? parsed : null;
+    return parsed && typeof parsed === "object" ? parsed : null;
   } catch (error) {
     console.error("Failed to restore initial detail entry state", error);
     return null;
@@ -677,24 +674,19 @@ const getInitialKpiGuidanceState = (kpiCount = latestRenderedKpis.length) => {
   const normalizedKpiCount = Number(kpiCount);
   const hasNoKpis = normalizedKpiCount === 0;
   const roadmapGenerated = Boolean(initialDetailEntryState?.roadmapKpiStarted);
-  const isFirstKpiGuidance = Boolean(initialDetailEntryState?.source === "new-kgi") && hasNoKpis && roadmapGenerated === false;
+  const isFirstKpiGuidance = hasNoKpis && roadmapGenerated === false;
 
-  const guidanceState = {
+  return {
     isFirstKpiGuidance,
     kpiCount: normalizedKpiCount,
     hasNoKpis,
-    roadmapGenerated,
-    initialDetailEntrySource: initialDetailEntryState?.source ?? null
+    roadmapGenerated
   };
-
-  console.log("[kgi-detail] first KPI guidance condition", guidanceState);
-
-  return guidanceState;
 };
 
 const updateInitialRoadmapKpiGuide = (kpiCount = latestRenderedKpis.length) => {
   const guidanceState = getInitialKpiGuidanceState(kpiCount);
-  const { isFirstKpiGuidance, roadmapGenerated, kpiCount: normalizedKpiCount } = guidanceState;
+  const { isFirstKpiGuidance, kpiCount: normalizedKpiCount } = guidanceState;
 
   if (roadmapKpiIntro) {
     roadmapKpiIntro.hidden = !isFirstKpiGuidance;
@@ -704,17 +696,6 @@ const updateInitialRoadmapKpiGuide = (kpiCount = latestRenderedKpis.length) => {
     postRoadmapKpiSections.hidden = isFirstKpiGuidance;
   }
 
-  if (isFirstKpiGuidanceValue) {
-    isFirstKpiGuidanceValue.textContent = String(isFirstKpiGuidance);
-  }
-
-  if (kpiCountValue) {
-    kpiCountValue.textContent = String(normalizedKpiCount);
-  }
-
-  if (roadmapGeneratedValue) {
-    roadmapGeneratedValue.textContent = String(roadmapGenerated);
-  }
 
   if (!isFirstKpiGuidance && normalizedKpiCount > 0 && initialDetailEntryState) {
     initialDetailEntryState = null;
