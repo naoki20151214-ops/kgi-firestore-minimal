@@ -4,6 +4,7 @@ import {
   doc,
   getDoc,
   getDocs,
+  onSnapshot,
   query,
   serverTimestamp,
   updateDoc,
@@ -28,6 +29,9 @@ const roadmapKpiIntro = document.getElementById("roadmapKpiIntro");
 const roadmapKpiLoadingText = document.getElementById("roadmapKpiLoadingText");
 const roadmapKpiErrorText = document.getElementById("roadmapKpiErrorText");
 const kpiStatusText = document.getElementById("kpiStatusText");
+const mindmapSection = document.getElementById("mindmapSection");
+const mindmapStatusText = document.getElementById("mindmapStatusText");
+const mindmapTree = document.getElementById("mindmapTree");
 const kpiSummarySection = document.getElementById("kpiSummarySection");
 const kpiSummaryStats = document.getElementById("kpiSummaryStats");
 const kpiManagementPanel = document.getElementById("kpiManagementPanel");
@@ -220,6 +224,12 @@ let routineSuggestionSelections = new Set();
 let routineSuggestionsVisible = false;
 let routineSuggestionTemplates = [];
 let routineSuggestionLoading = false;
+let realtimeUnsubscribers = [];
+let latestKpiDocs = [];
+let latestTaskDocsByKpiId = new Map();
+let latestKgiSnapshotData = null;
+let scheduledSnapshotRefresh = null;
+let mindmapOpenState = {};
 
 const TASK_KIND = {
   KPI: "kpi_task",
@@ -3287,6 +3297,7 @@ const renderKgiMeta = (kgiData) => {
   renderPhasePageMeta();
   updatePhasePageLinks();
   updateRoadmapKpiButtonState(latestRenderedKpis.length);
+  renderMindmap(currentKgiData, latestRenderedKpis);
 };
 
 const renderRoutineTasks = (routineTasks = []) => {
@@ -3791,7 +3802,7 @@ const renderTaskRows = (kpiIdForTask, tasks, options = {}) => {
     `).join("");
 
     return `
-      <tr>
+      <tr id="task-${task.id}">
         <td data-label="Task名">${escapeHtml(taskTitle || "-")}</td>
         <td data-label="補足説明">${taskDescription}</td>
         <td data-label="stage">${taskStage}</td>
@@ -3851,6 +3862,190 @@ const renderTaskRows = (kpiIdForTask, tasks, options = {}) => {
       </tbody>
     </table>
   `;
+};
+
+const setMindmapStatus = (message, isError = false) => {
+  if (!mindmapStatusText) {
+    return;
+  }
+
+  mindmapStatusText.textContent = message;
+  mindmapStatusText.classList.toggle("error", isError);
+};
+
+const getMindmapNodeStatus = (nodeType, item, context = {}) => {
+  if (context.isNow) {
+    return "now";
+  }
+
+  if (nodeType === "task") {
+    if (getTaskIsCompleted(item)) {
+      return "done";
+    }
+
+    return getTaskActionableStatus(item) === "doing" ? "doing" : "todo";
+  }
+
+  if (nodeType === "kpi") {
+    if (isCompletedKpi(item)) {
+      return "done";
+    }
+
+    const tasks = Array.isArray(item?.tasks) ? item.tasks : [];
+    if (tasks.some((task) => getTaskActionableStatus(task) === "doing")) {
+      return "doing";
+    }
+
+    return "todo";
+  }
+
+  const kpis = Array.isArray(context.kpis) ? context.kpis : [];
+
+  if (kpis.length > 0 && kpis.every((kpi) => isCompletedKpi(kpi))) {
+    return "done";
+  }
+
+  if (kpis.some((kpi) => Array.isArray(kpi?.tasks) && kpi.tasks.some((task) => getTaskActionableStatus(task) === "doing"))) {
+    return "doing";
+  }
+
+  return "todo";
+};
+
+const getMindmapStatusLabel = (status) => ({
+  todo: "未着手",
+  doing: "進行中",
+  done: "完了",
+  now: "今やる1つ"
+}[status] ?? "未着手");
+
+const buildMindmapBadges = (nodeType, status, extra = []) => [nodeType, status, ...extra]
+  .filter(Boolean)
+  .map((badge) => {
+    const normalized = String(badge).trim().toLowerCase();
+    const labelMap = {
+      kgi: "KGI",
+      kpi: "KPI",
+      task: "Task",
+      todo: "未着手",
+      doing: "進行中",
+      done: "完了",
+      now: "今やる1つ"
+    };
+
+    return `<span class="mindmap-badge ${escapeHtml(normalized)}">${escapeHtml(labelMap[normalized] ?? badge)}</span>`;
+  }).join("");
+
+const rememberMindmapState = () => {
+  if (!mindmapTree) {
+    return;
+  }
+
+  const nextState = {};
+  mindmapTree.querySelectorAll("details[data-mindmap-key]").forEach((element) => {
+    const key = element.dataset.mindmapKey;
+    if (key) {
+      nextState[key] = element.open;
+    }
+  });
+  mindmapOpenState = nextState;
+};
+
+const renderMindmapNode = ({ key, title, meta = "", href = "#", nodeType = "task", status = "todo", isOpen = true, children = [] }) => {
+  const hasChildren = Array.isArray(children) && children.length > 0;
+  const childMarkup = hasChildren
+    ? `<div class="mindmap-children">${children.join("")}</div>`
+    : "";
+  const lineMarkup = `
+    <span class="mindmap-summary-line">
+      ${hasChildren ? '<span class="mindmap-caret">›</span>' : '<span class="mindmap-leaf-spacer" aria-hidden="true"></span>'}
+      <a class="mindmap-link ${href ? "is-clickable" : ""} status-${escapeHtml(status)}" href="${escapeHtml(href || "#")}">
+        <span class="mindmap-link-title">${escapeHtml(title || "未設定")}</span>
+        <span class="mindmap-badges">${buildMindmapBadges(nodeType, status)}</span>
+        ${meta ? `<span class="mindmap-link-meta">${escapeHtml(meta)}</span>` : ""}
+      </a>
+    </span>
+  `;
+
+  if (!hasChildren) {
+    return `<div class="mindmap-node level-${escapeHtml(nodeType)}">${lineMarkup}</div>`;
+  }
+
+  return `
+    <div class="mindmap-node level-${escapeHtml(nodeType)}">
+      <details class="mindmap-toggle" data-mindmap-key="${escapeHtml(key)}" ${isOpen ? "open" : ""}>
+        <summary class="mindmap-summary">${lineMarkup}</summary>
+        ${childMarkup}
+      </details>
+    </div>
+  `;
+};
+
+const renderMindmap = (kgiData = currentKgiData, kpis = latestRenderedKpis) => {
+  if (!mindmapTree || !mindmapSection) {
+    return;
+  }
+
+  const normalizedKpis = Array.isArray(kpis) ? kpis : [];
+  const nextActionTaskId = currentNextAction?.task?.id ?? "";
+
+  if (!kgiData?.name) {
+    mindmapTree.innerHTML = '<p class="mindmap-empty">KGIを読み込めると全体マップを表示します。</p>';
+    setMindmapStatus("KGIの読み込み後に最新マップを生成します。");
+    return;
+  }
+
+  const kpiNodes = normalizedKpis.map((kpi, index) => {
+    const tasks = sortTasks(Array.isArray(kpi?.tasks) ? kpi.tasks : []);
+    const kpiStatus = getMindmapNodeStatus("kpi", kpi);
+    const kpiKey = `kpi:${kpi.id}`;
+    const taskChildren = tasks.map((task, taskIndex) => {
+      const isNow = task.id === nextActionTaskId;
+      const taskStatus = getMindmapNodeStatus("task", task, { isNow });
+      const taskMeta = `${taskIndex + 1}件目${task.deadline ? ` / 期限 ${task.deadline}` : ""}`;
+
+      return renderMindmapNode({
+        key: `task:${task.id}`,
+        title: task.title ?? `Task ${taskIndex + 1}`,
+        meta: taskMeta,
+        href: `#task-${task.id}`,
+        nodeType: "task",
+        status: taskStatus,
+        isOpen: mindmapOpenState[`task:${task.id}`] ?? false,
+        children: []
+      });
+    });
+
+    return renderMindmapNode({
+      key: kpiKey,
+      title: `${formatListOrderLabel(index)} ${getSimpleName(kpi) || kpi.name || "KPI"}`,
+      meta: `${tasks.length}件のTask / 進捗 ${formatPercent(displayProgress(kpi))}`,
+      href: `#kpi-${kpi.id}`,
+      nodeType: "kpi",
+      status: kpiStatus,
+      isOpen: mindmapOpenState[kpiKey] ?? true,
+      children: taskChildren
+    });
+  });
+
+  const rootStatus = getMindmapNodeStatus("kgi", kgiData, { kpis: normalizedKpis });
+  mindmapTree.innerHTML = renderMindmapNode({
+    key: `kgi:${kgiId}`,
+    title: kgiData.name ?? "未設定のKGI",
+    meta: `${normalizedKpis.length}件のKPI / ${normalizedKpis.reduce((sum, kpi) => sum + (Array.isArray(kpi.tasks) ? kpi.tasks.length : 0), 0)}件のTask`,
+    href: `#top`,
+    nodeType: "kgi",
+    status: rootStatus,
+    isOpen: mindmapOpenState[`kgi:${kgiId}`] ?? true,
+    children: kpiNodes
+  });
+
+  mindmapTree.querySelectorAll("details[data-mindmap-key]").forEach((element) => {
+    element.addEventListener("toggle", rememberMindmapState);
+  });
+
+  const sourceLabel = isPhasePage ? "現在フェーズ表示中のKPI / Task" : "KGI配下のKPI / Task 全件";
+  setMindmapStatus(`表示中の ${sourceLabel} から毎回マップを再生成しています。`);
 };
 
 const renderKpiTable = (kpis) => {
@@ -3927,6 +4122,7 @@ const renderKpiTable = (kpis) => {
       const kpiDisplayTitle = `${formatListOrderLabel(kpiIndex)} ${simpleName || "-"}`;
 
       const article = document.createElement("article");
+      article.id = `kpi-${kpi.id}`;
       article.className = `kpi-card ${isOpen ? "open" : ""} ${isCompleted ? "completed" : ""}`.trim();
       article.innerHTML = `
         <div class="kpi-card-summary">
@@ -4023,6 +4219,7 @@ const renderKpiTable = (kpis) => {
 const rerenderCurrentKpis = () => {
   renderKpiTable(latestRenderedKpis);
   renderPhaseRecommendedKpi(latestRenderedKpis);
+  renderMindmap(currentKgiData, latestRenderedKpis);
 };
 
 const openTaskSectionForKpi = (kpiId) => {
@@ -4084,6 +4281,7 @@ const loadKpis = async () => {
     renderNextAction(null);
     renderAiSuggestions();
     renderPhaseRecommendedKpi([]);
+    renderMindmap(currentKgiData, []);
     updateInitialRoadmapKpiGuide(allKpis.length);
     setKpiStatus(isPhasePage
       ? "このフェーズのKPIがまだありません。上のフォームから追加してください。"
@@ -4150,6 +4348,7 @@ const loadKpis = async () => {
   renderPhaseRecommendedKpi(kpisWithTasks);
   renderOverallProgress(kpisWithTasks);
   renderKpiSummary(kpisWithTasks, isPhasePage ? phaseScopedKpis : allKpis);
+  renderMindmap(currentKgiData, kpisWithTasks);
 
   if (!nextAction) {
     latestNextActionStepRequestKey = "";
@@ -5322,6 +5521,117 @@ kpiTableBody.addEventListener("submit", async (event) => {
   }
 });
 
+const teardownRealtimeListeners = () => {
+  realtimeUnsubscribers.forEach((entry) => {
+    try {
+      if (typeof entry === "function") {
+        entry();
+      } else if (typeof entry?.unsubscribe === "function") {
+        entry.unsubscribe();
+      }
+    } catch (error) {
+      console.error("Failed to unsubscribe realtime listener", error);
+    }
+  });
+  realtimeUnsubscribers = [];
+  latestKpiDocs = [];
+  latestTaskDocsByKpiId = new Map();
+  latestKgiSnapshotData = null;
+};
+
+const scheduleSnapshotRefresh = () => {
+  if (scheduledSnapshotRefresh) {
+    return;
+  }
+
+  scheduledSnapshotRefresh = Promise.resolve().then(async () => {
+    scheduledSnapshotRefresh = null;
+
+    if (!db || !kgiId) {
+      return;
+    }
+
+    try {
+      if (latestKgiSnapshotData) {
+        const hydratedKgiData = await persistKgiScheduleIfNeeded(latestKgiSnapshotData);
+        renderKgiMeta(hydratedKgiData);
+      }
+      await loadRoutineTasks();
+      await loadKpis();
+    } catch (error) {
+      console.error("Failed to refresh realtime snapshot state", error);
+    }
+  });
+};
+
+const syncTaskListeners = (kpiDocs = []) => {
+  const nextKpiIds = new Set(kpiDocs.map((docItem) => docItem.id));
+  realtimeUnsubscribers = realtimeUnsubscribers.filter((entry) => {
+    if (entry?.type !== "task") {
+      return true;
+    }
+
+    if (nextKpiIds.has(entry.kpiId)) {
+      return true;
+    }
+
+    latestTaskDocsByKpiId.delete(entry.kpiId);
+    entry.unsubscribe();
+    return false;
+  });
+
+  kpiDocs.forEach((docItem) => {
+    const kpiIdForTask = docItem.id;
+    const alreadyWatching = realtimeUnsubscribers.some((entry) => entry?.type === "task" && entry.kpiId === kpiIdForTask);
+
+    if (alreadyWatching) {
+      return;
+    }
+
+    const unsubscribe = onSnapshot(getTasksRef(kpiIdForTask), (snapshot) => {
+      latestTaskDocsByKpiId.set(kpiIdForTask, snapshot.docs);
+      scheduleSnapshotRefresh();
+    }, (error) => {
+      console.error(`Task listener failed for ${kpiIdForTask}`, error);
+    });
+
+    realtimeUnsubscribers.push({ type: "task", kpiId: kpiIdForTask, unsubscribe });
+  });
+};
+
+const setupRealtimeListeners = () => {
+  teardownRealtimeListeners();
+
+  const kgiUnsubscribe = onSnapshot(getKgiRef(), (snapshot) => {
+    latestKgiSnapshotData = snapshot.exists() ? snapshot.data() : null;
+    scheduleSnapshotRefresh();
+  }, (error) => {
+    console.error("KGI realtime listener failed", error);
+  });
+
+  const kpiUnsubscribe = onSnapshot(getKpisQuery(), (snapshot) => {
+    latestKpiDocs = snapshot.docs;
+    syncTaskListeners(snapshot.docs);
+    scheduleSnapshotRefresh();
+  }, (error) => {
+    console.error("KPI realtime listener failed", error);
+  });
+
+  const routineUnsubscribe = onSnapshot(getRoutineTasksRef(), () => {
+    scheduleSnapshotRefresh();
+  }, (error) => {
+    console.error("Routine task realtime listener failed", error);
+  });
+
+  realtimeUnsubscribers = [
+    { type: "kgi", unsubscribe: kgiUnsubscribe },
+    { type: "kpi", unsubscribe: kpiUnsubscribe },
+    { type: "routine", unsubscribe: routineUnsubscribe }
+  ];
+};
+
+window.addEventListener("beforeunload", teardownRealtimeListeners);
+
 const resolveKgiIdFromUrl = () => {
   const params = new URLSearchParams(window.location.search);
   const rawId = params.get("id");
@@ -5394,6 +5704,7 @@ const initializeDetailPage = async () => {
     selectedPhaseId = resolvePhaseIdFromUrl();
     renderKgiMeta(hydratedKgiData);
     enableKpiActions();
+    setupRealtimeListeners();
     setStatus("");
     setDebugSummary(`取得したid: ${kgiId}`, "KGI読み込み成功");
     await loadRoutineTasks();
