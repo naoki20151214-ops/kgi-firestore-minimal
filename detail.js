@@ -69,6 +69,12 @@ const archiveKgiButton = document.getElementById("archiveKgiButton");
 const archiveKgiStatus = document.getElementById("archiveKgiStatus");
 const archiveKgiDialog = document.getElementById("archiveKgiDialog");
 const confirmArchiveKgiButton = document.getElementById("confirmArchiveKgiButton");
+const archiveDebugTargetKgiId = document.getElementById("archiveDebugTargetKgiId");
+const archiveDebugTargetCollectionPath = document.getElementById("archiveDebugTargetCollectionPath");
+const archiveDebugWriteStarted = document.getElementById("archiveDebugWriteStarted");
+const archiveDebugWriteSucceeded = document.getElementById("archiveDebugWriteSucceeded");
+const archiveDebugVerifySucceeded = document.getElementById("archiveDebugVerifySucceeded");
+const archiveDebugLastErrorMessage = document.getElementById("archiveDebugLastErrorMessage");
 let overallProgressValue = document.getElementById("overallProgressValue");
 let overallProgressFill = document.getElementById("overallProgressFill");
 let overallProgressCaption = document.getElementById("overallProgressCaption");
@@ -230,6 +236,7 @@ let routineSuggestionsVisible = false;
 let routineSuggestionTemplates = [];
 let routineSuggestionLoading = false;
 let archiveKgiInFlight = false;
+let archiveSuccessMessageTimer = null;
 let realtimeUnsubscribers = [];
 let latestKpiDocs = [];
 let latestTaskDocsByKpiId = new Map();
@@ -780,6 +787,65 @@ const setArchiveKgiStatus = (message = "", isError = false) => {
   archiveKgiStatus.classList.toggle("error", isError);
   archiveKgiStatus.classList.toggle("info", !isError && Boolean(message));
 };
+
+const archiveDebugState = {
+  targetKgiId: "",
+  targetCollectionPath: "kgis",
+  archiveWriteStarted: false,
+  archiveWriteSucceeded: false,
+  archiveVerifySucceeded: false,
+  lastErrorMessage: ""
+};
+
+const renderArchiveDebugState = () => {
+  if (archiveDebugTargetKgiId) {
+    archiveDebugTargetKgiId.textContent = archiveDebugState.targetKgiId || "-";
+  }
+  if (archiveDebugTargetCollectionPath) {
+    archiveDebugTargetCollectionPath.textContent = archiveDebugState.targetCollectionPath || "-";
+  }
+  if (archiveDebugWriteStarted) {
+    archiveDebugWriteStarted.textContent = String(archiveDebugState.archiveWriteStarted);
+  }
+  if (archiveDebugWriteSucceeded) {
+    archiveDebugWriteSucceeded.textContent = String(archiveDebugState.archiveWriteSucceeded);
+  }
+  if (archiveDebugVerifySucceeded) {
+    archiveDebugVerifySucceeded.textContent = String(archiveDebugState.archiveVerifySucceeded);
+  }
+  if (archiveDebugLastErrorMessage) {
+    archiveDebugLastErrorMessage.textContent = archiveDebugState.lastErrorMessage || "-";
+  }
+};
+
+const updateArchiveDebugState = (partialState = {}) => {
+  Object.assign(archiveDebugState, partialState);
+  renderArchiveDebugState();
+};
+
+const resetArchiveDebugState = (targetId = kgiId) => {
+  updateArchiveDebugState({
+    targetKgiId: targetId || "",
+    targetCollectionPath: "kgis",
+    archiveWriteStarted: false,
+    archiveWriteSucceeded: false,
+    archiveVerifySucceeded: false,
+    lastErrorMessage: ""
+  });
+};
+
+const showArchiveSuccessThenRedirect = () => {
+  if (archiveSuccessMessageTimer) {
+    window.clearTimeout(archiveSuccessMessageTimer);
+  }
+
+  setArchiveKgiStatus("アーカイブしました");
+  archiveSuccessMessageTimer = window.setTimeout(() => {
+    redirectToKgiList();
+  }, 700);
+};
+
+renderArchiveDebugState();
 
 const updateArchiveKgiButtonState = (kgiData = currentKgiData) => {
   if (!(archiveKgiButton instanceof HTMLButtonElement)) {
@@ -3210,12 +3276,18 @@ const redirectToKgiList = () => {
   window.location.replace(getKgiListPageUrl());
 };
 
+const buildKgiDocPath = (targetKgiId) => `kgis/${targetKgiId}`;
+
 const archiveCurrentKgi = async () => {
   if (!currentKgiData || !db || !kgiId || isArchivedKgi(currentKgiData) || archiveKgiInFlight) {
     return;
   }
 
   archiveKgiInFlight = true;
+  if (archiveSuccessMessageTimer) {
+    window.clearTimeout(archiveSuccessMessageTimer);
+    archiveSuccessMessageTimer = null;
+  }
   setArchiveKgiStatus("KGIをアーカイブしています...");
   updateArchiveKgiButtonState({ ...currentKgiData, archived: true, status: "archived" });
 
@@ -3229,36 +3301,76 @@ const archiveCurrentKgi = async () => {
 
   try {
     const targetKgiId = String(currentKgiData?.id ?? kgiId).trim();
+    const targetDocPath = buildKgiDocPath(targetKgiId);
 
     if (!targetKgiId) {
       throw new Error("KGI document id を取得できませんでした。");
     }
 
-    console.info("Archiving KGI", { kgiId: targetKgiId });
+    updateArchiveDebugState({
+      targetKgiId,
+      targetCollectionPath: targetDocPath,
+      archiveWriteStarted: true,
+      archiveWriteSucceeded: false,
+      archiveVerifySucceeded: false,
+      lastErrorMessage: ""
+    });
 
-    await updateDoc(doc(getKgisRef(), targetKgiId), {
+    console.info("Archiving KGI", { kgiId: targetKgiId, path: targetDocPath });
+
+    const targetKgiRef = doc(getKgisRef(), targetKgiId);
+
+    await updateDoc(targetKgiRef, {
       archived: true,
       status: "archived",
       archivedAt: serverTimestamp(),
       updatedAt: serverTimestamp()
     });
 
+    updateArchiveDebugState({
+      archiveWriteSucceeded: true
+    });
+
+    const verifySnapshot = await getDoc(targetKgiRef);
+
+    if (!verifySnapshot.exists()) {
+      throw new Error(`アーカイブ確認に失敗しました: ${targetDocPath} が再読込時に存在しません。`);
+    }
+
+    const verifyData = verifySnapshot.data();
+    const archivedVerified = verifyData?.archived === true;
+    const statusVerified = verifyData?.status === "archived";
+
+    if (!archivedVerified || !statusVerified) {
+      throw new Error(`アーカイブ確認に失敗しました: archived=${String(verifyData?.archived)} status=${String(verifyData?.status ?? "")}`);
+    }
+
+    updateArchiveDebugState({
+      archiveVerifySucceeded: true
+    });
+
     currentKgiData = {
       ...currentKgiData,
       id: targetKgiId,
       archived: true,
-      status: "archived"
+      status: "archived",
+      archivedAt: verifyData?.archivedAt ?? currentKgiData?.archivedAt,
+      updatedAt: verifyData?.updatedAt ?? currentKgiData?.updatedAt
     };
 
     if (archiveKgiDialog instanceof HTMLDialogElement && archiveKgiDialog.open) {
       archiveKgiDialog.close();
     }
 
-    redirectToKgiList();
+    showArchiveSuccessThenRedirect();
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error ?? "Unknown error");
     console.error("Failed to archive KGI", { kgiId, message, error });
-    setArchiveKgiStatus("KGIのアーカイブに失敗しました。もう一度お試しください。", true);
+    updateArchiveDebugState({
+      archiveVerifySucceeded: false,
+      lastErrorMessage: message
+    });
+    setArchiveKgiStatus(message, true);
     updateArchiveKgiButtonState(currentKgiData);
   } finally {
     archiveKgiInFlight = false;
@@ -3364,6 +3476,7 @@ const renderKgiMeta = (kgiData) => {
     startDate: schedule.startDate,
     deadline: schedule.deadline
   };
+  resetArchiveDebugState(currentKgiData.id);
   currentRoadmapPhases = applyScheduleToRoadmapPhases(normalizedPhases, schedule);
   updateArchiveKgiButtonState(currentKgiData);
   roadmapPhaseOpenState = {};
@@ -5813,6 +5926,7 @@ const initializeDetailPage = async () => {
     return;
   }
 
+  resetArchiveDebugState(kgiId);
   setDebugSummary(`取得したid: ${kgiId}`);
   restoreAiSuggestions();
   restoreSubKgiSavedState();
@@ -5832,6 +5946,11 @@ const initializeDetailPage = async () => {
     }
 
     if (isArchivedKgi(kgiSnapshot.data())) {
+      updateArchiveDebugState({
+        targetKgiId: kgiId,
+        targetCollectionPath: buildKgiDocPath(kgiId),
+        archiveVerifySucceeded: true
+      });
       setArchiveKgiStatus("このKGIはアーカイブ済みです。一覧へ戻ります。");
       redirectToKgiList();
       return;
