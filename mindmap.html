@@ -139,6 +139,7 @@
         font-weight: 700;
       }
       .mindmap-badge.kgi { background: #dbeafe; color: #1d4ed8; }
+      .mindmap-badge.phase { background: #fce7f3; color: #be185d; }
       .mindmap-badge.kpi { background: #ede9fe; color: #6d28d9; }
       .mindmap-badge.task { background: #e2e8f0; color: #334155; }
       .mindmap-badge.todo { background: #e5e7eb; color: #374151; }
@@ -181,7 +182,7 @@
       <section class="card page-header">
         <p class="hint">必要なときだけ開く全体マップです。</p>
         <h1 id="pageTitle">KGI全体マップ</h1>
-        <p id="pageLead" class="hint">KGI → KPI → Task の最新状態から毎回自動生成します。</p>
+        <p id="pageLead" class="hint">KGI → フェーズ → KPI → Task の最新状態から毎回自動生成します。</p>
         <p id="statusText" class="hint">読み込み中...</p>
       </section>
 
@@ -189,6 +190,7 @@
         <h2>概要</h2>
         <div id="summaryGrid" class="meta-grid">
           <div class="meta-item"><strong>KGI</strong><span>-</span></div>
+          <div class="meta-item"><strong>フェーズ</strong><span>-</span></div>
           <div class="meta-item"><strong>KPI</strong><span>-</span></div>
           <div class="meta-item"><strong>Task</strong><span>-</span></div>
         </div>
@@ -215,7 +217,7 @@
           <p id="mindmapStatusText" class="hint">元データからマップを生成しています...</p>
         </div>
         <div id="mindmapTree" class="mindmap-tree">
-          <p class="mindmap-empty">KGI / KPI / Task の最新状態からマップを組み立てます。</p>
+          <p class="mindmap-empty">KGI / フェーズ / KPI / Task の最新状態からマップを組み立てます。</p>
         </div>
       </section>
     </main>

@@ -196,6 +196,7 @@ const buildMindmapBadges = (nodeType, status) => [nodeType, status]
     const normalized = String(badge).trim().toLowerCase();
     const labelMap = {
       kgi: "KGI",
+      phase: "フェーズ",
       kpi: "KPI",
       task: "Task",
       todo: "未着手",
@@ -225,6 +226,18 @@ const getMindmapNodeStatus = (nodeType, item, context = {}) => {
   }
 
   const kpis = Array.isArray(context.kpis) ? context.kpis : [];
+
+  if (nodeType === "phase") {
+    if (kpis.length > 0 && kpis.every((kpi) => isCompletedKpi(kpi))) {
+      return "done";
+    }
+
+    if (kpis.some((kpi) => Array.isArray(kpi?.tasks) && kpi.tasks.some((task) => getTaskActionableStatus(task) === "doing"))) {
+      return "doing";
+    }
+
+    return "todo";
+  }
 
   if (kpis.length > 0 && kpis.every((kpi) => isCompletedKpi(kpi))) {
     return "done";
@@ -283,7 +296,55 @@ const renderMindmapNode = ({ key, title, meta = "", href = "", nodeType = "task"
   `;
 };
 
-const renderSummary = (kgi, kpis) => {
+const normalizeRoadmapStatus = (status) => (status === "done" || status === "current" || status === "next" || status === "future" ? status : "future");
+
+const normalizeRoadmapPhases = (phases) => {
+  if (!Array.isArray(phases)) {
+    return [];
+  }
+
+  return phases.map((phase, index) => ({
+    id: typeof phase?.id === "string" && phase.id.trim() ? phase.id.trim() : `phase_${index + 1}`,
+    title: typeof phase?.title === "string" && phase.title.trim() ? phase.title.trim() : `フェーズ${index + 1}`,
+    description: typeof phase?.description === "string" && phase.description.trim() ? phase.description.trim() : "説明はまだありません",
+    status: normalizeRoadmapStatus(phase?.status),
+    phaseNumber: Number.isFinite(Number(phase?.phaseNumber)) ? Number(phase.phaseNumber) : index + 1
+  }));
+};
+
+const resolvePhaseMetaForKpi = (kpi, phases = []) => {
+  const phaseId = typeof kpi?.phaseId === "string" ? kpi.phaseId.trim() : "";
+  const phaseById = phases.find((phase) => phase.id === phaseId) ?? null;
+  const storedPhaseName = typeof kpi?.phaseName === "string" && kpi.phaseName.trim() ? kpi.phaseName.trim() : "";
+  const storedPhaseNumber = Number.isFinite(Number(kpi?.phaseNumber)) ? Number(kpi.phaseNumber) : null;
+
+  if (phaseById) {
+    return {
+      phaseId: phaseById.id,
+      phaseName: phaseById.title,
+      phaseNumber: Number.isFinite(Number(phaseById.phaseNumber)) ? Number(phaseById.phaseNumber) : null,
+      phaseStatus: phaseById.status
+    };
+  }
+
+  if (phaseId || storedPhaseName || storedPhaseNumber) {
+    return {
+      phaseId,
+      phaseName: storedPhaseName || "未分類",
+      phaseNumber: storedPhaseNumber,
+      phaseStatus: "future"
+    };
+  }
+
+  return {
+    phaseId: "",
+    phaseName: "未分類",
+    phaseNumber: null,
+    phaseStatus: "future"
+  };
+};
+
+const renderSummary = (kgi, phases, kpis) => {
   if (!summaryGrid) {
     return;
   }
@@ -291,6 +352,7 @@ const renderSummary = (kgi, kpis) => {
   const taskCount = kpis.reduce((sum, kpi) => sum + (Array.isArray(kpi.tasks) ? kpi.tasks.length : 0), 0);
   summaryGrid.innerHTML = `
     <div class="meta-item"><strong>KGI</strong><span>${escapeHtml(kgi?.name ?? "未設定")}</span></div>
+    <div class="meta-item"><strong>フェーズ</strong><span>${phases.length}件</span></div>
     <div class="meta-item"><strong>KPI</strong><span>${kpis.length}件</span></div>
     <div class="meta-item"><strong>Task</strong><span>${taskCount}件</span></div>
   `;
@@ -304,7 +366,7 @@ const renderEmptyMap = (message) => {
   mindmapTree.innerHTML = `<p class="mindmap-empty">${escapeHtml(message)}</p>`;
 };
 
-const renderMindmap = (kgi, kpis) => {
+const renderMindmap = (kgi, phases, kpis) => {
   if (!mindmapTree) {
     return;
   }
@@ -316,54 +378,102 @@ const renderMindmap = (kgi, kpis) => {
   }
 
   const taskCount = kpis.reduce((sum, kpi) => sum + (Array.isArray(kpi.tasks) ? kpi.tasks.length : 0), 0);
-  if (kpis.length === 0 || taskCount === 0) {
-    renderEmptyMap("まだマップに表示する項目がありません");
-    setMindmapStatus("KPI 0件 または Task 0件のため、案内メッセージを表示しています。");
-    return;
-  }
+  renderSummary(kgi, phases, kpis);
 
-  const kpiNodes = kpis.map((kpi, index) => {
+  const phaseBuckets = (Array.isArray(phases) ? phases : []).map((phase) => ({
+    ...phase,
+    kpis: []
+  }));
+  const unclassifiedKpis = [];
+
+  kpis.forEach((kpi) => {
+    const resolvedPhase = resolvePhaseMetaForKpi(kpi, phases);
+    const enrichedKpi = { ...kpi, ...resolvedPhase };
+    const bucket = resolvedPhase.phaseId
+      ? phaseBuckets.find((phase) => phase.id === resolvedPhase.phaseId)
+      : null;
+
+    if (bucket) {
+      bucket.kpis.push(enrichedKpi);
+      return;
+    }
+
+    unclassifiedKpis.push(enrichedKpi);
+  });
+
+  const buildKpiNode = (kpi, index) => {
     const tasks = sortTasks(kpi.tasks);
     const kpiKey = `kpi:${kpi.id}`;
     const taskChildren = tasks.map((task, taskIndex) => renderMindmapNode({
-      key: `task:${task.id}`,
+      key: `task:${kpi.id}:${task.id ?? taskIndex}`,
       title: task.title ?? `Task ${taskIndex + 1}`,
-      meta: `${taskIndex + 1}件目${task.deadline ? ` / 期限 ${task.deadline}` : ""}`,
-      href: "",
+      meta: task.description ? String(task.description).trim() : `${taskIndex + 1}件目`,
+      href: `./detail.html?id=${encodeURIComponent(kgiId)}#task-${encodeURIComponent(task.id ?? `${taskIndex}`)}`,
       nodeType: "task",
       status: getMindmapNodeStatus("task", task),
-      isOpen: false,
-      children: []
+      isOpen: false
     }));
 
     return renderMindmapNode({
       key: kpiKey,
       title: `${String(index + 1).padStart(2, "0")} ${getSimpleName(kpi) || "KPI"}`,
       meta: `${tasks.length}件のTask / 進捗 ${formatPercent(displayProgress(kpi))}`,
-      href: "",
+      href: `./detail.html?id=${encodeURIComponent(kgiId)}#kpi-${encodeURIComponent(kpi.id)}`,
       nodeType: "kpi",
       status: getMindmapNodeStatus("kpi", kpi),
       isOpen: mindmapOpenState[kpiKey] ?? true,
       children: taskChildren
     });
+  };
+
+  const phaseNodes = phaseBuckets.map((phase, phaseIndex) => {
+    const phaseKpis = phase.kpis;
+    const phaseTaskCount = phaseKpis.reduce((sum, kpi) => sum + (Array.isArray(kpi?.tasks) ? kpi.tasks.length : 0), 0);
+    const phaseLabel = Number.isFinite(Number(phase.phaseNumber)) ? `フェーズ${phase.phaseNumber}` : `フェーズ${phaseIndex + 1}`;
+    const phaseKey = `phase:${phase.id}`;
+
+    return renderMindmapNode({
+      key: phaseKey,
+      title: `${phaseLabel} ${phase.title}`.trim(),
+      meta: `${phaseKpis.length}件のKPI / ${phaseTaskCount}件のTask`,
+      href: `./phase.html?id=${encodeURIComponent(kgiId)}&phaseId=${encodeURIComponent(phase.id)}`,
+      nodeType: "phase",
+      status: getMindmapNodeStatus("phase", phase, { kpis: phaseKpis }),
+      isOpen: mindmapOpenState[phaseKey] ?? true,
+      children: phaseKpis.map((kpi, index) => buildKpiNode(kpi, index))
+    });
   });
+
+  if (unclassifiedKpis.length > 0) {
+    const phaseKey = "phase:unclassified";
+    const unclassifiedTaskCount = unclassifiedKpis.reduce((sum, kpi) => sum + (Array.isArray(kpi?.tasks) ? kpi.tasks.length : 0), 0);
+    phaseNodes.push(renderMindmapNode({
+      key: phaseKey,
+      title: "未分類",
+      meta: `${unclassifiedKpis.length}件のKPI / ${unclassifiedTaskCount}件のTask`,
+      nodeType: "phase",
+      status: getMindmapNodeStatus("phase", null, { kpis: unclassifiedKpis }),
+      isOpen: mindmapOpenState[phaseKey] ?? true,
+      children: unclassifiedKpis.map((kpi, index) => buildKpiNode(kpi, index))
+    }));
+  }
 
   mindmapTree.innerHTML = renderMindmapNode({
     key: `kgi:${kgiId}`,
     title: kgi.name,
-    meta: `${kpis.length}件のKPI / ${taskCount}件のTask`,
-    href: "",
+    meta: `${phases.length}件のフェーズ / ${kpis.length}件のKPI / ${taskCount}件のTask`,
+    href: `./detail.html?id=${encodeURIComponent(kgiId)}`,
     nodeType: "kgi",
     status: getMindmapNodeStatus("kgi", kgi, { kpis }),
     isOpen: mindmapOpenState[`kgi:${kgiId}`] ?? true,
-    children: kpiNodes
+    children: phaseNodes
   });
 
   mindmapTree.querySelectorAll("details[data-mindmap-key]").forEach((element) => {
     element.addEventListener("toggle", rememberMindmapState);
   });
 
-  setMindmapStatus("保存済みマップは使わず、KGI → KPI → Task の最新状態から毎回生成しています。");
+  setMindmapStatus("保存済みマップは使わず、KGI → フェーズ → KPI → Task の最新状態から毎回生成しています。KPIやTaskが0件でもフェーズ階層は表示します。");
 };
 
 const loadTasksForKpi = async (db, kpiDoc) => {
@@ -405,9 +515,11 @@ const loadMindmap = async () => {
   const kgi = { id: kgiSnapshot.id, ...kgiSnapshot.data() };
   const kpisSnapshot = await getDocs(query(collection(db, "kpis"), where("kgiId", "==", kgiId)));
   const sortedKpiDocs = sortByCreatedAt(kpisSnapshot.docs.map((kpiDoc) => ({ id: kpiDoc.id, ref: kpiDoc.ref, data: kpiDoc.data() })));
+  const phases = normalizeRoadmapPhases(kgi?.roadmapPhases);
   const kpis = await Promise.all(sortedKpiDocs.map(async ({ id, data }) => ({
     id,
     ...data,
+    ...resolvePhaseMetaForKpi(data, phases),
     tasks: await loadTasksForKpi(db, { id })
   })));
 
@@ -419,11 +531,10 @@ const loadMindmap = async () => {
   }
 
   if (pageLead) {
-    pageLead.textContent = "このページを開いた時だけ、元データから全体像を自動生成します。";
+    pageLead.textContent = "KGI → フェーズ → KPI → Task の最新状態から毎回自動生成します。";
   }
 
-  renderSummary(kgi, kpis);
-  renderMindmap(kgi, kpis);
+  renderMindmap(kgi, phases, kpis);
   setStatus(`KGI 1件 / KPI ${kpis.length}件 / Task ${taskCount}件 を読み込みました。`);
   updateDebugState({ loadState: "completed" });
 };
