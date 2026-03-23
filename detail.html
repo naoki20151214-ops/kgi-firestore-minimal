@@ -1636,105 +1636,112 @@
             <p class="roadmap-kpi-intro-title">まずはここをタップ</p>
             <p class="hint">AIがこの目標に合うKPI案を作ります</p>
           </div>
+          <div id="roadmapKpiGuidanceDebug" class="meta" aria-live="polite">
+            <div><strong>isFirstKpiGuidance:</strong> <span id="isFirstKpiGuidanceValue">false</span></div>
+            <div><strong>kpiCount:</strong> <span id="kpiCountValue">0</span></div>
+            <div><strong>roadmapGenerated:</strong> <span id="roadmapGeneratedValue">false</span></div>
+          </div>
           <button id="generateRoadmapKpisButton" class="button" type="button" hidden>ロードマップからKPIを作る</button>
           <p id="roadmapKpiLoadingText" class="hint" hidden>KPIを作成中...</p>
           <p id="roadmapKpiErrorText" class="hint info" hidden></p>
         </div>
       </section>
 
-      <section id="currentLocationSection" class="card">
-        <h2>現在地と次の到達点</h2>
-        <div id="currentLocationContainer" class="location-grid">
-          <p class="hint">ロードマップを確認中...</p>
-        </div>
-      </section>
-
-      <section id="nextActionSection" class="card next-action-card">
-        <h2>今やるべきこと</h2>
-        <div id="nextActionContainer" class="next-action-body">
-          <p class="hint">算出中...</p>
-        </div>
-      </section>
-
-      <section id="routineTaskSection" class="card routine-task-card">
-        <div class="routine-task-header">
-          <div>
-            <h2>運用タスク</h2>
-            <p class="hint">KPIに直接紐づかない、プロジェクト全体の定常タスクを小さく管理します。</p>
-          </div>
-          <p id="routineTaskStatusText" class="hint">読み込み中...</p>
-        </div>
-        <form id="routineTaskForm" class="routine-task-form">
-          <h3>運用タスクを追加</h3>
-          <div class="routine-task-form-grid">
-            <div class="field"><label for="routineTaskTitle">タイトル</label><input id="routineTaskTitle" name="title" type="text" placeholder="例: 毎朝トップページを確認する" required /></div>
-            <div class="field"><label for="routineTaskDescription">補足説明</label><input id="routineTaskDescription" name="description" type="text" placeholder="任意" /></div>
-            <div class="field"><label for="routineTaskCadence">頻度</label><select id="routineTaskCadence" name="cadence"><option value="daily">daily</option><option value="weekly">weekly</option><option value="ad_hoc">ad_hoc</option></select></div>
-          </div>
-          <button class="button" type="submit">運用タスクを追加</button>
-        </form>
-        <section class="routine-task-ai-panel" aria-labelledby="routineTaskAiTitle">
-          <div class="routine-task-header">
-            <div>
-              <h3 id="routineTaskAiTitle">AI候補から追加</h3>
-              <p class="hint">固定テンプレートから必要な運用タスクだけを選んで追加できます。</p>
-            </div>
-          </div>
-          <div class="routine-task-ai-actions">
-            <button id="generateRoutineSuggestionsButton" class="button secondary" type="button">AIでルーティン案を作る</button>
-            <div id="routineSuggestionList" class="routine-task-suggestion-list" hidden></div>
-            <button id="addSelectedRoutineSuggestionsButton" class="button" type="button" hidden disabled>選択した候補を追加</button>
+      <div id="postRoadmapKpiSections">
+        <section id="currentLocationSection" class="card">
+          <h2>現在地と次の到達点</h2>
+          <div id="currentLocationContainer" class="location-grid">
+            <p class="hint">ロードマップを確認中...</p>
           </div>
         </section>
-        <div id="routineTaskList" class="routine-task-list">
-          <p class="hint">運用タスクを読み込み中...</p>
-        </div>
-      </section>
 
-      <section id="kpiSummarySection" class="card kpi-summary-card">
-        <div class="kpi-summary-header">
-          <div>
-            <h2>KPIサマリー</h2>
-            <p class="hint">トップでは要点だけを表示し、詳細管理は必要なときに開きます。</p>
+        <section id="nextActionSection" class="card next-action-card">
+          <h2>今やるべきこと</h2>
+          <div id="nextActionContainer" class="next-action-body">
+            <p class="hint">算出中...</p>
           </div>
-          <a id="openKpiManagementButton" class="button secondary" href="./phase.html">現在フェーズのKPIを見る</a>
-        </div>
-        <div id="kpiSummaryStats" class="kpi-summary-stats">
-          <div class="kpi-summary-stat">
-            <strong>表示中KPI</strong>
-            <span>0件</span>
-          </div>
-        </div>
-        <p id="kpiStatusText" class="hint">読み込み中...</p>
-      </section>
+        </section>
 
-      <section class="card" hidden aria-hidden="true">
-        <details id="kpiManagementPanel" class="kpi-management-panel">
-          <summary>KPI詳細・追加・アーカイブ操作</summary>
-          <div class="kpi-management-grid">
-            <section>
-              <h2>KPIを追加</h2>
-              <div class="field"><label for="kpiName">KPI名</label><input id="kpiName" type="text" /></div>
-              <div class="field"><label for="kpiDescription">補足説明</label><input id="kpiDescription" type="text" /></div>
-              <div class="field"><label for="kpiType">KPIタイプ</label><select id="kpiType"><option value="result">result</option><option value="action">action</option></select></div>
-              <div class="field"><label for="kpiCategory">カテゴリ</label><select id="kpiCategory"><option value="">自動推定</option><option value="research">research</option><option value="design">design</option><option value="build">build</option><option value="quality">quality</option><option value="validation">validation</option><option value="distribution">distribution</option><option value="monetization">monetization</option></select></div>
-              <div class="field"><label for="kpiDeadline">期限</label><input id="kpiDeadline" type="date" /></div>
-              <button id="addKpiButton" class="button" type="button">KPIを保存</button>
-            </section>
-            <section class="card" hidden>
-              <h2>AIでKPI案を作る</h2>
-              <div class="ai-actions"><button id="generateAiKpisButton" class="button" type="button">AIでKPI案を作る</button><p id="aiLoadingText" class="hint" hidden>KPI案を作成中...</p></div>
-              <p id="aiErrorText" class="hint error" hidden></p>
-              <div id="aiSuggestions" hidden><section><h3>結果KPI候補</h3><div id="resultKpiSuggestions"></div></section><section><h3>行動KPI候補</h3><div id="actionKpiSuggestions"></div></section><section><h3>サブKGI候補</h3><div id="subKgiSuggestions"></div></section></div>
-            </section>
-            <section>
-              <h2>KPI一覧</h2>
-              <div class="kpi-list-toolbar"><label class="toolbar-toggle" for="showArchivedToggle"><input id="showArchivedToggle" type="checkbox" />アーカイブ済みを表示</label></div>
-              <div id="kpiTable" class="kpi-group-list" hidden><div id="kpiTableBody"></div></div>
-            </section>
+        <section id="routineTaskSection" class="card routine-task-card">
+          <div class="routine-task-header">
+            <div>
+              <h2>運用タスク</h2>
+              <p class="hint">KPIに直接紐づかない、プロジェクト全体の定常タスクを小さく管理します。</p>
+            </div>
+            <p id="routineTaskStatusText" class="hint">読み込み中...</p>
           </div>
-        </details>
-      </section>
+          <form id="routineTaskForm" class="routine-task-form">
+            <h3>運用タスクを追加</h3>
+            <div class="routine-task-form-grid">
+              <div class="field"><label for="routineTaskTitle">タイトル</label><input id="routineTaskTitle" name="title" type="text" placeholder="例: 毎朝トップページを確認する" required /></div>
+              <div class="field"><label for="routineTaskDescription">補足説明</label><input id="routineTaskDescription" name="description" type="text" placeholder="任意" /></div>
+              <div class="field"><label for="routineTaskCadence">頻度</label><select id="routineTaskCadence" name="cadence"><option value="daily">daily</option><option value="weekly">weekly</option><option value="ad_hoc">ad_hoc</option></select></div>
+            </div>
+            <button class="button" type="submit">運用タスクを追加</button>
+          </form>
+          <section class="routine-task-ai-panel" aria-labelledby="routineTaskAiTitle">
+            <div class="routine-task-header">
+              <div>
+                <h3 id="routineTaskAiTitle">AI候補から追加</h3>
+                <p class="hint">固定テンプレートから必要な運用タスクだけを選んで追加できます。</p>
+              </div>
+            </div>
+            <div class="routine-task-ai-actions">
+              <button id="generateRoutineSuggestionsButton" class="button secondary" type="button">AIでルーティン案を作る</button>
+              <div id="routineSuggestionList" class="routine-task-suggestion-list" hidden></div>
+              <button id="addSelectedRoutineSuggestionsButton" class="button" type="button" hidden disabled>選択した候補を追加</button>
+            </div>
+          </section>
+          <div id="routineTaskList" class="routine-task-list">
+            <p class="hint">運用タスクを読み込み中...</p>
+          </div>
+        </section>
+
+        <section id="kpiSummarySection" class="card kpi-summary-card">
+          <div class="kpi-summary-header">
+            <div>
+              <h2>KPIサマリー</h2>
+              <p class="hint">トップでは要点だけを表示し、詳細管理は必要なときに開きます。</p>
+            </div>
+            <a id="openKpiManagementButton" class="button secondary" href="./phase.html">現在フェーズのKPIを見る</a>
+          </div>
+          <div id="kpiSummaryStats" class="kpi-summary-stats">
+            <div class="kpi-summary-stat">
+              <strong>表示中KPI</strong>
+              <span>0件</span>
+            </div>
+          </div>
+          <p id="kpiStatusText" class="hint">読み込み中...</p>
+        </section>
+
+        <section class="card" hidden aria-hidden="true">
+          <details id="kpiManagementPanel" class="kpi-management-panel">
+            <summary>KPI詳細・追加・アーカイブ操作</summary>
+            <div class="kpi-management-grid">
+              <section>
+                <h2>KPIを追加</h2>
+                <div class="field"><label for="kpiName">KPI名</label><input id="kpiName" type="text" /></div>
+                <div class="field"><label for="kpiDescription">補足説明</label><input id="kpiDescription" type="text" /></div>
+                <div class="field"><label for="kpiType">KPIタイプ</label><select id="kpiType"><option value="result">result</option><option value="action">action</option></select></div>
+                <div class="field"><label for="kpiCategory">カテゴリ</label><select id="kpiCategory"><option value="">自動推定</option><option value="research">research</option><option value="design">design</option><option value="build">build</option><option value="quality">quality</option><option value="validation">validation</option><option value="distribution">distribution</option><option value="monetization">monetization</option></select></div>
+                <div class="field"><label for="kpiDeadline">期限</label><input id="kpiDeadline" type="date" /></div>
+                <button id="addKpiButton" class="button" type="button">KPIを保存</button>
+              </section>
+              <section class="card" hidden>
+                <h2>AIでKPI案を作る</h2>
+                <div class="ai-actions"><button id="generateAiKpisButton" class="button" type="button">AIでKPI案を作る</button><p id="aiLoadingText" class="hint" hidden>KPI案を作成中...</p></div>
+                <p id="aiErrorText" class="hint error" hidden></p>
+                <div id="aiSuggestions" hidden><section><h3>結果KPI候補</h3><div id="resultKpiSuggestions"></div></section><section><h3>行動KPI候補</h3><div id="actionKpiSuggestions"></div></section><section><h3>サブKGI候補</h3><div id="subKgiSuggestions"></div></section></div>
+              </section>
+              <section>
+                <h2>KPI一覧</h2>
+                <div class="kpi-list-toolbar"><label class="toolbar-toggle" for="showArchivedToggle"><input id="showArchivedToggle" type="checkbox" />アーカイブ済みを表示</label></div>
+                <div id="kpiTable" class="kpi-group-list" hidden><div id="kpiTableBody"></div></div>
+              </section>
+            </div>
+          </details>
+        </section>
+      </div>
 
     </main>
 
