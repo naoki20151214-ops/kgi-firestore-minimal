@@ -4,6 +4,7 @@ import { getDb } from "./firebase-config.js";
 const nameInput = document.getElementById("kgiName");
 const goalTextInput = document.getElementById("kgiGoalText");
 const deadlineInput = document.getElementById("kgiDeadline");
+const levelInput = document.getElementById("kgiLevel");
 const saveButton = document.getElementById("saveButton");
 const statusText = document.getElementById("statusText");
 
@@ -18,7 +19,8 @@ const generateRoadmap = async (kgiData) => {
     body: JSON.stringify({
       name: kgiData.name ?? "",
       goalText: kgiData.goalText ?? "",
-      deadline: kgiData.deadline ?? ""
+      deadline: kgiData.deadline ?? "",
+      level: kgiData.level ?? "normal"
     })
   });
 
@@ -29,7 +31,10 @@ const generateRoadmap = async (kgiData) => {
     throw new Error(data?.error || "ロードマップの生成に失敗しました");
   }
 
-  return data.roadmapPhases;
+  return {
+    roadmapPhases: data.roadmapPhases,
+    kgiDescription: typeof data?.kgiDescription === "string" ? data.kgiDescription.trim() : ""
+  };
 };
 
 
@@ -61,6 +66,7 @@ saveButton.addEventListener("click", async () => {
   const name = nameInput.value.trim();
   const goalText = goalTextInput.value.trim();
   const deadline = deadlineInput.value;
+  const level = levelInput?.value || "normal";
 
   if (!name) {
     alert("KGI名を入力してください。");
@@ -80,17 +86,20 @@ saveButton.addEventListener("click", async () => {
       overallProgress: 0,
       nextActionText: "",
       nextActionReason: "",
-      roadmapPhases: []
+      roadmapPhases: [],
+      explanationLevel: level
     };
 
     const kgiDocRef = await addDoc(collection(db, "kgis"), createdKgi);
 
     try {
-      const roadmapPhases = await generateRoadmap({ name, goalText, deadline });
+      const generated = await generateRoadmap({ name, goalText, deadline, level });
 
-      if (Array.isArray(roadmapPhases) && roadmapPhases.length > 0) {
+      if (Array.isArray(generated.roadmapPhases) && generated.roadmapPhases.length > 0) {
         await updateDoc(doc(db, "kgis", kgiDocRef.id), {
-          roadmapPhases,
+          roadmapPhases: generated.roadmapPhases,
+          goalText: generated.kgiDescription || goalText,
+          explanationLevel: level,
           updatedAt: serverTimestamp()
         });
       }

@@ -44,6 +44,7 @@
 
       input,
       textarea,
+      select,
       button {
         font-size: 1rem;
         padding: 10px 12px;
@@ -110,6 +111,15 @@
       <div class="field">
         <label for="kgiDeadline">期限</label>
         <input id="kgiDeadline" type="date" />
+      </div>
+
+      <div class="field">
+        <label for="kgiLevel">説明レベル</label>
+        <select id="kgiLevel">
+          <option value="easy">やさしく</option>
+          <option value="normal" selected>ふつう</option>
+          <option value="detailed">くわしく</option>
+        </select>
       </div>
 
       <button id="saveButton" type="button">保存</button>
