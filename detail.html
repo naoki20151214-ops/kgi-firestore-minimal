@@ -1351,14 +1351,21 @@
 
       .task-check-options {
         display: grid;
+        grid-template-columns: 1fr;
         gap: 8px;
       }
 
       .task-check-option {
-        display: flex;
+        display: grid;
+        grid-template-columns: auto 1fr;
         gap: 8px;
         align-items: flex-start;
         font-weight: 500;
+      }
+
+      .task-check-option span {
+        min-width: 0;
+        word-break: normal;
       }
 
       textarea {
