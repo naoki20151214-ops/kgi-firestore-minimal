@@ -17,7 +17,9 @@ const kgiMeta = document.getElementById("kgiMeta");
 const roadmapContainer = document.getElementById("roadmapContainer");
 const roadmapStatusText = document.getElementById("roadmapStatusText");
 const currentLocationContainer = document.getElementById("currentLocationContainer");
+const currentLocationSection = document.getElementById("currentLocationSection");
 const generateRoadmapKpisButton = document.getElementById("generateRoadmapKpisButton");
+const roadmapKpiIntro = document.getElementById("roadmapKpiIntro");
 const roadmapKpiLoadingText = document.getElementById("roadmapKpiLoadingText");
 const roadmapKpiErrorText = document.getElementById("roadmapKpiErrorText");
 const kpiStatusText = document.getElementById("kpiStatusText");
@@ -32,7 +34,9 @@ const pageTitle = document.getElementById("pageTitle");
 const pageLead = document.getElementById("pageLead");
 const backToDetailLink = document.getElementById("backToDetailLink");
 const nextActionContainer = document.getElementById("nextActionContainer");
+const nextActionSection = document.getElementById("nextActionSection");
 const phaseRecommendedKpiContainer = document.getElementById("phaseRecommendedKpiContainer");
+const routineTaskSection = document.getElementById("routineTaskSection");
 const routineTaskStatusText = document.getElementById("routineTaskStatusText");
 const routineTaskForm = document.getElementById("routineTaskForm");
 const routineTaskList = document.getElementById("routineTaskList");
@@ -199,6 +203,7 @@ let taskAiSuggestionsByKpiId = {};
 let taskAiSavedByKpiId = {};
 let taskAiSavingByKpiId = {};
 let latestRenderedKpis = [];
+let initialDetailEntryState = null;
 let taskCheckUiState = {};
 let autoTaskGenerationInFlight = false;
 let autoTaskGenerationPromise = null;
@@ -624,6 +629,76 @@ const updateRoadmapKpiButtonState = (kpiCount = latestRenderedKpis.length) => {
   generateRoadmapKpisButton.classList.toggle("attention", canGenerate && kpiCount === 0 && !roadmapKpiLoading);
 };
 
+const getInitialDetailEntryStorageKey = () => kgiId ? `kgi-detail-entry:${kgiId}` : "";
+
+const persistInitialDetailEntryState = () => {
+  const storageKey = getInitialDetailEntryStorageKey();
+
+  if (!storageKey) {
+    return;
+  }
+
+  if (!initialDetailEntryState) {
+    window.sessionStorage.removeItem(storageKey);
+    return;
+  }
+
+  window.sessionStorage.setItem(storageKey, JSON.stringify(initialDetailEntryState));
+};
+
+const restoreInitialDetailEntryState = () => {
+  const storageKey = getInitialDetailEntryStorageKey();
+
+  if (!storageKey) {
+    return null;
+  }
+
+  try {
+    const raw = window.sessionStorage.getItem(storageKey);
+
+    if (!raw) {
+      return null;
+    }
+
+    const parsed = JSON.parse(raw);
+    return parsed?.source === "new-kgi" ? parsed : null;
+  } catch (error) {
+    console.error("Failed to restore initial detail entry state", error);
+    return null;
+  }
+};
+
+const shouldShowInitialRoadmapKpiGuide = (kpiCount = latestRenderedKpis.length) => {
+  const hasNoKpis = Number(kpiCount) === 0;
+  const hasNotStartedRoadmapKpiGeneration = !initialDetailEntryState?.roadmapKpiStarted;
+  return Boolean(initialDetailEntryState?.source === "new-kgi") && hasNoKpis && hasNotStartedRoadmapKpiGeneration;
+};
+
+const updateInitialRoadmapKpiGuide = (kpiCount = latestRenderedKpis.length) => {
+  const shouldShow = shouldShowInitialRoadmapKpiGuide(kpiCount);
+
+  if (roadmapKpiIntro) {
+    roadmapKpiIntro.hidden = !shouldShow;
+  }
+
+  if (currentLocationSection) {
+    currentLocationSection.hidden = shouldShow;
+  }
+
+  if (nextActionSection) {
+    nextActionSection.hidden = shouldShow;
+  }
+
+  if (routineTaskSection) {
+    routineTaskSection.hidden = shouldShow;
+  }
+
+  if (!shouldShow && Number(kpiCount) > 0 && initialDetailEntryState) {
+    initialDetailEntryState = null;
+    persistInitialDetailEntryState();
+  }
+};
+
 const disableKpiActions = () => {
   addKpiButton.disabled = true;
   if (generateAiKpisButton) {
@@ -660,6 +735,7 @@ const resetKpiSection = () => {
   setRoadmapKpiLoading(false);
   setRoadmapKpiError("");
   updateRoadmapKpiButtonState(0);
+  updateInitialRoadmapKpiGuide(0);
   kpiTableBody.innerHTML = "";
   kpiTable.hidden = true;
   renderOverallProgress([]);
@@ -3877,6 +3953,7 @@ const loadKpis = async () => {
     renderNextAction(null);
     renderAiSuggestions();
     renderPhaseRecommendedKpi([]);
+    updateInitialRoadmapKpiGuide(allKpis.length);
     setKpiStatus(isPhasePage
       ? "このフェーズのKPIがまだありません。上のフォームから追加してください。"
       : (currentRoadmapPhases.length > 0 ? "KPIがまだありません。ロードマップから自動作成するか、上のフォームから追加してください。" : "KPIがまだありません。上のフォームから追加してください。"));
@@ -3886,6 +3963,7 @@ const loadKpis = async () => {
   }
 
   updateRoadmapKpiButtonState(allKpis.filter(isActiveKpi).length);
+  updateInitialRoadmapKpiGuide(allKpis.length);
   existingKpiKeys = new Set(phaseScopedKpis.filter(isActiveKpi).map((kpi) => buildSavedSuggestionKeyFromKpi(kpi)));
 
   const kpisWithTasks = await Promise.all(
@@ -4133,6 +4211,15 @@ aiSuggestionsContainer?.addEventListener("click", async (event) => {
 generateRoadmapKpisButton?.addEventListener("click", async () => {
   if (roadmapKpiLoading || !currentKgiData || currentRoadmapPhases.length === 0) {
     return;
+  }
+
+  if (initialDetailEntryState) {
+    initialDetailEntryState = {
+      ...initialDetailEntryState,
+      roadmapKpiStarted: true
+    };
+    persistInitialDetailEntryState();
+    updateInitialRoadmapKpiGuide(latestRenderedKpis.length);
   }
 
   setRoadmapKpiLoading(true);
@@ -5144,6 +5231,7 @@ const initializeDetailPage = async () => {
 
   kgiId = resolveKgiIdFromUrl();
   roadmapKpiLoading = restoreRoadmapKpiLoadingState();
+  initialDetailEntryState = restoreInitialDetailEntryState();
 
   if (!kgiId) {
     setStatus("KGI ID が指定されていません", true);

@@ -359,6 +359,27 @@
         justify-items: start;
       }
 
+      .roadmap-kpi-intro {
+        width: 100%;
+        display: grid;
+        gap: 4px;
+        padding: 12px;
+        border-radius: 12px;
+        border: 1px solid #bfdbfe;
+        background: #eff6ff;
+      }
+
+      .roadmap-kpi-intro-title {
+        margin: 0;
+        color: #1d4ed8;
+        font-size: 1rem;
+        font-weight: 700;
+      }
+
+      .roadmap-kpi-intro .hint {
+        margin: 0;
+      }
+
       .roadmap-phase-links {
         margin-top: 8px;
       }
@@ -1607,27 +1628,31 @@
         </div>
         <div id="roadmapContainer"></div>
         <div class="roadmap-kpi-actions">
+          <div id="roadmapKpiIntro" class="roadmap-kpi-intro" hidden>
+            <p class="roadmap-kpi-intro-title">まずはここをタップ</p>
+            <p class="hint">AIがこの目標に合うKPI案を作ります</p>
+          </div>
           <button id="generateRoadmapKpisButton" class="button" type="button" hidden>ロードマップからKPIを作る</button>
           <p id="roadmapKpiLoadingText" class="hint" hidden>KPIを作成中...</p>
           <p id="roadmapKpiErrorText" class="hint info" hidden></p>
         </div>
       </section>
 
-      <section class="card">
+      <section id="currentLocationSection" class="card">
         <h2>現在地と次の到達点</h2>
         <div id="currentLocationContainer" class="location-grid">
           <p class="hint">ロードマップを確認中...</p>
         </div>
       </section>
 
-      <section class="card next-action-card">
+      <section id="nextActionSection" class="card next-action-card">
         <h2>今やるべきこと</h2>
         <div id="nextActionContainer" class="next-action-body">
           <p class="hint">算出中...</p>
         </div>
       </section>
 
-      <section class="card routine-task-card">
+      <section id="routineTaskSection" class="card routine-task-card">
         <div class="routine-task-header">
           <div>
             <h2>運用タスク</h2>
