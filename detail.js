@@ -14,6 +14,10 @@ import { getDb } from "./firebase-config.js";
 
 const statusText = document.getElementById("statusText");
 const kgiMeta = document.getElementById("kgiMeta");
+const kgiDeadlineForm = document.getElementById("kgiDeadlineForm");
+const kgiDeadlineEditInput = document.getElementById("kgiDeadlineEdit");
+const saveKgiDeadlineButton = document.getElementById("saveKgiDeadlineButton");
+const kgiDeadlineFormStatus = document.getElementById("kgiDeadlineFormStatus");
 const roadmapContainer = document.getElementById("roadmapContainer");
 const roadmapStatusText = document.getElementById("roadmapStatusText");
 const currentLocationContainer = document.getElementById("currentLocationContainer");
@@ -302,60 +306,6 @@ const buildRoadmapPhaseName = (title, index) => {
 };
 
 const formatListOrderLabel = (index) => String(index + 1).padStart(2, "0");
-
-const PHASE_PERIOD_PATTERN = /(?:Day\s*\d+\s*[–-]\s*\d+|Days\s*\d+\s*[–-]\s*\d+|Week\s*\d+\s*[–-]\s*\d+|Weeks\s*\d+\s*[–-]\s*\d+|Month\s*\d+\s*[–-]\s*\d+|Months\s*\d+\s*[–-]\s*\d+)/i;
-
-const extractPhasePeriod = (phase = {}) => {
-  const title = typeof phase?.title === "string" ? phase.title.trim() : "";
-  const description = typeof phase?.description === "string" ? phase.description.trim() : "";
-  const source = `${title}\n${description}`;
-  const match = source.match(PHASE_PERIOD_PATTERN);
-
-  return match?.[0]?.replace(/\s*[–-]\s*/g, "–").trim() ?? "";
-};
-
-const getPhasePeriodDisplayLabel = (phase = {}) => extractPhasePeriod(phase) || "未設定";
-
-const getPhaseRemainingDays = (phase = {}) => {
-  const periodLabel = extractPhasePeriod(phase);
-
-  if (!periodLabel) {
-    return null;
-  }
-
-  const normalized = periodLabel.replace(/[–−]/g, "-");
-  const match = normalized.match(/(Day|Days|Week|Weeks|Month|Months)\s*(\d+)\s*-\s*(\d+)/i);
-
-  if (!match) {
-    return null;
-  }
-
-  const unit = match[1].toLowerCase();
-  const end = Number(match[3]);
-
-  if (!Number.isFinite(end) || end <= 0) {
-    return null;
-  }
-
-  if (unit.startsWith("day")) {
-    return end;
-  }
-
-  if (unit.startsWith("week")) {
-    return end * 7;
-  }
-
-  if (unit.startsWith("month")) {
-    return end * 30;
-  }
-
-  return null;
-};
-
-const getPhaseRemainingDaysLabel = (phase = {}) => {
-  const remainingDays = getPhaseRemainingDays(phase);
-  return Number.isFinite(remainingDays) ? `あと${remainingDays}日` : "あと日数: 未設定";
-};
 
 const buildPhaseFirstAction = (description) => {
   const firstPoint = splitPhaseDescriptionIntoPoints(description)[0] ?? "";
@@ -1183,6 +1133,22 @@ const displayGoalText = (goalText) => {
   return trimmed || "-";
 };
 
+const DEFAULT_KGI_DURATION_DAYS = 100;
+const MS_PER_DAY = 1000 * 60 * 60 * 24;
+
+const formatDateInputValue = (date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
+const addDays = (date, days) => {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
+};
+
 const displayDeadline = (deadline) => {
   if (typeof deadline !== "string") {
     return "未設定";
@@ -1211,6 +1177,45 @@ const parseDeadline = (deadline) => {
   parsed.setHours(0, 0, 0, 0);
   return parsed;
 };
+
+const calculateDistributedPhaseDeadlines = (startDateValue, deadlineValue, phaseCount) => {
+  const startDate = parseDeadline(startDateValue);
+  const deadlineDate = parseDeadline(deadlineValue);
+
+  if (!startDate || !deadlineDate || !Number.isInteger(phaseCount) || phaseCount <= 0) {
+    return [];
+  }
+
+  const totalDays = Math.max(0, Math.round((deadlineDate.getTime() - startDate.getTime()) / MS_PER_DAY));
+
+  return Array.from({ length: phaseCount }, (_, index) => {
+    const phaseOffset = Math.round((totalDays * (index + 1)) / phaseCount);
+    return formatDateInputValue(addDays(startDate, phaseOffset));
+  });
+};
+
+const buildKgiSchedule = (kgiData = {}, phases = []) => {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const startDate = parseDeadline(kgiData?.startDate)
+    ? kgiData.startDate
+    : formatDateInputValue(today);
+  const deadline = parseDeadline(kgiData?.deadline)
+    ? kgiData.deadline
+    : formatDateInputValue(addDays(parseDeadline(startDate) ?? today, DEFAULT_KGI_DURATION_DAYS));
+
+  return {
+    startDate,
+    deadline,
+    phaseDeadlines: calculateDistributedPhaseDeadlines(startDate, deadline, Array.isArray(phases) ? phases.length : 0)
+  };
+};
+
+const applyScheduleToRoadmapPhases = (phases, schedule) => (Array.isArray(phases) ? phases : []).map((phase, index) => ({
+  ...phase,
+  deadline: schedule.phaseDeadlines[index] || phase?.deadline || ""
+}));
 
 const calcRemainingDays = (deadline) => {
   const deadlineDate = parseDeadline(deadline);
@@ -1251,6 +1256,25 @@ const calcRemainingDays = (deadline) => {
   };
 };
 
+const getPhaseDeadlineDisplayLabel = (phase = {}) => {
+  const deadline = typeof phase?.deadline === "string" ? phase.deadline.trim() : "";
+  return deadline || "未設定";
+};
+
+const getPhaseRemainingDaysLabel = (phase = {}) => {
+  const deadlineInfo = calcRemainingDays(phase?.deadline ?? "");
+  return deadlineInfo.remainingText === "未設定" ? "あと日数: 未設定" : deadlineInfo.remainingText;
+};
+
+const setKgiDeadlineFormStatus = (message, isError = false) => {
+  if (!kgiDeadlineFormStatus) {
+    return;
+  }
+
+  kgiDeadlineFormStatus.textContent = message;
+  kgiDeadlineFormStatus.classList.toggle("error", isError);
+};
+
 const ROADMAP_STATUS_LABELS = {
   done: "完了",
   current: "今ここ",
@@ -1282,11 +1306,15 @@ const normalizeRoadmapPhases = (phases) => {
       const description = typeof phase?.description === "string" && phase.description.trim()
         ? phase.description.trim()
         : "説明はまだありません";
+      const deadline = typeof phase?.deadline === "string" && phase.deadline.trim()
+        ? phase.deadline.trim()
+        : "";
 
       return {
         id,
         title,
         description,
+        deadline,
         status: normalizeRoadmapStatus(phase?.status)
       };
     })
@@ -1297,6 +1325,7 @@ const buildRoadmapPhaseSummary = (phases = currentRoadmapPhases) => (Array.isArr
   id: phase.id,
   title: phase.title,
   description: phase.description,
+  deadline: phase.deadline ?? "",
   status: phase.status
 }));
 
@@ -1691,7 +1720,7 @@ const renderRoadmap = (phases = currentRoadmapPhases) => {
   }
 
   const markup = phases.map((phase, index) => {
-    const periodLabel = getPhasePeriodDisplayLabel(phase);
+    const periodLabel = getPhaseDeadlineDisplayLabel(phase);
     const remainingDaysLabel = getPhaseRemainingDaysLabel(phase);
     const phaseTitle = buildRoadmapPhaseTitle(phase.title, index);
     const isEasyLevel = (currentKgiData?.explanationLevel ?? "normal") === "easy";
@@ -3093,17 +3122,111 @@ const getKpisQuery = () => query(getKpisRef(), where("kgiId", "==", kgiId));
 const getTasksRef = (kpiId) => collection(getKpisRef(), kpiId, "tasks");
 const getKpiRef = (kpiId) => doc(getKpisRef(), kpiId);
 
+const persistKgiScheduleIfNeeded = async (kgiData = {}) => {
+  const normalizedPhases = normalizeRoadmapPhases(kgiData?.roadmapPhases);
+  const schedule = buildKgiSchedule(kgiData, normalizedPhases);
+  const phasesWithSchedule = applyScheduleToRoadmapPhases(normalizedPhases, schedule);
+  const existingStartDate = typeof kgiData?.startDate === "string" ? kgiData.startDate : "";
+  const existingDeadline = typeof kgiData?.deadline === "string" ? kgiData.deadline : "";
+  const needsStartDate = schedule.startDate !== existingStartDate;
+  const needsDeadline = schedule.deadline !== existingDeadline;
+  const needsPhaseDeadline = phasesWithSchedule.some((phase, index) => phase.deadline !== (normalizedPhases[index]?.deadline ?? ""));
+
+  if (!needsStartDate && !needsDeadline && !needsPhaseDeadline) {
+    return {
+      ...kgiData,
+      startDate: schedule.startDate,
+      deadline: schedule.deadline,
+      roadmapPhases: phasesWithSchedule
+    };
+  }
+
+  await updateDoc(getKgiRef(), {
+    startDate: schedule.startDate,
+    deadline: schedule.deadline,
+    roadmapPhases: phasesWithSchedule,
+    updatedAt: serverTimestamp()
+  });
+
+  return {
+    ...kgiData,
+    startDate: schedule.startDate,
+    deadline: schedule.deadline,
+    roadmapPhases: phasesWithSchedule
+  };
+};
+
+const updateKgiDeadline = async (deadline) => {
+  if (!currentKgiData || !db || !kgiId) {
+    return;
+  }
+
+  const deadlineCandidate = parseDeadline(deadline)
+    ? deadline
+    : buildKgiSchedule(currentKgiData, currentRoadmapPhases).deadline;
+  const schedule = buildKgiSchedule({ ...currentKgiData, deadline: deadlineCandidate }, currentRoadmapPhases);
+  const phasesWithSchedule = applyScheduleToRoadmapPhases(currentRoadmapPhases, schedule);
+
+  if (saveKgiDeadlineButton) {
+    saveKgiDeadlineButton.disabled = true;
+  }
+
+  try {
+    await updateDoc(getKgiRef(), {
+      startDate: schedule.startDate,
+      deadline: schedule.deadline,
+      roadmapPhases: phasesWithSchedule,
+      updatedAt: serverTimestamp()
+    });
+
+    renderKgiMeta({
+      ...currentKgiData,
+      startDate: schedule.startDate,
+      deadline: schedule.deadline,
+      roadmapPhases: phasesWithSchedule
+    });
+    setKgiDeadlineFormStatus("期限を保存しました。");
+  } catch (error) {
+    console.error(error);
+    setKgiDeadlineFormStatus("期限の保存に失敗しました。", true);
+  } finally {
+    if (saveKgiDeadlineButton) {
+      saveKgiDeadlineButton.disabled = false;
+    }
+  }
+};
+
+if (kgiDeadlineForm) {
+  kgiDeadlineForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    await updateKgiDeadline(kgiDeadlineEditInput?.value ?? "");
+  });
+}
+
 const renderKgiMeta = (kgiData) => {
   currentKgiData = kgiData ?? null;
-  currentRoadmapPhases = normalizeRoadmapPhases(kgiData?.roadmapPhases);
+  const normalizedPhases = normalizeRoadmapPhases(kgiData?.roadmapPhases);
+  const schedule = buildKgiSchedule(kgiData, normalizedPhases);
+  currentKgiData = {
+    ...(kgiData ?? {}),
+    startDate: schedule.startDate,
+    deadline: schedule.deadline
+  };
+  currentRoadmapPhases = applyScheduleToRoadmapPhases(normalizedPhases, schedule);
   roadmapPhaseOpenState = {};
   kpiDetailOpenState = {};
   taskSectionOpenState = {};
   reflectionSectionOpenState = {};
-  const deadline = displayDeadline(kgiData.deadline);
+  const deadline = displayDeadline(currentKgiData.deadline);
   const deadlineInfo = calcRemainingDays(deadline === "未設定" ? "" : deadline);
 
   kgiMeta.hidden = false;
+  if (kgiDeadlineForm && kgiDeadlineEditInput && !isPhasePage) {
+    kgiDeadlineForm.hidden = false;
+    kgiDeadlineEditInput.value = currentKgiData.deadline ?? "";
+    setKgiDeadlineFormStatus("");
+  }
+
   if (isPhasePage) {
     kgiMeta.innerHTML = `
       <div class="overview-item">
@@ -3131,7 +3254,11 @@ const renderKgiMeta = (kgiData) => {
         <div>${escapeHtml(displayGoalText(kgiData.goalText))}</div>
       </div>
       <div class="overview-item">
-        <strong>期限</strong>
+        <strong>開始日</strong>
+        <div>${escapeHtml(displayDeadline(currentKgiData.startDate))}</div>
+      </div>
+      <div class="overview-item">
+        <strong>目標期限日</strong>
         <div>${escapeHtml(deadline)}</div>
       </div>
       <div class="overview-item">
@@ -3382,8 +3509,8 @@ const renderPhasePageMeta = () => {
     phaseTitle.textContent = phaseName;
   }
   if (phasePeriodBadge) {
-    const periodLabel = getPhasePeriodDisplayLabel(phase);
-    phasePeriodBadge.textContent = periodLabel;
+    const periodLabel = getPhaseDeadlineDisplayLabel(phase);
+    phasePeriodBadge.textContent = `期限目安: ${periodLabel}`;
     phasePeriodBadge.hidden = false;
   }
   isPhaseDescriptionExpanded = false;
@@ -5263,8 +5390,9 @@ const initializeDetailPage = async () => {
       return;
     }
 
+    const hydratedKgiData = await persistKgiScheduleIfNeeded(kgiSnapshot.data());
     selectedPhaseId = resolvePhaseIdFromUrl();
-    renderKgiMeta(kgiSnapshot.data());
+    renderKgiMeta(hydratedKgiData);
     enableKpiActions();
     setStatus("");
     setDebugSummary(`取得したid: ${kgiId}`, "KGI読み込み成功");
