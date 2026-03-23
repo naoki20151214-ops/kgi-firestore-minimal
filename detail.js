@@ -69,6 +69,7 @@ const archiveKgiButton = document.getElementById("archiveKgiButton");
 const archiveKgiStatus = document.getElementById("archiveKgiStatus");
 const archiveKgiDialog = document.getElementById("archiveKgiDialog");
 const confirmArchiveKgiButton = document.getElementById("confirmArchiveKgiButton");
+const archiveKgiDialogForm = archiveKgiDialog?.querySelector("form");
 const archiveDebugTargetKgiId = document.getElementById("archiveDebugTargetKgiId");
 const archiveDebugTargetCollectionPath = document.getElementById("archiveDebugTargetCollectionPath");
 const archiveDebugWriteStarted = document.getElementById("archiveDebugWriteStarted");
@@ -823,6 +824,16 @@ const updateArchiveDebugState = (partialState = {}) => {
   renderArchiveDebugState();
 };
 
+const logArchiveFlow = (message, detail = undefined, method = "info") => {
+  const logger = typeof console?.[method] === "function" ? console[method] : console.info;
+  if (detail === undefined) {
+    logger(message);
+    return;
+  }
+
+  logger(message, detail);
+};
+
 const resetArchiveDebugState = (targetId = kgiId) => {
   updateArchiveDebugState({
     targetKgiId: targetId || "",
@@ -1186,18 +1197,37 @@ showArchivedToggle?.addEventListener("change", async (event) => {
 });
 
 archiveKgiButton?.addEventListener("click", () => {
+  logArchiveFlow("delete button clicked", {
+    buttonId: archiveKgiButton?.id ?? null,
+    hasDialog: archiveKgiDialog instanceof HTMLDialogElement,
+    archived: isArchivedKgi(currentKgiData),
+    archiveKgiInFlight
+  });
+
   if (!(archiveKgiDialog instanceof HTMLDialogElement) || isArchivedKgi(currentKgiData) || archiveKgiInFlight) {
     return;
   }
 
   setArchiveKgiStatus("");
   archiveKgiDialog.showModal();
+  logArchiveFlow("dialog opened", {
+    dialogId: archiveKgiDialog.id,
+    open: archiveKgiDialog.open
+  });
 });
 
-confirmArchiveKgiButton?.addEventListener("click", async (event) => {
-  event.preventDefault();
+const handleArchiveConfirm = async (event) => {
+  event?.preventDefault?.();
+  logArchiveFlow("confirm clicked", {
+    dialogId: archiveKgiDialog instanceof HTMLDialogElement ? archiveKgiDialog.id : null,
+    confirmButtonId: confirmArchiveKgiButton?.id ?? null,
+    dialogOpen: archiveKgiDialog instanceof HTMLDialogElement ? archiveKgiDialog.open : false
+  });
   await archiveCurrentKgi();
-});
+};
+
+confirmArchiveKgiButton?.addEventListener("click", handleArchiveConfirm);
+archiveKgiDialogForm?.addEventListener("submit", handleArchiveConfirm);
 
 archiveKgiDialog?.addEventListener("close", () => {
   archiveKgiDialog.returnValue = "";
@@ -3279,7 +3309,34 @@ const redirectToKgiList = () => {
 const buildKgiDocPath = (targetKgiId) => `kgis/${targetKgiId}`;
 
 const archiveCurrentKgi = async () => {
+  const targetKgiId = String(currentKgiData?.id ?? kgiId ?? "").trim();
+  const targetDocPath = targetKgiId ? buildKgiDocPath(targetKgiId) : "kgis/(missing-id)";
+
+  logArchiveFlow("archiveCurrentKgi entered", {
+    targetKgiId,
+    targetDocPath,
+    hasCurrentKgiData: Boolean(currentKgiData),
+    hasDb: Boolean(db),
+    kgiId,
+    archived: isArchivedKgi(currentKgiData),
+    archiveKgiInFlight
+  });
+
+  updateArchiveDebugState({
+    targetKgiId,
+    targetCollectionPath: targetDocPath,
+    archiveWriteStarted: true,
+    archiveWriteSucceeded: false,
+    archiveVerifySucceeded: false,
+    lastErrorMessage: ""
+  });
+
   if (!currentKgiData || !db || !kgiId || isArchivedKgi(currentKgiData) || archiveKgiInFlight) {
+    const guardMessage = "archiveCurrentKgi の事前条件を満たさなかったため中断しました。";
+    updateArchiveDebugState({
+      lastErrorMessage: guardMessage
+    });
+    logArchiveFlow("update failed", { reason: guardMessage }, "warn");
     return;
   }
 
@@ -3300,9 +3357,6 @@ const archiveCurrentKgi = async () => {
   }
 
   try {
-    const targetKgiId = String(currentKgiData?.id ?? kgiId).trim();
-    const targetDocPath = buildKgiDocPath(targetKgiId);
-
     if (!targetKgiId) {
       throw new Error("KGI document id を取得できませんでした。");
     }
@@ -3316,7 +3370,7 @@ const archiveCurrentKgi = async () => {
       lastErrorMessage: ""
     });
 
-    console.info("Archiving KGI", { kgiId: targetKgiId, path: targetDocPath });
+    logArchiveFlow("updating path: kgis/{id}", { kgiId: targetKgiId, path: targetDocPath });
 
     const targetKgiRef = doc(getKgisRef(), targetKgiId);
 
@@ -3330,6 +3384,7 @@ const archiveCurrentKgi = async () => {
     updateArchiveDebugState({
       archiveWriteSucceeded: true
     });
+    logArchiveFlow("update success", { path: targetDocPath });
 
     const verifySnapshot = await getDoc(targetKgiRef);
 
@@ -3348,6 +3403,7 @@ const archiveCurrentKgi = async () => {
     updateArchiveDebugState({
       archiveVerifySucceeded: true
     });
+    logArchiveFlow("verify success", { path: targetDocPath });
 
     currentKgiData = {
       ...currentKgiData,
@@ -3365,11 +3421,13 @@ const archiveCurrentKgi = async () => {
     showArchiveSuccessThenRedirect();
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error ?? "Unknown error");
-    console.error("Failed to archive KGI", { kgiId, message, error });
+    logArchiveFlow("update failed", { kgiId, message, error }, "error");
     updateArchiveDebugState({
+      archiveWriteSucceeded: false,
       archiveVerifySucceeded: false,
       lastErrorMessage: message
     });
+    logArchiveFlow(message.includes("確認") ? "verify failed" : "update failed", { path: targetDocPath, message }, "error");
     setArchiveKgiStatus(message, true);
     updateArchiveKgiButtonState(currentKgiData);
   } finally {
