@@ -44,6 +44,192 @@
         gap: 16px;
       }
 
+      .mindmap-card {
+        display: grid;
+        gap: 12px;
+      }
+
+      .mindmap-tree {
+        display: grid;
+        gap: 12px;
+      }
+
+      .mindmap-empty {
+        margin: 0;
+        padding: 14px;
+        border: 1px dashed #cbd5e1;
+        border-radius: 12px;
+        background: #f8fafc;
+        color: #475569;
+      }
+
+      .mindmap-node {
+        position: relative;
+        margin-left: 0;
+        padding-left: 18px;
+      }
+
+      .mindmap-node::before {
+        content: "";
+        position: absolute;
+        left: 7px;
+        top: 0;
+        bottom: -12px;
+        width: 2px;
+        background: #dbe4f0;
+      }
+
+      .mindmap-node:last-child::before {
+        bottom: 22px;
+      }
+
+      .mindmap-node::after {
+        content: "";
+        position: absolute;
+        left: 7px;
+        top: 22px;
+        width: 14px;
+        height: 2px;
+        background: #dbe4f0;
+      }
+
+      .mindmap-node.level-root {
+        padding-left: 0;
+      }
+
+      .mindmap-node.level-root::before,
+      .mindmap-node.level-root::after {
+        display: none;
+      }
+
+      .mindmap-children {
+        display: grid;
+        gap: 10px;
+        margin-top: 10px;
+      }
+
+      .mindmap-toggle {
+        list-style: none;
+      }
+
+      .mindmap-toggle::-webkit-details-marker {
+        display: none;
+      }
+
+      .mindmap-summary {
+        list-style: none;
+        cursor: pointer;
+      }
+
+      .mindmap-summary::-webkit-details-marker {
+        display: none;
+      }
+
+      .mindmap-summary-line {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+        width: 100%;
+      }
+
+      .mindmap-caret {
+        width: 20px;
+        height: 20px;
+        border-radius: 999px;
+        border: 1px solid #cbd5e1;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 0.8rem;
+        color: #475569;
+        background: #fff;
+        flex: 0 0 auto;
+      }
+
+      details[open] > summary .mindmap-caret {
+        transform: rotate(90deg);
+      }
+
+      .mindmap-leaf-spacer {
+        width: 20px;
+        height: 20px;
+        flex: 0 0 auto;
+      }
+
+      .mindmap-link {
+        flex: 1 1 220px;
+        min-width: 0;
+        display: grid;
+        gap: 4px;
+        padding: 12px 14px;
+        border-radius: 14px;
+        text-decoration: none;
+        border: 1px solid #e2e8f0;
+        background: #fff;
+        color: #0f172a;
+        box-shadow: 0 4px 16px rgba(15, 23, 42, 0.05);
+      }
+
+      .mindmap-link:focus-visible {
+        outline: 2px solid #2563eb;
+        outline-offset: 2px;
+      }
+
+      .mindmap-link.is-clickable:hover {
+        border-color: #93c5fd;
+        background: #f8fbff;
+      }
+
+      .mindmap-link-title {
+        font-weight: 800;
+        line-height: 1.45;
+      }
+
+      .mindmap-link-meta {
+        font-size: 0.84rem;
+        color: #475569;
+      }
+
+      .mindmap-badges {
+        display: flex;
+        gap: 6px;
+        flex-wrap: wrap;
+      }
+
+      .mindmap-badge {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 4px 8px;
+        border-radius: 999px;
+        font-size: 0.75rem;
+        font-weight: 700;
+      }
+
+      .mindmap-badge.kgi { background: #dbeafe; color: #1d4ed8; }
+      .mindmap-badge.kpi { background: #ede9fe; color: #6d28d9; }
+      .mindmap-badge.task { background: #e2e8f0; color: #334155; }
+      .mindmap-badge.todo { background: #e5e7eb; color: #374151; }
+      .mindmap-badge.doing { background: #dbeafe; color: #1d4ed8; }
+      .mindmap-badge.done { background: #dcfce7; color: #15803d; }
+      .mindmap-badge.now { background: #fef3c7; color: #b45309; }
+
+      .mindmap-link.status-todo { border-left: 5px solid #94a3b8; }
+      .mindmap-link.status-doing { border-left: 5px solid #3b82f6; }
+      .mindmap-link.status-done { border-left: 5px solid #22c55e; }
+      .mindmap-link.status-now { border-left: 5px solid #f59e0b; }
+
+      @media (max-width: 640px) {
+        .mindmap-summary-line {
+          align-items: flex-start;
+        }
+
+        .mindmap-link {
+          flex-basis: 100%;
+        }
+      }
+
       .kpi-summary-header {
         display: flex;
         align-items: flex-start;
@@ -1623,7 +1809,7 @@
     </style>
   </head>
   <body>
-    <main class="container">
+    <main id="top" class="container">
       <div class="top-actions">
         <a class="button" href="./index.html">新しいKGIを追加</a>
         <div class="top-actions-secondary">
@@ -1709,6 +1895,16 @@
           </section>
           <div id="routineTaskList" class="routine-task-list">
             <p class="hint">運用タスクを読み込み中...</p>
+          </div>
+        </section>
+
+        <section id="mindmapSection" class="card mindmap-card">
+          <div>
+            <h2>全体マップ</h2>
+            <p id="mindmapStatusText" class="hint">最新データからマップを生成しています...</p>
+          </div>
+          <div id="mindmapTree" class="mindmap-tree">
+            <p class="mindmap-empty">KGI / KPI / Task の最新状態からマップを組み立てます。</p>
           </div>
         </section>
 
