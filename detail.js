@@ -350,13 +350,30 @@ const getPhaseRemainingDaysLabel = (phase = {}) => {
   return Number.isFinite(remainingDays) ? `あと${remainingDays}日` : "あと日数: 未設定";
 };
 
-const renderRoadmapPhaseDescription = (description) => {
+const buildPhaseFirstAction = (description) => {
+  const firstPoint = splitPhaseDescriptionIntoPoints(description)[0] ?? "";
+  const normalized = firstPoint
+    .replace(/^[・\-\*\d\.\)\s]+/, "")
+    .replace(/^(やること|ポイント|内容)[:：]\s*/, "")
+    .trim();
+
+  return normalized || "メモアプリを開いて、このフェーズでやることを1つ書く";
+};
+
+const renderRoadmapPhaseDescription = (description, options = {}) => {
   const points = splitPhaseDescriptionIntoPoints(description);
   const visiblePoints = points.slice(0, 2);
   const hiddenPoints = points.slice(2);
+  const firstAction = buildPhaseFirstAction(description);
+  const firstActionMarkup = `
+    <div class="roadmap-phase-first-action${options.isEasy ? ' easy' : ''}">
+      <span class="roadmap-phase-first-action-label">今やる1つ</span>
+      <strong class="roadmap-phase-first-action-text">${escapeHtml(firstAction)}</strong>
+    </div>
+  `;
 
   if (points.length === 0) {
-    return '<p class="hint">このフェーズの説明はまだありません。</p>';
+    return `<p class="hint">このフェーズの説明はまだありません。</p>${firstActionMarkup}`;
   }
 
   const visibleMarkup = `
@@ -366,7 +383,7 @@ const renderRoadmapPhaseDescription = (description) => {
   `;
 
   if (hiddenPoints.length === 0) {
-    return visibleMarkup;
+    return `${visibleMarkup}${firstActionMarkup}`;
   }
 
   return `
@@ -377,6 +394,7 @@ const renderRoadmapPhaseDescription = (description) => {
         ${hiddenPoints.map((point) => `<li>${escapeHtml(point)}</li>`).join("")}
       </ul>
     </details>
+    ${firstActionMarkup}
   `;
 };
 
@@ -1596,6 +1614,7 @@ const renderRoadmap = (phases = currentRoadmapPhases) => {
     const periodLabel = getPhasePeriodDisplayLabel(phase);
     const remainingDaysLabel = getPhaseRemainingDaysLabel(phase);
     const phaseTitle = buildRoadmapPhaseTitle(phase.title, index);
+    const isEasyLevel = (currentKgiData?.explanationLevel ?? "normal") === "easy";
 
     return `
     <li class="roadmap-phase-item ${phase.status}">
@@ -1610,7 +1629,7 @@ const renderRoadmap = (phases = currentRoadmapPhases) => {
         </div>
         <span class="roadmap-phase-status ${phase.status}">${ROADMAP_STATUS_LABELS[phase.status] ?? "予定"}</span>
       </div>
-      ${renderRoadmapPhaseDescription(phase.description)}
+      ${renderRoadmapPhaseDescription(phase.description, { isEasy: isEasyLevel })}
       <span class="roadmap-phase-meta">順番: ${index + 1} / ${phases.length}</span>
       <div class="roadmap-phase-links">
         <a class="roadmap-phase-link" href="${buildPhasePageUrl(phase.id)}">KPIを見る</a>
