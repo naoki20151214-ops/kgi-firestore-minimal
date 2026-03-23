@@ -3,7 +3,6 @@ import {
   doc,
   getDoc,
   getDocs,
-  orderBy,
   query,
   where
 } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
@@ -16,9 +15,21 @@ const summaryGrid = document.getElementById("summaryGrid");
 const backToDetailLink = document.getElementById("backToDetailLink");
 const mindmapStatusText = document.getElementById("mindmapStatusText");
 const mindmapTree = document.getElementById("mindmapTree");
+const debugInfo = document.getElementById("debugInfo");
 
 let kgiId = "";
 let mindmapOpenState = {};
+
+const debugState = {
+  kgiId: "",
+  firebaseConfigImport: "ok",
+  loadState: "initializing",
+  kgiFetch: "pending",
+  kpiCount: 0,
+  taskCount: 0,
+  errorCode: "-",
+  errorMessage: "-"
+};
 
 const escapeHtml = (value) => String(value ?? "")
   .replaceAll("&", "&amp;")
@@ -48,9 +59,32 @@ const setMindmapStatus = (message, isError = false) => {
   mindmapStatusText.classList.toggle("error", isError);
 };
 
+const renderDebugInfo = () => {
+  if (!debugInfo) {
+    return;
+  }
+
+  debugInfo.innerHTML = `
+    <div class="meta-item"><strong>取得した kgiId</strong><span>${escapeHtml(debugState.kgiId || "(未指定)")}</span></div>
+    <div class="meta-item"><strong>KGI取得</strong><span>${escapeHtml(debugState.kgiFetch)}</span></div>
+    <div class="meta-item"><strong>KPI件数</strong><span>${escapeHtml(`${debugState.kpiCount}件`)}</span></div>
+    <div class="meta-item"><strong>Task件数</strong><span>${escapeHtml(`${debugState.taskCount}件`)}</span></div>
+    <div class="meta-item"><strong>firebase-config.js import</strong><span>${escapeHtml(debugState.firebaseConfigImport)}</span></div>
+    <div class="meta-item"><strong>読み込み状態</strong><span>${escapeHtml(debugState.loadState)}</span></div>
+    <div class="meta-item"><strong>error.code</strong><span>${escapeHtml(debugState.errorCode)}</span></div>
+    <div class="meta-item"><strong>error.message</strong><span>${escapeHtml(debugState.errorMessage)}</span></div>
+  `;
+};
+
+const updateDebugState = (patch = {}) => {
+  Object.assign(debugState, patch);
+  renderDebugInfo();
+};
+
 const resolveKgiIdFromUrl = () => {
   const params = new URLSearchParams(window.location.search);
-  return String(params.get("id") ?? "").trim();
+  const rawId = params.get("id");
+  return typeof rawId === "string" ? rawId.trim() : "";
 };
 
 const getComparableCreatedAt = (value) => {
@@ -60,6 +94,17 @@ const getComparableCreatedAt = (value) => {
 
   return Number.MAX_SAFE_INTEGER;
 };
+
+const sortByCreatedAt = (items) => (Array.isArray(items) ? [...items] : []).sort((a, b) => {
+  const createdAtA = getComparableCreatedAt(a?.createdAt);
+  const createdAtB = getComparableCreatedAt(b?.createdAt);
+
+  if (createdAtA !== createdAtB) {
+    return createdAtA - createdAtB;
+  }
+
+  return String(a?.id ?? "").localeCompare(String(b?.id ?? ""), "ja");
+});
 
 const getTaskIsCompleted = (task) => {
   if (typeof task?.isCompleted === "boolean") {
@@ -127,7 +172,7 @@ const getSimpleName = (kpi) => {
   return "";
 };
 
-const sortTasks = (tasks) => (Array.isArray(tasks) ? [...tasks] : []).sort((a, b) => {
+const sortTasks = (tasks) => sortByCreatedAt(tasks).sort((a, b) => {
   const orderA = Number.isFinite(Number(a?.order)) ? Number(a.order) : Number.MAX_SAFE_INTEGER;
   const orderB = Number.isFinite(Number(b?.order)) ? Number(b.order) : Number.MAX_SAFE_INTEGER;
 
@@ -321,13 +366,20 @@ const renderMindmap = (kgi, kpis) => {
   setMindmapStatus("保存済みマップは使わず、KGI → KPI → Task の最新状態から毎回生成しています。");
 };
 
+const loadTasksForKpi = async (db, kpiDoc) => {
+  const taskSnapshot = await getDocs(collection(db, "kpis", kpiDoc.id, "tasks"));
+  return sortTasks(taskSnapshot.docs.map((taskDoc) => ({ id: taskDoc.id, ...taskDoc.data() })));
+};
+
 const loadMindmap = async () => {
   kgiId = resolveKgiIdFromUrl();
+  updateDebugState({ kgiId, loadState: "url parsed" });
 
   if (!kgiId) {
     setStatus("KGI ID が指定されていません。", true);
     setMindmapStatus("表示するKGIを特定できません。", true);
     renderEmptyMap("まだマップに表示する項目がありません");
+    updateDebugState({ loadState: "missing kgi id", kgiFetch: "failed", errorMessage: "URL の id パラメータが空です。" });
     return;
   }
 
@@ -336,26 +388,31 @@ const loadMindmap = async () => {
   }
 
   const db = await getDb();
+  updateDebugState({ loadState: "firebase ready" });
+
   const kgiSnapshot = await getDoc(doc(db, "kgis", kgiId));
 
   if (!kgiSnapshot.exists()) {
     setStatus("指定されたKGIが見つかりません。", true);
     setMindmapStatus("KGIを取得できませんでした。", true);
     renderEmptyMap("まだマップに表示する項目がありません");
+    updateDebugState({ loadState: "kgi not found", kgiFetch: "not_found", errorMessage: "kgis/{id} に対象ドキュメントがありません。" });
     return;
   }
 
+  updateDebugState({ kgiFetch: "success", loadState: "loading kpis" });
+
   const kgi = { id: kgiSnapshot.id, ...kgiSnapshot.data() };
-  const kpisSnapshot = await getDocs(query(collection(db, "kpis"), where("kgiId", "==", kgiId), orderBy("createdAt", "asc")));
-  const kpis = await Promise.all(kpisSnapshot.docs
-    .map(async (kpiDoc) => {
-      const taskSnapshot = await getDocs(query(collection(db, "kpis", kpiDoc.id, "tasks"), orderBy("createdAt", "asc")));
-      return {
-        id: kpiDoc.id,
-        ...kpiDoc.data(),
-        tasks: taskSnapshot.docs.map((taskDoc) => ({ id: taskDoc.id, ...taskDoc.data() }))
-      };
-    }));
+  const kpisSnapshot = await getDocs(query(collection(db, "kpis"), where("kgiId", "==", kgiId)));
+  const sortedKpiDocs = sortByCreatedAt(kpisSnapshot.docs.map((kpiDoc) => ({ id: kpiDoc.id, ref: kpiDoc.ref, data: kpiDoc.data() })));
+  const kpis = await Promise.all(sortedKpiDocs.map(async ({ id, data }) => ({
+    id,
+    ...data,
+    tasks: await loadTasksForKpi(db, { id })
+  })));
+
+  const taskCount = kpis.reduce((sum, kpi) => sum + (Array.isArray(kpi.tasks) ? kpi.tasks.length : 0), 0);
+  updateDebugState({ loadState: "rendering", kpiCount: kpis.length, taskCount });
 
   if (pageTitle) {
     pageTitle.textContent = `${kgi.name ?? "KGI"} の全体マップ`;
@@ -367,12 +424,30 @@ const loadMindmap = async () => {
 
   renderSummary(kgi, kpis);
   renderMindmap(kgi, kpis);
-  setStatus(`KGI 1件 / KPI ${kpis.length}件 を読み込みました。`);
+  setStatus(`KGI 1件 / KPI ${kpis.length}件 / Task ${taskCount}件 を読み込みました。`);
+  updateDebugState({ loadState: "completed" });
 };
 
+renderDebugInfo();
+
 loadMindmap().catch((error) => {
-  console.error(error);
+  const errorCode = typeof error?.code === "string" ? error.code : "-";
+  const errorMessage = error instanceof Error ? error.message : String(error ?? "Unknown error");
+
+  console.error("[mindmap] load failed", {
+    kgiId,
+    errorCode,
+    errorMessage,
+    error
+  });
+
   setStatus("マップの読み込みに失敗しました。Firebase設定とルールを確認してください。", true);
   setMindmapStatus("元データの取得に失敗したため、マップを生成できませんでした。", true);
   renderEmptyMap("まだマップに表示する項目がありません");
+  updateDebugState({
+    loadState: "failed",
+    kgiFetch: debugState.kgiFetch === "pending" ? "failed" : debugState.kgiFetch,
+    errorCode,
+    errorMessage
+  });
 });
