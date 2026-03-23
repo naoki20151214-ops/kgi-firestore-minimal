@@ -4258,7 +4258,6 @@ const renderKpiTable = (kpis) => {
             </div>
             <div class="kpi-card-actions-secondary">
               <button class="button secondary kpi-detail-toggle" type="button" data-kpi-toggle="${kpi.id}" aria-expanded="${isOpen ? "true" : "false"}">${isOpen ? "閉じる" : "開く"}</button>
-              ${isActiveKpi(kpi) ? `<button class="button secondary" type="button" data-kpi-archive="${kpi.id}">アーカイブ</button>` : `<button class="button secondary" type="button" data-kpi-restore="${kpi.id}">復元</button>`}
             </div>
           </div>
           ${shouldShowTaskEmptyState ? `
@@ -4879,24 +4878,6 @@ kpiTableBody.addEventListener("click", async (event) => {
       rerenderCurrentKpis();
     }
 
-    return;
-  }
-
-  const archiveButton = event.target instanceof HTMLElement ? event.target.closest("[data-kpi-archive], [data-kpi-restore]") : null;
-
-  if (archiveButton instanceof HTMLButtonElement) {
-    const targetId = archiveButton.dataset.kpiArchive || archiveButton.dataset.kpiRestore;
-    const nextStatus = archiveButton.dataset.kpiArchive ? "archived" : "active";
-
-    if (!targetId) {
-      return;
-    }
-
-    await updateDoc(getKpiRef(targetId), {
-      status: nextStatus,
-      updatedAt: serverTimestamp()
-    });
-    await loadKpis();
     return;
   }
 
