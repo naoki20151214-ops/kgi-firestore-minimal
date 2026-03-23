@@ -327,6 +327,18 @@
         justify-content: start;
       }
 
+
+      .deadline-edit-form {
+        margin-top: 16px;
+        display: grid;
+        gap: 10px;
+        padding-top: 16px;
+        border-top: 1px solid #e5e7eb;
+      }
+
+      .deadline-edit-form .button {
+        max-width: 220px;
+      }
       .button {
         display: inline-flex;
         width: 100%;
@@ -1623,6 +1635,14 @@
         <h1>KGI詳細</h1>
         <p id="statusText" class="hint">読み込み中...</p>
         <div id="kgiMeta" class="meta" hidden></div>
+        <form id="kgiDeadlineForm" class="deadline-edit-form" hidden>
+          <div class="field">
+            <label for="kgiDeadlineEdit">目標期限日</label>
+            <input id="kgiDeadlineEdit" type="date" />
+          </div>
+          <button id="saveKgiDeadlineButton" class="button" type="submit">期限を保存</button>
+          <p id="kgiDeadlineFormStatus" class="hint"></p>
+        </form>
       </section>
 
       <section class="card">
