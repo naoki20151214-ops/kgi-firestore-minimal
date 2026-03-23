@@ -661,6 +661,31 @@
         min-height: 1.2em;
       }
 
+      .archive-debug-panel {
+        padding: 8px 10px;
+        border: 1px dashed #cbd5e1;
+        border-radius: 10px;
+        background: #f8fafc;
+        font-size: 0.78rem;
+        color: #475569;
+      }
+
+      .archive-debug-panel dl {
+        margin: 0;
+        display: grid;
+        grid-template-columns: minmax(110px, auto) 1fr;
+        gap: 4px 8px;
+      }
+
+      .archive-debug-panel dt {
+        font-weight: 700;
+      }
+
+      .archive-debug-panel dd {
+        margin: 0;
+        word-break: break-word;
+      }
+
       dialog.confirm-dialog {
         width: min(92vw, 520px);
         border: none;
@@ -2031,6 +2056,16 @@
           <a class="button secondary" href="./list.html">一覧に戻る</a>
           <button id="archiveKgiButton" class="button danger-subtle danger-zone-delete-button" type="button">このKGIを削除</button>
           <p id="archiveKgiStatus" class="hint danger-zone-status"></p>
+          <section id="archiveDebugPanel" class="archive-debug-panel" aria-label="archive debug">
+            <dl>
+              <dt>targetKgiId</dt><dd id="archiveDebugTargetKgiId">-</dd>
+              <dt>targetCollectionPath</dt><dd id="archiveDebugTargetCollectionPath">-</dd>
+              <dt>archiveWriteStarted</dt><dd id="archiveDebugWriteStarted">false</dd>
+              <dt>archiveWriteSucceeded</dt><dd id="archiveDebugWriteSucceeded">false</dd>
+              <dt>archiveVerifySucceeded</dt><dd id="archiveDebugVerifySucceeded">false</dd>
+              <dt>lastErrorMessage</dt><dd id="archiveDebugLastErrorMessage">-</dd>
+            </dl>
+          </section>
         </div>
       </section>
 

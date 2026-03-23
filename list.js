@@ -48,6 +48,8 @@ const displayDeadline = (deadline) => {
 
 const isArchivedKgi = (kgi) => kgi?.archived === true || String(kgi?.status ?? "").trim().toLowerCase() === "archived";
 
+const filterVisibleKgiDocs = (docs = []) => docs.filter((docItem) => !isArchivedKgi(docItem.data()));
+
 const renderRows = (docs) => {
   tableBody.innerHTML = "";
 
@@ -72,7 +74,7 @@ const renderRows = (docs) => {
     const kgisRef = collection(db, "kgis");
     const kgisQuery = query(kgisRef, orderBy("createdAt", "desc"));
     const snapshot = await getDocs(kgisQuery);
-    const visibleKgiDocs = snapshot.docs.filter((docItem) => !isArchivedKgi(docItem.data()));
+    const visibleKgiDocs = filterVisibleKgiDocs(snapshot.docs);
 
     if (visibleKgiDocs.length === 0) {
       setStatus("データは0件です。");
