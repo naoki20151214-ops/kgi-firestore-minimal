@@ -23,6 +23,7 @@ const roadmapKpiIntro = document.getElementById("roadmapKpiIntro");
 const roadmapKpiLoadingText = document.getElementById("roadmapKpiLoadingText");
 const roadmapKpiErrorText = document.getElementById("roadmapKpiErrorText");
 const kpiStatusText = document.getElementById("kpiStatusText");
+const kpiSummarySection = document.getElementById("kpiSummarySection");
 const kpiSummaryStats = document.getElementById("kpiSummaryStats");
 const kpiManagementPanel = document.getElementById("kpiManagementPanel");
 const openKpiManagementButton = document.getElementById("openKpiManagementButton");
@@ -668,32 +669,46 @@ const restoreInitialDetailEntryState = () => {
   }
 };
 
-const shouldShowInitialRoadmapKpiGuide = (kpiCount = latestRenderedKpis.length) => {
+const getIsFirstKpiGuidance = (kpiCount = latestRenderedKpis.length) => {
   const hasNoKpis = Number(kpiCount) === 0;
-  const hasNotStartedRoadmapKpiGeneration = !initialDetailEntryState?.roadmapKpiStarted;
-  return Boolean(initialDetailEntryState?.source === "new-kgi") && hasNoKpis && hasNotStartedRoadmapKpiGeneration;
+  const roadmapGenerated = Boolean(initialDetailEntryState?.roadmapKpiStarted);
+  const isFirstKpiGuidance = Boolean(initialDetailEntryState?.source === "new-kgi") && hasNoKpis && roadmapGenerated === false;
+
+  console.log("[kgi-detail] first KPI guidance condition", {
+    isFirstKpiGuidance,
+    kpiCount: Number(kpiCount),
+    hasNoKpis,
+    roadmapGenerated,
+    initialDetailEntrySource: initialDetailEntryState?.source ?? null
+  });
+
+  return isFirstKpiGuidance;
 };
 
 const updateInitialRoadmapKpiGuide = (kpiCount = latestRenderedKpis.length) => {
-  const shouldShow = shouldShowInitialRoadmapKpiGuide(kpiCount);
+  const isFirstKpiGuidance = getIsFirstKpiGuidance(kpiCount);
 
   if (roadmapKpiIntro) {
-    roadmapKpiIntro.hidden = !shouldShow;
+    roadmapKpiIntro.hidden = !isFirstKpiGuidance;
   }
 
   if (currentLocationSection) {
-    currentLocationSection.hidden = shouldShow;
+    currentLocationSection.hidden = isFirstKpiGuidance;
   }
 
   if (nextActionSection) {
-    nextActionSection.hidden = shouldShow;
+    nextActionSection.hidden = isFirstKpiGuidance;
   }
 
   if (routineTaskSection) {
-    routineTaskSection.hidden = shouldShow;
+    routineTaskSection.hidden = isFirstKpiGuidance;
   }
 
-  if (!shouldShow && Number(kpiCount) > 0 && initialDetailEntryState) {
+  if (kpiSummarySection) {
+    kpiSummarySection.hidden = isFirstKpiGuidance;
+  }
+
+  if (!isFirstKpiGuidance && Number(kpiCount) > 0 && initialDetailEntryState) {
     initialDetailEntryState = null;
     persistInitialDetailEntryState();
   }
