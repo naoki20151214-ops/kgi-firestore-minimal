@@ -13,6 +13,9 @@ if (bodyPage === "phase") {
   const goalDescriptionElement = document.getElementById("goalDescription");
   const startDateElement = document.getElementById("startDate");
   const targetDateElement = document.getElementById("targetDate");
+  const roadmapSectionElement = document.getElementById("roadmapSection");
+  const roadmapListElement = document.getElementById("roadmapList");
+  const roadmapEmptyElement = document.getElementById("roadmapEmpty");
 
   const setStatus = (text, isError = false) => {
     if (!statusTextElement) {
@@ -78,6 +81,60 @@ if (bodyPage === "phase") {
     return fallback;
   };
 
+  const normalizeRoadmapPhases = (phases) => {
+    if (!Array.isArray(phases)) {
+      return [];
+    }
+
+    return phases.map((phase, index) => {
+      const title = pickFirstDisplayValue(phase, ["title", "name"], `フェーズ${index + 1}`);
+      const description = pickFirstDisplayValue(phase, ["description", "goal", "summary"], "");
+      const phaseNumberRaw = Number(phase?.phaseNumber);
+      const phaseNumber = Number.isFinite(phaseNumberRaw) ? phaseNumberRaw : index + 1;
+
+      return {
+        title,
+        description,
+        phaseNumber
+      };
+    });
+  };
+
+  const renderRoadmap = (phases = []) => {
+    if (!roadmapSectionElement || !roadmapListElement || !roadmapEmptyElement) {
+      return;
+    }
+
+    roadmapListElement.innerHTML = "";
+
+    if (phases.length === 0) {
+      roadmapSectionElement.hidden = false;
+      roadmapEmptyElement.hidden = false;
+      return;
+    }
+
+    const fragment = document.createDocumentFragment();
+
+    phases.forEach((phase, index) => {
+      const item = document.createElement("li");
+
+      const title = document.createElement("div");
+      title.className = "roadmap-title";
+      title.textContent = `フェーズ${phase.phaseNumber ?? index + 1}: ${phase.title}`;
+
+      const description = document.createElement("p");
+      description.className = "roadmap-description";
+      description.textContent = asDisplayText(phase.description, "説明は未設定です。");
+
+      item.append(title, description);
+      fragment.appendChild(item);
+    });
+
+    roadmapListElement.appendChild(fragment);
+    roadmapEmptyElement.hidden = true;
+    roadmapSectionElement.hidden = false;
+  };
+
   const renderDoc = (data) => {
     const titleCandidates = ["title", "name", "kgiName"];
     const goalCandidates = ["goalDescription", "goal", "description", "goalText"];
@@ -88,6 +145,7 @@ if (bodyPage === "phase") {
     const description = pickFirstDisplayValue(data, goalCandidates);
     const startDate = pickFirstDisplayValue(data, startDateCandidates);
     const targetDate = pickFirstDisplayValue(data, targetDateCandidates);
+    const roadmapPhases = normalizeRoadmapPhases(data?.roadmapPhases);
 
     if (kgiNameElement) {
       kgiNameElement.textContent = name;
@@ -106,12 +164,17 @@ if (bodyPage === "phase") {
       detailFieldsElement.hidden = false;
     }
 
+    renderRoadmap(roadmapPhases);
+
     setStatus("");
   };
 
   const showLoadError = (message) => {
     if (detailFieldsElement) {
       detailFieldsElement.hidden = true;
+    }
+    if (roadmapSectionElement) {
+      roadmapSectionElement.hidden = true;
     }
     setStatus(message, true);
   };
