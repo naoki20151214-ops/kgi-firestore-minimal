@@ -10,7 +10,50 @@ const statusText = document.getElementById("statusText");
 const tableWrap = document.getElementById("tableWrap");
 const tableBody = document.getElementById("kgiTableBody");
 const emptyState = document.getElementById("emptyState");
+const reloadButton = document.getElementById("reloadButton");
+const debugCurrentPage = document.getElementById("debugCurrentPage");
+const debugInitStarted = document.getElementById("debugInitStarted");
+const debugInitSucceeded = document.getElementById("debugInitSucceeded");
+const debugRedirectFrom = document.getElementById("debugRedirectFrom");
+const debugRedirectTo = document.getElementById("debugRedirectTo");
+const debugLastErrorMessage = document.getElementById("debugLastErrorMessage");
 const LIST_REDIRECT_TRACE_KEY = "kgi_redirect_trace";
+const PAGE_NAME = "list.html";
+
+const uiState = {
+  currentPage: PAGE_NAME,
+  initStarted: false,
+  initSucceeded: false,
+  redirectFrom: "",
+  redirectTo: "",
+  lastErrorMessage: ""
+};
+
+const renderUiState = () => {
+  if (debugCurrentPage) {
+    debugCurrentPage.textContent = uiState.currentPage;
+  }
+  if (debugInitStarted) {
+    debugInitStarted.textContent = String(uiState.initStarted);
+  }
+  if (debugInitSucceeded) {
+    debugInitSucceeded.textContent = String(uiState.initSucceeded);
+  }
+  if (debugRedirectFrom) {
+    debugRedirectFrom.textContent = uiState.redirectFrom || "-";
+  }
+  if (debugRedirectTo) {
+    debugRedirectTo.textContent = uiState.redirectTo || "-";
+  }
+  if (debugLastErrorMessage) {
+    debugLastErrorMessage.textContent = uiState.lastErrorMessage || "-";
+  }
+};
+
+const updateUiState = (partial = {}) => {
+  Object.assign(uiState, partial);
+  renderUiState();
+};
 
 const readRedirectTrace = () => {
   try {
@@ -34,6 +77,13 @@ const readRedirectTrace = () => {
 const logListInitStart = () => {
   const trace = readRedirectTrace();
   window.sessionStorage.removeItem(LIST_REDIRECT_TRACE_KEY);
+  updateUiState({
+    initStarted: true,
+    initSucceeded: false,
+    redirectFrom: trace?.fromHref ?? "",
+    redirectTo: trace?.toHref ?? window.location.href,
+    lastErrorMessage: ""
+  });
   console.info("list page init start", {
     href: window.location.href,
     redirectTrace: trace
@@ -41,6 +91,7 @@ const logListInitStart = () => {
 };
 
 const logListInitSuccess = (visibleCount) => {
+  updateUiState({ initSucceeded: true });
   console.info("list page init success", {
     href: window.location.href,
     visibleCount
@@ -48,6 +99,11 @@ const logListInitSuccess = (visibleCount) => {
 };
 
 window.addEventListener("error", (event) => {
+  updateUiState({
+    initStarted: true,
+    initSucceeded: false,
+    lastErrorMessage: event.message || "Runtime error"
+  });
   console.error("list page runtime error", {
     message: event.message,
     filename: event.filename,
@@ -58,12 +114,28 @@ window.addEventListener("error", (event) => {
 });
 
 window.addEventListener("unhandledrejection", (event) => {
+  updateUiState({
+    initStarted: true,
+    initSucceeded: false,
+    lastErrorMessage: event.reason instanceof Error ? event.reason.message : String(event.reason ?? "Unhandled rejection")
+  });
   console.error("list page unhandled rejection", event.reason);
 });
 
 const setStatus = (message, isError = false) => {
   statusText.textContent = message;
   statusText.classList.toggle("error", isError);
+};
+
+const renderSkeletonRow = (message) => {
+  tableBody.innerHTML = `<tr><td data-label="状態" colspan="4">${message}</td></tr>`;
+};
+
+const showInitFailureFallback = (message) => {
+  renderSkeletonRow("一覧の描画に失敗しました。再読み込みしてください。");
+  tableWrap.hidden = false;
+  emptyState.hidden = true;
+  setStatus(message, true);
 };
 
 const formatTimestampToYmd = (value) => {
@@ -119,9 +191,12 @@ const renderRows = (docs) => {
 };
 
 (async () => {
+  renderUiState();
+  reloadButton?.addEventListener("click", () => window.location.reload());
   logListInitStart();
 
   try {
+    renderSkeletonRow("読み込み中...");
     const db = await getDb();
     const kgisRef = collection(db, "kgis");
     const kgisQuery = query(kgisRef, orderBy("createdAt", "desc"));
@@ -131,6 +206,8 @@ const renderRows = (docs) => {
     if (visibleKgiDocs.length === 0) {
       setStatus("データは0件です。");
       emptyState.hidden = false;
+      tableWrap.hidden = true;
+      logListInitSuccess(0);
       return;
     }
 
@@ -142,6 +219,12 @@ const renderRows = (docs) => {
     logListInitSuccess(visibleKgiDocs.length);
   } catch (error) {
     console.error(error);
-    setStatus("一覧の読み込みに失敗しました。Firebase設定とルールを確認してください。", true);
+    const message = error instanceof Error ? error.message : String(error ?? "Unknown error");
+    updateUiState({
+      initStarted: true,
+      initSucceeded: false,
+      lastErrorMessage: message
+    });
+    showInitFailureFallback("一覧の読み込みに失敗しました。Firebase設定とルールを確認してください。");
   }
 })();

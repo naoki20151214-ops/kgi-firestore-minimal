@@ -35,6 +35,23 @@
         padding: 16px;
       }
 
+      .debug {
+        margin-top: 10px;
+        padding-top: 10px;
+        border-top: 1px dashed #cbd5e1;
+        font-size: 0.82rem;
+      }
+
+      .debug dl {
+        margin: 0;
+        display: grid;
+        grid-template-columns: minmax(120px, auto) 1fr;
+        gap: 4px 8px;
+      }
+
+      .debug dt { font-weight: 700; }
+      .debug dd { margin: 0; word-break: break-all; }
+
       .summary-card {
         text-align: center;
       }
@@ -1891,6 +1908,20 @@
       <section class="card">
         <h1>KGI詳細</h1>
         <p id="statusText" class="hint">読み込み中...</p>
+        <div class="top-actions-secondary">
+          <button id="reloadButton" class="button secondary" type="button">再読み込み</button>
+          <a class="button secondary" href="./index.html">トップへ戻る</a>
+        </div>
+        <section class="debug" aria-label="detail page debug">
+          <dl>
+            <dt>currentPage</dt><dd id="detailDebugCurrentPage">detail.html</dd>
+            <dt>initStarted</dt><dd id="detailDebugInitStarted">false</dd>
+            <dt>initSucceeded</dt><dd id="detailDebugInitSucceeded">false</dd>
+            <dt>redirectFrom</dt><dd id="detailDebugRedirectFrom">-</dd>
+            <dt>redirectTo</dt><dd id="detailDebugRedirectTo">-</dd>
+            <dt>lastErrorMessage</dt><dd id="detailDebugLastErrorMessage">-</dd>
+          </dl>
+        </section>
         <div id="kgiMeta" class="meta" hidden></div>
         <form id="kgiDeadlineForm" class="deadline-edit-form" hidden>
           <div class="field">

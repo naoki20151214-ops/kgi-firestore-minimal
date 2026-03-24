@@ -62,6 +62,44 @@
         color: #b91c1c;
       }
 
+      .error-actions {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin-bottom: 14px;
+      }
+
+      .button.outline {
+        background: #fff;
+        color: #1d4ed8;
+        border: 1px solid #93c5fd;
+      }
+
+      .debug {
+        margin: 0 0 14px;
+        padding: 10px;
+        background: #fffdfa;
+        border: 1px dashed #d6c8b2;
+        border-radius: 8px;
+        font-size: 0.82rem;
+      }
+
+      .debug dl {
+        margin: 0;
+        display: grid;
+        grid-template-columns: minmax(120px, auto) 1fr;
+        gap: 4px 8px;
+      }
+
+      .debug dt {
+        font-weight: 700;
+      }
+
+      .debug dd {
+        margin: 0;
+        word-break: break-all;
+      }
+
       .table-wrap {
         background: #fffdfa;
         border: 1px solid #ddd4c6;
@@ -204,8 +242,23 @@
       </div>
 
       <p id="statusText" class="hint">読み込み中...</p>
+      <div class="error-actions">
+        <button id="reloadButton" class="button outline" type="button">再読み込み</button>
+        <a class="button outline" href="./index.html">トップへ戻る</a>
+      </div>
 
-      <div class="table-wrap" id="tableWrap" hidden>
+      <section class="debug" aria-label="list debug">
+        <dl>
+          <dt>currentPage</dt><dd id="debugCurrentPage">list.html</dd>
+          <dt>initStarted</dt><dd id="debugInitStarted">false</dd>
+          <dt>initSucceeded</dt><dd id="debugInitSucceeded">false</dd>
+          <dt>redirectFrom</dt><dd id="debugRedirectFrom">-</dd>
+          <dt>redirectTo</dt><dd id="debugRedirectTo">-</dd>
+          <dt>lastErrorMessage</dt><dd id="debugLastErrorMessage">-</dd>
+        </dl>
+      </section>
+
+      <div class="table-wrap" id="tableWrap">
         <table id="kgiTable">
           <thead>
             <tr>
@@ -215,7 +268,9 @@
               <th>期限</th>
             </tr>
           </thead>
-          <tbody id="kgiTableBody"></tbody>
+          <tbody id="kgiTableBody">
+            <tr><td data-label="状態" colspan="4">読み込み中...</td></tr>
+          </tbody>
         </table>
       </div>
 

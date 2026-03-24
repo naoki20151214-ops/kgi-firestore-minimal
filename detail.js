@@ -14,6 +14,13 @@ import {
 import { getDb } from "./firebase-config.js";
 
 const statusText = document.getElementById("statusText");
+const reloadButton = document.getElementById("reloadButton");
+const detailDebugCurrentPage = document.getElementById("detailDebugCurrentPage");
+const detailDebugInitStarted = document.getElementById("detailDebugInitStarted");
+const detailDebugInitSucceeded = document.getElementById("detailDebugInitSucceeded");
+const detailDebugRedirectFrom = document.getElementById("detailDebugRedirectFrom");
+const detailDebugRedirectTo = document.getElementById("detailDebugRedirectTo");
+const detailDebugLastErrorMessage = document.getElementById("detailDebugLastErrorMessage");
 const kgiMeta = document.getElementById("kgiMeta");
 const kgiDeadlineForm = document.getElementById("kgiDeadlineForm");
 const kgiDeadlineEditInput = document.getElementById("kgiDeadlineEdit");
@@ -83,6 +90,40 @@ const debugPanelContent = document.getElementById("debugPanelContent");
 const debugMode = false;
 let latestDebugState = [];
 let latestDebugSummary = [];
+const pageInitState = {
+  currentPage: "detail.html",
+  initStarted: false,
+  initSucceeded: false,
+  redirectFrom: "",
+  redirectTo: "",
+  lastErrorMessage: ""
+};
+
+const renderPageInitState = () => {
+  if (detailDebugCurrentPage) {
+    detailDebugCurrentPage.textContent = pageInitState.currentPage;
+  }
+  if (detailDebugInitStarted) {
+    detailDebugInitStarted.textContent = String(pageInitState.initStarted);
+  }
+  if (detailDebugInitSucceeded) {
+    detailDebugInitSucceeded.textContent = String(pageInitState.initSucceeded);
+  }
+  if (detailDebugRedirectFrom) {
+    detailDebugRedirectFrom.textContent = pageInitState.redirectFrom || "-";
+  }
+  if (detailDebugRedirectTo) {
+    detailDebugRedirectTo.textContent = pageInitState.redirectTo || "-";
+  }
+  if (detailDebugLastErrorMessage) {
+    detailDebugLastErrorMessage.textContent = pageInitState.lastErrorMessage || "-";
+  }
+};
+
+const updatePageInitState = (partial = {}) => {
+  Object.assign(pageInitState, partial);
+  renderPageInitState();
+};
 
 const renderDebugPanelText = () => {
   if (!debugPanelContent) {
@@ -157,10 +198,17 @@ const reportDebugError = (label, error) => {
     : String(error ?? "Unknown error");
 
   appendDebugSummary(`JS例外: ${label}`, message);
+  updatePageInitState({
+    initStarted: true,
+    initSucceeded: false,
+    lastErrorMessage: message
+  });
 };
 
+renderPageInitState();
 updateDebugPanel([]);
 setDebugSummary("detail.html 初期化中");
+reloadButton?.addEventListener("click", () => window.location.reload());
 
 window.addEventListener("error", (event) => {
   reportDebugError(event.filename
@@ -3228,6 +3276,10 @@ const redirectDebugState = {
 const redirectToKgiList = () => {
   const relativeUrl = getKgiListPageUrl();
   const actualUrl = new URL(relativeUrl, window.location.href).href;
+  updatePageInitState({
+    redirectFrom: window.location.href,
+    redirectTo: actualUrl
+  });
   logArchiveFlow(`navigating to: ${actualUrl}`, {
     redirectCount: redirectDebugState.count,
     redirectSource: redirectDebugState.lastSource
@@ -3258,7 +3310,8 @@ const requestKgiListRedirect = (source = "unknown") => {
       at: new Date().toISOString(),
       source,
       count: redirectDebugState.count,
-      fromHref: window.location.href
+      fromHref: window.location.href,
+      toHref: new URL(getKgiListPageUrl(), window.location.href).href
     }));
     logArchiveFlow("window.location.replace() call start", { source });
     redirectToKgiList();
@@ -5782,6 +5835,13 @@ const resolvePhaseIdFromUrl = () => {
 };
 
 const initializeDetailPage = async () => {
+  updatePageInitState({
+    initStarted: true,
+    initSucceeded: false,
+    lastErrorMessage: "",
+    redirectFrom: "",
+    redirectTo: ""
+  });
   resetKpiSection();
   disableKpiActions();
   aiHasGenerated = false;
@@ -5816,6 +5876,10 @@ const initializeDetailPage = async () => {
     setKpiStatus("KPIを表示できません。", true);
     setDebugSummary("id なし");
     updateDebugPanel([]);
+    updatePageInitState({
+      initSucceeded: false,
+      lastErrorMessage: "KGI ID が指定されていません"
+    });
     return;
   }
 
@@ -5862,6 +5926,7 @@ const initializeDetailPage = async () => {
     setDebugSummary(`取得したid: ${kgiId}`, "KGI読み込み成功");
     await loadRoutineTasks();
     await loadKpis();
+    updatePageInitState({ initSucceeded: true });
   } catch (error) {
     console.error(error);
     reportDebugError("initializeDetailPage", error);
@@ -5870,6 +5935,10 @@ const initializeDetailPage = async () => {
     setRoutineTaskStatus("運用タスクを表示できません。", true);
     setDebugSummary(`取得したid: ${kgiId}`, "KGI読み込み失敗");
     updateDebugPanel([]);
+    updatePageInitState({
+      initSucceeded: false,
+      lastErrorMessage: error instanceof Error ? error.message : String(error ?? "Unknown error")
+    });
   }
 };
 
