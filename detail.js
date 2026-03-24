@@ -1,4 +1,11 @@
-import { doc, getDoc } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
+import {
+  collection,
+  doc,
+  getCountFromServer,
+  getDoc,
+  query,
+  where
+} from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
 import { getDb } from "./firebase-config.js";
 
 const bodyPage = document.body?.dataset?.page ?? "detail";
@@ -16,6 +23,9 @@ if (bodyPage === "phase") {
   const roadmapSectionElement = document.getElementById("roadmapSection");
   const roadmapListElement = document.getElementById("roadmapList");
   const roadmapEmptyElement = document.getElementById("roadmapEmpty");
+  const kpiSummarySectionElement = document.getElementById("kpiSummarySection");
+  const kpiTotalCountElement = document.getElementById("kpiTotalCount");
+  const kpiCompletedCountElement = document.getElementById("kpiCompletedCount");
 
   const setStatus = (text, isError = false) => {
     if (!statusTextElement) {
@@ -135,6 +145,37 @@ if (bodyPage === "phase") {
     roadmapSectionElement.hidden = false;
   };
 
+  const renderKpiSummary = ({ total = 0, completed = 0 } = {}) => {
+    if (!kpiSummarySectionElement || !kpiTotalCountElement || !kpiCompletedCountElement) {
+      return;
+    }
+
+    kpiTotalCountElement.textContent = String(total);
+    kpiCompletedCountElement.textContent = String(completed);
+    kpiSummarySectionElement.hidden = false;
+  };
+
+  const loadKpiSummary = async (db, kgiId) => {
+    try {
+      const kpiCollectionRef = collection(db, "kgis", kgiId, "kpis");
+      const [totalSnapshot, completedSnapshot] = await Promise.all([
+        getCountFromServer(kpiCollectionRef),
+        getCountFromServer(query(kpiCollectionRef, where("isCompleted", "==", true)))
+      ]);
+
+      renderKpiSummary({
+        total: totalSnapshot.data().count ?? 0,
+        completed: completedSnapshot.data().count ?? 0
+      });
+    } catch (error) {
+      console.warn("Failed to load KPI summary. Continue without summary.", {
+        kgiId,
+        error
+      });
+      renderKpiSummary({ total: 0, completed: 0 });
+    }
+  };
+
   const renderDoc = (data) => {
     const titleCandidates = ["title", "name", "kgiName"];
     const goalCandidates = ["goalDescription", "goal", "description", "goalText"];
@@ -176,6 +217,9 @@ if (bodyPage === "phase") {
     if (roadmapSectionElement) {
       roadmapSectionElement.hidden = true;
     }
+    if (kpiSummarySectionElement) {
+      kpiSummarySectionElement.hidden = true;
+    }
     setStatus(message, true);
   };
 
@@ -199,6 +243,7 @@ if (bodyPage === "phase") {
       }
 
       renderDoc(kgiSnapshot.data());
+      await loadKpiSummary(db, kgiId);
     } catch (error) {
       console.error("Failed to load detail document", {
         kgiId,
