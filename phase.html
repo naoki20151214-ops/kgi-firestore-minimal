@@ -37,6 +37,8 @@
       }
       textarea { min-height: 74px; resize: vertical; }
       button { background: #2563eb; color: #fff; border: none; font-weight: 700; cursor: pointer; }
+      button.secondary { background: #fff; color: #1d4ed8; border: 1px solid #bfdbfe; }
+      button:disabled { opacity: 0.6; cursor: not-allowed; }
       .row-links { display: flex; flex-wrap: wrap; gap: 8px; }
       .row-links a {
         display: inline-flex;
@@ -47,6 +49,10 @@
         color: #111827;
         background: #fff;
       }
+      .candidate-list { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 10px; }
+      .candidate-item { border: 1px solid #bfdbfe; border-radius: 10px; padding: 12px; background: #eff6ff; }
+      .candidate-meta { font-size: 0.82rem; color: #1d4ed8; margin-top: 6px; }
+      .candidate-actions { margin-top: 10px; display: flex; gap: 8px; }
     </style>
   </head>
   <body>
@@ -68,6 +74,14 @@
             <dd id="phaseDeadline">-</dd>
           </div>
         </dl>
+      </section>
+
+      <section class="card">
+        <h2>AIでこのフェーズのKPIを作成</h2>
+        <p class="hint">KGIとフェーズ情報からKPI候補を3〜5件作成します。</p>
+        <button id="generateAiKpiButton" type="button" class="secondary">AIでこのフェーズのKPIを作成</button>
+        <p id="aiGenerateStatus" class="hint"></p>
+        <ul id="aiCandidateList" class="candidate-list" hidden></ul>
       </section>
 
       <section class="card">
