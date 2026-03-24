@@ -1196,7 +1196,7 @@ showArchivedToggle?.addEventListener("change", async (event) => {
   await loadKpis();
 });
 
-archiveKgiButton?.addEventListener("click", () => {
+const handleArchiveDeleteButtonClick = () => {
   logArchiveFlow("delete button clicked", {
     buttonId: archiveKgiButton?.id ?? null,
     hasDialog: archiveKgiDialog instanceof HTMLDialogElement,
@@ -1214,7 +1214,7 @@ archiveKgiButton?.addEventListener("click", () => {
     dialogId: archiveKgiDialog.id,
     open: archiveKgiDialog.open
   });
-});
+};
 
 const handleArchiveConfirm = async (event) => {
   event?.preventDefault?.();
@@ -1226,8 +1226,29 @@ const handleArchiveConfirm = async (event) => {
   await archiveCurrentKgi();
 };
 
-confirmArchiveKgiButton?.addEventListener("click", handleArchiveConfirm);
-archiveKgiDialogForm?.addEventListener("submit", handleArchiveConfirm);
+const wireArchiveDeleteEvents = () => {
+  if (archiveKgiButton instanceof HTMLButtonElement) {
+    archiveKgiButton.addEventListener("click", handleArchiveDeleteButtonClick);
+    archiveKgiButton.onclick = handleArchiveDeleteButtonClick;
+  }
+
+  if (confirmArchiveKgiButton instanceof HTMLButtonElement) {
+    confirmArchiveKgiButton.addEventListener("click", handleArchiveConfirm);
+    confirmArchiveKgiButton.onclick = handleArchiveConfirm;
+  }
+
+  if (archiveKgiDialogForm instanceof HTMLFormElement) {
+    archiveKgiDialogForm.addEventListener("submit", handleArchiveConfirm);
+  }
+
+  logArchiveFlow("archive delete events wired", {
+    deleteButtonId: archiveKgiButton?.id ?? null,
+    confirmButtonId: confirmArchiveKgiButton?.id ?? null,
+    hasDialog: archiveKgiDialog instanceof HTMLDialogElement
+  });
+};
+
+wireArchiveDeleteEvents();
 
 archiveKgiDialog?.addEventListener("close", () => {
   archiveKgiDialog.returnValue = "";
@@ -3311,6 +3332,7 @@ const buildKgiDocPath = (targetKgiId) => `kgis/${targetKgiId}`;
 const archiveCurrentKgi = async () => {
   const targetKgiId = String(currentKgiData?.id ?? kgiId ?? "").trim();
   const targetDocPath = targetKgiId ? buildKgiDocPath(targetKgiId) : "kgis/(missing-id)";
+  let verificationStarted = false;
 
   logArchiveFlow("archiveCurrentKgi entered", {
     targetKgiId,
@@ -3386,6 +3408,7 @@ const archiveCurrentKgi = async () => {
     });
     logArchiveFlow("update success", { path: targetDocPath });
 
+    verificationStarted = true;
     const verifySnapshot = await getDoc(targetKgiRef);
 
     if (!verifySnapshot.exists()) {
@@ -3421,13 +3444,12 @@ const archiveCurrentKgi = async () => {
     showArchiveSuccessThenRedirect();
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error ?? "Unknown error");
-    logArchiveFlow("update failed", { kgiId, message, error }, "error");
     updateArchiveDebugState({
       archiveWriteSucceeded: false,
       archiveVerifySucceeded: false,
       lastErrorMessage: message
     });
-    logArchiveFlow(message.includes("確認") ? "verify failed" : "update failed", { path: targetDocPath, message }, "error");
+    logArchiveFlow(verificationStarted ? "verify failed" : "update failed", { path: targetDocPath, message, error }, "error");
     setArchiveKgiStatus(message, true);
     updateArchiveKgiButtonState(currentKgiData);
   } finally {
