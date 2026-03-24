@@ -14,6 +14,7 @@ import {
 import { getDb } from "./firebase-config.js";
 
 const statusText = document.getElementById("statusText");
+const archivedKgiNotice = document.getElementById("archivedKgiNotice");
 const reloadButton = document.getElementById("reloadButton");
 const detailDebugCurrentPage = document.getElementById("detailDebugCurrentPage");
 const detailDebugInitStarted = document.getElementById("detailDebugInitStarted");
@@ -3270,7 +3271,8 @@ const LIST_REDIRECT_TRACE_KEY = "kgi_redirect_trace";
 const redirectDebugState = {
   count: 0,
   inFlight: false,
-  lastSource: ""
+  lastSource: "",
+  alreadyRequested: false
 };
 
 const redirectToKgiList = () => {
@@ -3288,6 +3290,12 @@ const redirectToKgiList = () => {
 };
 
 const requestKgiListRedirect = (source = "unknown") => {
+  if (redirectDebugState.alreadyRequested) {
+    logArchiveFlow("redirect skipped because redirect was already requested before", { source }, "warn");
+    return;
+  }
+
+  redirectDebugState.alreadyRequested = true;
   redirectDebugState.count += 1;
   redirectDebugState.lastSource = source;
   logArchiveFlow("redirect count / redirect source", {
@@ -3323,6 +3331,46 @@ const requestKgiListRedirect = (source = "unknown") => {
     setStatus(`一覧への遷移に失敗しました: ${message}`, true);
     setArchiveKgiStatus(`一覧への遷移に失敗しました: ${message}`, true);
   }
+};
+
+const enterArchivedDetailView = (source = "unknown", kgiData = null) => {
+  logArchiveFlow("switch to archived detail safe mode", {
+    source,
+    kgiId,
+    hasKgiData: Boolean(kgiData)
+  }, "warn");
+  teardownRealtimeListeners();
+  if (archivedKgiNotice) {
+    archivedKgiNotice.hidden = false;
+  }
+  setStatus("このKGIはアーカイブ済みです。");
+  setArchiveKgiStatus("このKGIはアーカイブ済みです。自動遷移は行いません。");
+  setKpiStatus("アーカイブ済みのため、KPIは編集できません。");
+  setRoutineTaskStatus("アーカイブ済みのため、運用タスクは編集できません。");
+  archiveKgiButton.disabled = true;
+  archiveKgiButton.textContent = "このKGIはアーカイブ済みです";
+  if (generateAiKpisButton) {
+    generateAiKpisButton.disabled = true;
+  }
+  if (addKpiButton) {
+    addKpiButton.disabled = true;
+  }
+  if (generateRoadmapKpisButton) {
+    generateRoadmapKpisButton.disabled = true;
+  }
+  if (generateRoutineSuggestionsButton) {
+    generateRoutineSuggestionsButton.disabled = true;
+  }
+  if (postRoadmapKpiSections) {
+    postRoadmapKpiSections.hidden = true;
+  }
+  updatePageInitState({
+    initStarted: true,
+    initSucceeded: true,
+    redirectFrom: "",
+    redirectTo: "",
+    lastErrorMessage: ""
+  });
 };
 
 const buildKgiDocPath = (targetKgiId) => `kgis/${targetKgiId}`;
@@ -5735,11 +5783,7 @@ const scheduleSnapshotRefresh = () => {
     try {
       if (latestKgiSnapshotData) {
         if (isArchivedKgi(latestKgiSnapshotData)) {
-          logArchiveFlow("archived guard triggered", {
-            source: "realtime snapshot refresh",
-            kgiId
-          });
-          requestKgiListRedirect("archived guard: realtime snapshot refresh");
+          enterArchivedDetailView("realtime snapshot refresh", latestKgiSnapshotData);
           return;
         }
 
@@ -5903,17 +5947,12 @@ const initializeDetailPage = async () => {
     }
 
     if (isArchivedKgi(kgiSnapshot.data())) {
-      logArchiveFlow("archived guard triggered", {
-        source: "initializeDetailPage",
-        kgiId
-      });
       updateArchiveDebugState({
         targetKgiId: kgiId,
         targetCollectionPath: buildKgiDocPath(kgiId),
         archiveVerifySucceeded: true
       });
-      setArchiveKgiStatus("このKGIはアーカイブ済みです。一覧へ戻ります。");
-      requestKgiListRedirect("archived guard: initializeDetailPage");
+      enterArchivedDetailView("initializeDetailPage", kgiSnapshot.data());
       return;
     }
 
