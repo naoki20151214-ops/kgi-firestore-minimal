@@ -35,23 +35,6 @@
         padding: 16px;
       }
 
-      .debug {
-        margin-top: 10px;
-        padding-top: 10px;
-        border-top: 1px dashed #cbd5e1;
-        font-size: 0.82rem;
-      }
-
-      .debug dl {
-        margin: 0;
-        display: grid;
-        grid-template-columns: minmax(120px, auto) 1fr;
-        gap: 4px 8px;
-      }
-
-      .debug dt { font-weight: 700; }
-      .debug dd { margin: 0; word-break: break-all; }
-
       .summary-card {
         text-align: center;
       }
@@ -547,14 +530,11 @@
         width: 100%;
         align-items: center;
         justify-content: center;
-        min-height: 46px;
-        padding: 12px 16px;
+        padding: 10px 14px;
         border-radius: 10px;
         background: #2563eb;
         color: #fff;
         text-decoration: none;
-        font-size: 1rem;
-        line-height: 1.5;
         font-weight: 600;
         border: none;
         cursor: pointer;
@@ -566,22 +546,6 @@
 
       .button.attention {
         background: #ea580c;
-      }
-
-      .button.danger {
-        background: #b91c1c;
-      }
-
-      .button.danger-subtle {
-        background: #fff1f2;
-        color: #b91c1c;
-        border: 1px solid #e9a8ad;
-        font-weight: 700;
-        box-shadow: inset 0 0 0 1px rgba(185, 28, 28, 0.08);
-      }
-
-      .button.danger-subtle:hover {
-        background: #ffe4e6;
       }
 
       .button.text {
@@ -649,57 +613,6 @@
         margin-bottom: 12px;
       }
 
-      .danger-zone {
-        display: grid;
-        gap: 10px;
-        border: 1px solid #f3d2d2;
-        background: linear-gradient(180deg, #fffafa 0%, #ffffff 100%);
-      }
-
-      .danger-zone h2 {
-        margin-bottom: 4px;
-      }
-
-      .danger-zone .hint {
-        margin: 0;
-      }
-
-      .danger-zone-actions {
-        display: grid;
-        gap: 12px;
-      }
-
-      .danger-zone-delete-button {
-        min-height: 54px;
-        padding: 14px 18px;
-      }
-
-      .danger-zone-status {
-        min-height: 1.2em;
-      }
-
-      .heavy-section-toggle {
-        border: 1px solid #e5e7eb;
-        border-radius: 12px;
-        background: #fff;
-      }
-
-      .heavy-section-toggle > summary {
-        cursor: pointer;
-        list-style: none;
-        padding: 14px 16px;
-        font-weight: 700;
-        color: #334155;
-      }
-
-      .heavy-section-toggle > summary::-webkit-details-marker {
-        display: none;
-      }
-
-      .heavy-section-body {
-        padding: 0 0 4px;
-      }
-
       label {
         font-size: 0.92rem;
         font-weight: 600;
@@ -740,16 +653,6 @@
 
       .hint.error {
         color: #b91c1c;
-      }
-
-      .archived-notice {
-        border: 1px solid #fecaca;
-        background: #fff7f7;
-        border-radius: 12px;
-        padding: 12px;
-        margin-top: 10px;
-        display: grid;
-        gap: 10px;
       }
 
       .progress-wrap {
@@ -1918,27 +1821,6 @@
       <section class="card">
         <h1>KGI詳細</h1>
         <p id="statusText" class="hint">読み込み中...</p>
-        <section id="archivedKgiNotice" class="archived-notice" hidden>
-          <p class="hint error">このKGIはアーカイブ済みです。</p>
-          <div class="top-actions-secondary">
-            <a class="button secondary" href="./list.html">一覧に戻る</a>
-            <a class="button secondary" href="./index.html">トップへ戻る</a>
-          </div>
-        </section>
-        <div class="top-actions-secondary">
-          <button id="reloadButton" class="button secondary" type="button">再読み込み</button>
-          <a class="button secondary" href="./index.html">トップへ戻る</a>
-        </div>
-        <section id="detailDebugSection" class="debug" aria-label="detail page debug" hidden>
-          <dl>
-            <dt>currentPage</dt><dd id="detailDebugCurrentPage">detail.html</dd>
-            <dt>initStarted</dt><dd id="detailDebugInitStarted">false</dd>
-            <dt>initSucceeded</dt><dd id="detailDebugInitSucceeded">false</dd>
-            <dt>redirectFrom</dt><dd id="detailDebugRedirectFrom">-</dd>
-            <dt>redirectTo</dt><dd id="detailDebugRedirectTo">-</dd>
-            <dt>lastErrorMessage</dt><dd id="detailDebugLastErrorMessage">-</dd>
-          </dl>
-        </section>
         <div id="kgiMeta" class="meta" hidden></div>
         <form id="kgiDeadlineForm" class="deadline-edit-form" hidden>
           <div class="field">
@@ -1968,69 +1850,54 @@
       </section>
 
       <div id="postRoadmapKpiSections">
-        <details class="heavy-section-toggle">
-          <summary>現在地と次の到達点（必要時のみ表示）</summary>
-          <div class="heavy-section-body">
-            <section id="currentLocationSection" class="card">
-              <h2>現在地と次の到達点</h2>
-              <div id="currentLocationContainer" class="location-grid">
-                <p class="hint">ロードマップを確認中...</p>
-              </div>
-            </section>
+        <section id="currentLocationSection" class="card">
+          <h2>現在地と次の到達点</h2>
+          <div id="currentLocationContainer" class="location-grid">
+            <p class="hint">ロードマップを確認中...</p>
           </div>
-        </details>
+        </section>
 
-        <details class="heavy-section-toggle">
-          <summary>今やるべきこと（必要時のみ表示）</summary>
-          <div class="heavy-section-body">
-            <section id="nextActionSection" class="card next-action-card">
-              <h2>今やるべきこと</h2>
-              <div id="nextActionContainer" class="next-action-body">
-                <p class="hint">算出中...</p>
-              </div>
-            </section>
+        <section id="nextActionSection" class="card next-action-card">
+          <h2>今やるべきこと</h2>
+          <div id="nextActionContainer" class="next-action-body">
+            <p class="hint">算出中...</p>
           </div>
-        </details>
+        </section>
 
-        <details class="heavy-section-toggle">
-          <summary>運用タスク（必要時のみ表示）</summary>
-          <div class="heavy-section-body">
-            <section id="routineTaskSection" class="card routine-task-card">
-              <div class="routine-task-header">
-                <div>
-                  <h2>運用タスク</h2>
-                  <p class="hint">KPIに直接紐づかない、プロジェクト全体の定常タスクを小さく管理します。</p>
-                </div>
-                <p id="routineTaskStatusText" class="hint">読み込み中...</p>
-              </div>
-              <form id="routineTaskForm" class="routine-task-form">
-                <h3>運用タスクを追加</h3>
-                <div class="routine-task-form-grid">
-                  <div class="field"><label for="routineTaskTitle">タイトル</label><input id="routineTaskTitle" name="title" type="text" placeholder="例: 毎朝トップページを確認する" required /></div>
-                  <div class="field"><label for="routineTaskDescription">補足説明</label><input id="routineTaskDescription" name="description" type="text" placeholder="任意" /></div>
-                  <div class="field"><label for="routineTaskCadence">頻度</label><select id="routineTaskCadence" name="cadence"><option value="daily">daily</option><option value="weekly">weekly</option><option value="ad_hoc">ad_hoc</option></select></div>
-                </div>
-                <button class="button" type="submit">運用タスクを追加</button>
-              </form>
-              <section class="routine-task-ai-panel" aria-labelledby="routineTaskAiTitle">
-                <div class="routine-task-header">
-                  <div>
-                    <h3 id="routineTaskAiTitle">AI候補から追加</h3>
-                    <p class="hint">固定テンプレートから必要な運用タスクだけを選んで追加できます。</p>
-                  </div>
-                </div>
-                <div class="routine-task-ai-actions">
-                  <button id="generateRoutineSuggestionsButton" class="button secondary" type="button">AIでルーティン案を作る</button>
-                  <div id="routineSuggestionList" class="routine-task-suggestion-list" hidden></div>
-                  <button id="addSelectedRoutineSuggestionsButton" class="button" type="button" hidden disabled>選択した候補を追加</button>
-                </div>
-              </section>
-              <div id="routineTaskList" class="routine-task-list">
-                <p class="hint">運用タスクを読み込み中...</p>
-              </div>
-            </section>
+        <section id="routineTaskSection" class="card routine-task-card">
+          <div class="routine-task-header">
+            <div>
+              <h2>運用タスク</h2>
+              <p class="hint">KPIに直接紐づかない、プロジェクト全体の定常タスクを小さく管理します。</p>
+            </div>
+            <p id="routineTaskStatusText" class="hint">読み込み中...</p>
           </div>
-        </details>
+          <form id="routineTaskForm" class="routine-task-form">
+            <h3>運用タスクを追加</h3>
+            <div class="routine-task-form-grid">
+              <div class="field"><label for="routineTaskTitle">タイトル</label><input id="routineTaskTitle" name="title" type="text" placeholder="例: 毎朝トップページを確認する" required /></div>
+              <div class="field"><label for="routineTaskDescription">補足説明</label><input id="routineTaskDescription" name="description" type="text" placeholder="任意" /></div>
+              <div class="field"><label for="routineTaskCadence">頻度</label><select id="routineTaskCadence" name="cadence"><option value="daily">daily</option><option value="weekly">weekly</option><option value="ad_hoc">ad_hoc</option></select></div>
+            </div>
+            <button class="button" type="submit">運用タスクを追加</button>
+          </form>
+          <section class="routine-task-ai-panel" aria-labelledby="routineTaskAiTitle">
+            <div class="routine-task-header">
+              <div>
+                <h3 id="routineTaskAiTitle">AI候補から追加</h3>
+                <p class="hint">固定テンプレートから必要な運用タスクだけを選んで追加できます。</p>
+              </div>
+            </div>
+            <div class="routine-task-ai-actions">
+              <button id="generateRoutineSuggestionsButton" class="button secondary" type="button">AIでルーティン案を作る</button>
+              <div id="routineSuggestionList" class="routine-task-suggestion-list" hidden></div>
+              <button id="addSelectedRoutineSuggestionsButton" class="button" type="button" hidden disabled>選択した候補を追加</button>
+            </div>
+          </section>
+          <div id="routineTaskList" class="routine-task-list">
+            <p class="hint">運用タスクを読み込み中...</p>
+          </div>
+        </section>
 
         <section id="kpiSummarySection" class="card kpi-summary-card">
           <div class="kpi-summary-header">
@@ -2051,7 +1918,7 @@
 
         <section class="card" hidden aria-hidden="true">
           <details id="kpiManagementPanel" class="kpi-management-panel">
-            <summary>KPI詳細・追加</summary>
+            <summary>KPI詳細・追加・アーカイブ操作</summary>
             <div class="kpi-management-grid">
               <section>
                 <h2>KPIを追加</h2>
@@ -2076,22 +1943,10 @@
             </div>
           </details>
         </section>
-
       </div>
 
-      <section class="card danger-zone" aria-labelledby="dangerZoneTitle">
-        <div>
-          <h2 id="dangerZoneTitle">KGIの整理</h2>
-          <p class="hint">一覧カードには削除操作を置かず、KGI詳細ページの最下部からのみアーカイブできます。</p>
-        </div>
-        <div class="danger-zone-actions">
-          <a class="button secondary" href="./list.html">一覧に戻る</a>
-          <button id="archiveKgiButton" class="button danger-subtle danger-zone-delete-button" type="button">このKGIを削除</button>
-          <p id="archiveKgiStatus" class="hint danger-zone-status"></p>
-        </div>
-      </section>
-
     </main>
+
 
     <script type="module" src="./detail.js"></script>
   </body>

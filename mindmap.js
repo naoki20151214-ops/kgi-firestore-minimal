@@ -19,7 +19,6 @@ const debugInfo = document.getElementById("debugInfo");
 
 let kgiId = "";
 let mindmapOpenState = {};
-const isArchivedKgi = (kgi) => kgi?.archived === true || String(kgi?.status ?? "").trim().toLowerCase() === "archived";
 
 const debugState = {
   kgiId: "",
@@ -508,11 +507,6 @@ const loadMindmap = async () => {
     setMindmapStatus("KGIを取得できませんでした。", true);
     renderEmptyMap("まだマップに表示する項目がありません");
     updateDebugState({ loadState: "kgi not found", kgiFetch: "not_found", errorMessage: "kgis/{id} に対象ドキュメントがありません。" });
-    return;
-  }
-
-  if (isArchivedKgi(kgiSnapshot.data())) {
-    window.location.href = "./list.html";
     return;
   }
 
