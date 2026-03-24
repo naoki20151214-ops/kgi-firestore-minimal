@@ -3272,74 +3272,6 @@ const getKpisRef = () => collection(db, "kpis");
 const getKpisQuery = () => query(getKpisRef(), where("kgiId", "==", kgiId));
 const getTasksRef = (kpiId) => collection(getKpisRef(), kpiId, "tasks");
 const getKpiRef = (kpiId) => doc(getKpisRef(), kpiId);
-const getKgiListPageUrl = () => "./list.html";
-const LIST_REDIRECT_TRACE_KEY = "kgi_redirect_trace";
-
-const redirectDebugState = {
-  count: 0,
-  inFlight: false,
-  lastSource: "",
-  alreadyRequested: false
-};
-
-const redirectToKgiList = () => {
-  const relativeUrl = getKgiListPageUrl();
-  const actualUrl = new URL(relativeUrl, window.location.href).href;
-  updatePageInitState({
-    redirectFrom: window.location.href,
-    redirectTo: actualUrl
-  });
-  logArchiveFlow(`navigating to: ${actualUrl}`, {
-    redirectCount: redirectDebugState.count,
-    redirectSource: redirectDebugState.lastSource
-  });
-  window.location.replace(actualUrl);
-};
-
-const requestKgiListRedirect = (source = "unknown") => {
-  if (redirectDebugState.alreadyRequested) {
-    logArchiveFlow("redirect skipped because redirect was already requested before", { source }, "warn");
-    return;
-  }
-
-  redirectDebugState.alreadyRequested = true;
-  redirectDebugState.count += 1;
-  redirectDebugState.lastSource = source;
-  logArchiveFlow("redirect count / redirect source", {
-    redirectCount: redirectDebugState.count,
-    redirectSource: source
-  });
-
-  if (redirectDebugState.inFlight) {
-    logArchiveFlow("redirect skipped because another redirect is already in flight", {
-      redirectCount: redirectDebugState.count,
-      redirectSource: source
-    }, "warn");
-    return;
-  }
-
-  redirectDebugState.inFlight = true;
-
-  try {
-    window.sessionStorage.setItem(LIST_REDIRECT_TRACE_KEY, JSON.stringify({
-      at: new Date().toISOString(),
-      source,
-      count: redirectDebugState.count,
-      fromHref: window.location.href,
-      toHref: new URL(getKgiListPageUrl(), window.location.href).href
-    }));
-    logArchiveFlow("window.location.replace() call start", { source });
-    redirectToKgiList();
-    logArchiveFlow("window.location.replace() call completed", { source });
-  } catch (error) {
-    redirectDebugState.inFlight = false;
-    const message = error instanceof Error ? error.message : String(error ?? "Unknown error");
-    logArchiveFlow("window.location.replace() failed", { source, message, error }, "error");
-    setStatus(`一覧への遷移に失敗しました: ${message}`, true);
-    setArchiveKgiStatus(`一覧への遷移に失敗しました: ${message}`, true);
-  }
-};
-
 const enterArchivedDetailView = (source = "unknown", kgiData = null) => {
   logArchiveFlow("switch to archived detail safe mode", {
     source,
@@ -5976,7 +5908,7 @@ const initializeDetailPage = async () => {
   } catch (error) {
     console.error(error);
     reportDebugError("initializeDetailPage", error);
-    setStatus("KGIの読み込みに失敗しました", true);
+    setStatus("読み込みに失敗しました。再読み込みしてください。", true);
     setKpiStatus("KPIを表示できません。", true);
     setRoutineTaskStatus("運用タスクを表示できません。", true);
     setDebugSummary(`取得したid: ${kgiId}`, "KGI読み込み失敗");
