@@ -10,6 +10,56 @@ const statusText = document.getElementById("statusText");
 const tableWrap = document.getElementById("tableWrap");
 const tableBody = document.getElementById("kgiTableBody");
 const emptyState = document.getElementById("emptyState");
+const LIST_REDIRECT_TRACE_KEY = "kgi_redirect_trace";
+
+const readRedirectTrace = () => {
+  try {
+    const raw = window.sessionStorage.getItem(LIST_REDIRECT_TRACE_KEY);
+    if (!raw) {
+      return null;
+    }
+
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") {
+      return null;
+    }
+
+    return parsed;
+  } catch (error) {
+    console.warn("Failed to read redirect trace", error);
+    return null;
+  }
+};
+
+const logListInitStart = () => {
+  const trace = readRedirectTrace();
+  window.sessionStorage.removeItem(LIST_REDIRECT_TRACE_KEY);
+  console.info("list page init start", {
+    href: window.location.href,
+    redirectTrace: trace
+  });
+};
+
+const logListInitSuccess = (visibleCount) => {
+  console.info("list page init success", {
+    href: window.location.href,
+    visibleCount
+  });
+};
+
+window.addEventListener("error", (event) => {
+  console.error("list page runtime error", {
+    message: event.message,
+    filename: event.filename,
+    lineno: event.lineno,
+    colno: event.colno,
+    error: event.error
+  });
+});
+
+window.addEventListener("unhandledrejection", (event) => {
+  console.error("list page unhandled rejection", event.reason);
+});
 
 const setStatus = (message, isError = false) => {
   statusText.textContent = message;
@@ -69,6 +119,8 @@ const renderRows = (docs) => {
 };
 
 (async () => {
+  logListInitStart();
+
   try {
     const db = await getDb();
     const kgisRef = collection(db, "kgis");
@@ -87,6 +139,7 @@ const renderRows = (docs) => {
     emptyState.hidden = true;
 
     setStatus(`${visibleKgiDocs.length}件のKGIを表示しています。`);
+    logListInitSuccess(visibleKgiDocs.length);
   } catch (error) {
     console.error(error);
     setStatus("一覧の読み込みに失敗しました。Firebase設定とルールを確認してください。", true);
