@@ -10,132 +10,14 @@ const statusText = document.getElementById("statusText");
 const tableWrap = document.getElementById("tableWrap");
 const tableBody = document.getElementById("kgiTableBody");
 const emptyState = document.getElementById("emptyState");
-const reloadButton = document.getElementById("reloadButton");
-const debugCurrentPage = document.getElementById("debugCurrentPage");
-const debugInitStarted = document.getElementById("debugInitStarted");
-const debugInitSucceeded = document.getElementById("debugInitSucceeded");
-const debugRedirectFrom = document.getElementById("debugRedirectFrom");
-const debugRedirectTo = document.getElementById("debugRedirectTo");
-const debugLastErrorMessage = document.getElementById("debugLastErrorMessage");
-const LIST_REDIRECT_TRACE_KEY = "kgi_redirect_trace";
-const PAGE_NAME = "list.html";
-
-const uiState = {
-  currentPage: PAGE_NAME,
-  initStarted: false,
-  initSucceeded: false,
-  redirectFrom: "",
-  redirectTo: "",
-  lastErrorMessage: ""
-};
-
-const renderUiState = () => {
-  if (debugCurrentPage) {
-    debugCurrentPage.textContent = uiState.currentPage;
-  }
-  if (debugInitStarted) {
-    debugInitStarted.textContent = String(uiState.initStarted);
-  }
-  if (debugInitSucceeded) {
-    debugInitSucceeded.textContent = String(uiState.initSucceeded);
-  }
-  if (debugRedirectFrom) {
-    debugRedirectFrom.textContent = uiState.redirectFrom || "-";
-  }
-  if (debugRedirectTo) {
-    debugRedirectTo.textContent = uiState.redirectTo || "-";
-  }
-  if (debugLastErrorMessage) {
-    debugLastErrorMessage.textContent = uiState.lastErrorMessage || "-";
-  }
-};
-
-const updateUiState = (partial = {}) => {
-  Object.assign(uiState, partial);
-  renderUiState();
-};
-
-const readRedirectTrace = () => {
-  try {
-    const raw = window.sessionStorage.getItem(LIST_REDIRECT_TRACE_KEY);
-    if (!raw) {
-      return null;
-    }
-
-    const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== "object") {
-      return null;
-    }
-
-    return parsed;
-  } catch (error) {
-    console.warn("Failed to read redirect trace", error);
-    return null;
-  }
-};
-
-const logListInitStart = () => {
-  const trace = readRedirectTrace();
-  window.sessionStorage.removeItem(LIST_REDIRECT_TRACE_KEY);
-  updateUiState({
-    initStarted: true,
-    initSucceeded: false,
-    redirectFrom: trace?.fromHref ?? "",
-    redirectTo: trace?.toHref ?? window.location.href,
-    lastErrorMessage: ""
-  });
-  console.info("list page init start", {
-    href: window.location.href,
-    redirectTrace: trace
-  });
-};
-
-const logListInitSuccess = (visibleCount) => {
-  updateUiState({ initSucceeded: true });
-  console.info("list page init success", {
-    href: window.location.href,
-    visibleCount
-  });
-};
-
-window.addEventListener("error", (event) => {
-  updateUiState({
-    initStarted: true,
-    initSucceeded: false,
-    lastErrorMessage: event.message || "Runtime error"
-  });
-  console.error("list page runtime error", {
-    message: event.message,
-    filename: event.filename,
-    lineno: event.lineno,
-    colno: event.colno,
-    error: event.error
-  });
-});
-
-window.addEventListener("unhandledrejection", (event) => {
-  updateUiState({
-    initStarted: true,
-    initSucceeded: false,
-    lastErrorMessage: event.reason instanceof Error ? event.reason.message : String(event.reason ?? "Unhandled rejection")
-  });
-  console.error("list page unhandled rejection", event.reason);
-});
+const todayTaskSection = document.getElementById("todayTaskSection");
+const todayTaskName = document.getElementById("todayTaskName");
+const todayTaskKpi = document.getElementById("todayTaskKpi");
+const todayTaskLink = document.getElementById("todayTaskLink");
 
 const setStatus = (message, isError = false) => {
   statusText.textContent = message;
   statusText.classList.toggle("error", isError);
-};
-
-const renderSkeletonRow = (message) => {
-  tableBody.innerHTML = `<tr><td data-label="状態" colspan="4">${message}</td></tr>`;
-};
-
-const showInitFailureFallback = (message) => {
-  renderSkeletonRow("一覧の描画に失敗しました。再読み込みしてください。");
-  tableWrap.hidden = false;
-  emptyState.hidden = true;
-  setStatus(message, true);
 };
 
 const formatTimestampToYmd = (value) => {
@@ -168,9 +50,80 @@ const displayDeadline = (deadline) => {
   return trimmed || "未設定";
 };
 
-const isArchivedKgi = (kgi) => kgi?.archived === true || String(kgi?.status ?? "").trim().toLowerCase() === "archived";
+const getComparableCreatedAt = (value) => {
+  if (value && typeof value.toDate === "function") {
+    return value.toDate().getTime();
+  }
 
-const filterVisibleKgiDocs = (docs = []) => docs.filter((docItem) => !isArchivedKgi(docItem.data()));
+  return Number.MAX_SAFE_INTEGER;
+};
+
+const getTaskIsCompleted = (task) => {
+  if (typeof task?.isCompleted === "boolean") {
+    return task.isCompleted;
+  }
+
+  if (typeof task?.isCompleted === "string") {
+    return task.isCompleted === "true";
+  }
+
+  if (typeof task?.completed === "boolean") {
+    return task.completed;
+  }
+
+  if (typeof task?.completionStatus === "string") {
+    return task.completionStatus === "completed";
+  }
+
+  return task?.status === "done" || task?.status === "completed";
+};
+
+const normalizeTaskTicketStatus = (task) => {
+  const rawStatus = String(task?.ticketStatus ?? task?.status ?? "").trim().toLowerCase();
+
+  if (rawStatus === "done" || rawStatus === "completed") {
+    return "done";
+  }
+
+  return getTaskIsCompleted(task) ? "done" : "todo";
+};
+
+const sortTasks = (tasks) => (Array.isArray(tasks) ? [...tasks] : []).sort((a, b) => {
+  const orderA = Number.isFinite(Number(a?.order)) ? Number(a.order) : Number.MAX_SAFE_INTEGER;
+  const orderB = Number.isFinite(Number(b?.order)) ? Number(b.order) : Number.MAX_SAFE_INTEGER;
+
+  if (orderA !== orderB) {
+    return orderA - orderB;
+  }
+
+  const createdAtA = getComparableCreatedAt(a?.createdAt);
+  const createdAtB = getComparableCreatedAt(b?.createdAt);
+
+  if (createdAtA !== createdAtB) {
+    return createdAtA - createdAtB;
+  }
+
+  return String(a?.id ?? "").localeCompare(String(b?.id ?? ""), "ja");
+});
+
+const getFirstIncompleteTask = (tasks) => sortTasks(tasks)
+  .find((task) => normalizeTaskTicketStatus(task) !== "done" && !getTaskIsCompleted(task)) ?? null;
+
+const isArchivedKpi = (kpi) => String(kpi?.status ?? "").trim().toLowerCase() === "archived";
+
+const isCompletedKpi = (kpi) => {
+  if (!kpi || isArchivedKpi(kpi)) {
+    return false;
+  }
+
+  const progress = Number(kpi?.progress ?? kpi?.overallProgress ?? 0);
+  if (Number.isFinite(progress) && progress >= 100) {
+    return true;
+  }
+
+  const tasks = Array.isArray(kpi?.tasks) ? kpi.tasks : [];
+  return tasks.length > 0 && tasks.every((task) => getTaskIsCompleted(task));
+};
 
 const renderRows = (docs) => {
   tableBody.innerHTML = "";
@@ -190,41 +143,78 @@ const renderRows = (docs) => {
   });
 };
 
-(async () => {
-  renderUiState();
-  reloadButton?.addEventListener("click", () => window.location.reload());
-  logListInitStart();
+const renderTodayTask = (todayTask) => {
+  if (!todayTaskSection || !todayTaskName || !todayTaskKpi || !todayTaskLink) {
+    return;
+  }
 
+  if (!todayTask) {
+    todayTaskSection.hidden = true;
+    return;
+  }
+
+  todayTaskName.textContent = todayTask.taskTitle;
+  todayTaskKpi.textContent = `対象KPI: ${todayTask.kpiName}`;
+  todayTaskLink.href = `./detail.html?id=${todayTask.kgiId}`;
+  todayTaskSection.hidden = false;
+};
+
+const findTodayTask = async (db, kgis) => {
+  const kgisById = new Map(kgis.map((docItem) => [docItem.id, docItem.data()]));
+  const kpisSnapshot = await getDocs(query(collection(db, "kpis"), orderBy("createdAt", "asc")));
+
+  const kpis = kpisSnapshot.docs
+    .map((docItem) => ({ id: docItem.id, ...docItem.data() }))
+    .filter((kpi) => kgisById.has(kpi.kgiId) && !isArchivedKpi(kpi));
+
+  for (const kpi of kpis) {
+    const tasksSnapshot = await getDocs(collection(db, "kpis", kpi.id, "tasks"));
+    const tasks = tasksSnapshot.docs.map((docItem) => ({ id: docItem.id, ...docItem.data() }));
+    const firstIncompleteTask = getFirstIncompleteTask(tasks);
+
+    if (!firstIncompleteTask) {
+      continue;
+    }
+
+    if (isCompletedKpi({ ...kpi, tasks })) {
+      continue;
+    }
+
+    return {
+      kgiId: kpi.kgiId,
+      kpiName: typeof kpi.name === "string" && kpi.name.trim() ? kpi.name.trim() : "名称未設定KPI",
+      taskTitle: typeof firstIncompleteTask.title === "string" && firstIncompleteTask.title.trim()
+        ? firstIncompleteTask.title.trim()
+        : "名称未設定Task"
+    };
+  }
+
+  return null;
+};
+
+(async () => {
   try {
-    renderSkeletonRow("読み込み中...");
     const db = await getDb();
     const kgisRef = collection(db, "kgis");
     const kgisQuery = query(kgisRef, orderBy("createdAt", "desc"));
     const snapshot = await getDocs(kgisQuery);
-    const visibleKgiDocs = filterVisibleKgiDocs(snapshot.docs);
 
-    if (visibleKgiDocs.length === 0) {
+    if (snapshot.empty) {
       setStatus("データは0件です。");
       emptyState.hidden = false;
-      tableWrap.hidden = true;
-      logListInitSuccess(0);
+      renderTodayTask(null);
       return;
     }
 
-    renderRows(visibleKgiDocs);
+    renderRows(snapshot.docs);
     tableWrap.hidden = false;
-    emptyState.hidden = true;
 
-    setStatus(`${visibleKgiDocs.length}件のKGIを表示しています。`);
-    logListInitSuccess(visibleKgiDocs.length);
+    const todayTask = await findTodayTask(db, snapshot.docs);
+    renderTodayTask(todayTask);
+
+    setStatus(`${snapshot.size}件のKGIを表示しています。`);
   } catch (error) {
     console.error(error);
-    const message = error instanceof Error ? error.message : String(error ?? "Unknown error");
-    updateUiState({
-      initStarted: true,
-      initSucceeded: false,
-      lastErrorMessage: message
-    });
-    showInitFailureFallback("一覧の読み込みに失敗しました。Firebase設定とルールを確認してください。");
+    setStatus("一覧の読み込みに失敗しました。Firebase設定とルールを確認してください。", true);
   }
 })();

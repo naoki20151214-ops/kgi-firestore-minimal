@@ -14,14 +14,6 @@ import {
 import { getDb } from "./firebase-config.js";
 
 const statusText = document.getElementById("statusText");
-const archivedKgiNotice = document.getElementById("archivedKgiNotice");
-const reloadButton = document.getElementById("reloadButton");
-const detailDebugCurrentPage = document.getElementById("detailDebugCurrentPage");
-const detailDebugInitStarted = document.getElementById("detailDebugInitStarted");
-const detailDebugInitSucceeded = document.getElementById("detailDebugInitSucceeded");
-const detailDebugRedirectFrom = document.getElementById("detailDebugRedirectFrom");
-const detailDebugRedirectTo = document.getElementById("detailDebugRedirectTo");
-const detailDebugLastErrorMessage = document.getElementById("detailDebugLastErrorMessage");
 const kgiMeta = document.getElementById("kgiMeta");
 const kgiDeadlineForm = document.getElementById("kgiDeadlineForm");
 const kgiDeadlineEditInput = document.getElementById("kgiDeadlineEdit");
@@ -73,8 +65,6 @@ const addKpiButton = document.getElementById("addKpiButton");
 const toggleKpiFormButton = document.getElementById("toggleKpiFormButton");
 const kpiAddFormPanel = document.getElementById("kpiAddFormPanel");
 const showArchivedToggle = document.getElementById("showArchivedToggle");
-const archiveKgiButton = document.getElementById("archiveKgiButton");
-const archiveKgiStatus = document.getElementById("archiveKgiStatus");
 let overallProgressValue = document.getElementById("overallProgressValue");
 let overallProgressFill = document.getElementById("overallProgressFill");
 let overallProgressCaption = document.getElementById("overallProgressCaption");
@@ -87,45 +77,10 @@ const actionKpiSuggestions = document.getElementById("actionKpiSuggestions");
 const subKgiSuggestions = document.getElementById("subKgiSuggestions");
 const debugPanel = document.getElementById("debugPanel");
 const debugPanelContent = document.getElementById("debugPanelContent");
-const detailDebugSection = document.getElementById("detailDebugSection");
 
-const debugMode = new URLSearchParams(window.location.search).get("debug") === "1";
+const debugMode = false;
 let latestDebugState = [];
 let latestDebugSummary = [];
-const pageInitState = {
-  currentPage: "detail.html",
-  initStarted: false,
-  initSucceeded: false,
-  redirectFrom: "",
-  redirectTo: "",
-  lastErrorMessage: ""
-};
-
-const renderPageInitState = () => {
-  if (detailDebugCurrentPage) {
-    detailDebugCurrentPage.textContent = pageInitState.currentPage;
-  }
-  if (detailDebugInitStarted) {
-    detailDebugInitStarted.textContent = String(pageInitState.initStarted);
-  }
-  if (detailDebugInitSucceeded) {
-    detailDebugInitSucceeded.textContent = String(pageInitState.initSucceeded);
-  }
-  if (detailDebugRedirectFrom) {
-    detailDebugRedirectFrom.textContent = pageInitState.redirectFrom || "-";
-  }
-  if (detailDebugRedirectTo) {
-    detailDebugRedirectTo.textContent = pageInitState.redirectTo || "-";
-  }
-  if (detailDebugLastErrorMessage) {
-    detailDebugLastErrorMessage.textContent = pageInitState.lastErrorMessage || "-";
-  }
-};
-
-const updatePageInitState = (partial = {}) => {
-  Object.assign(pageInitState, partial);
-  renderPageInitState();
-};
 
 const renderDebugPanelText = () => {
   if (!debugPanelContent) {
@@ -200,21 +155,10 @@ const reportDebugError = (label, error) => {
     : String(error ?? "Unknown error");
 
   appendDebugSummary(`JS例外: ${label}`, message);
-  updatePageInitState({
-    initStarted: true,
-    initSucceeded: false,
-    lastErrorMessage: message
-  });
 };
 
-if (detailDebugSection) {
-  detailDebugSection.hidden = !debugMode;
-}
-
-renderPageInitState();
 updateDebugPanel([]);
 setDebugSummary("detail.html 初期化中");
-reloadButton?.addEventListener("click", () => window.location.reload());
 
 window.addEventListener("error", (event) => {
   reportDebugError(event.filename
@@ -713,10 +657,8 @@ const updateInitialRoadmapKpiGuide = (kpiCount = latestRenderedKpis.length) => {
     roadmapKpiIntro.hidden = !isFirstKpiGuidance;
   }
 
-  const shouldShowPostRoadmapSections = normalizedKpiCount > 0 && !isFirstKpiGuidance;
-
   if (postRoadmapKpiSections) {
-    postRoadmapKpiSections.hidden = !shouldShowPostRoadmapSections;
+    postRoadmapKpiSections.hidden = isFirstKpiGuidance;
   }
 
 
@@ -776,8 +718,6 @@ const resetKpiSection = () => {
     steps: []
   });
   renderNextAction(null);
-  setArchiveKgiStatus("");
-  updateArchiveKgiButtonState(null);
 };
 
 function renderAiSuggestions() {
@@ -824,40 +764,6 @@ const setRoadmapKpiLoading = (nextLoading) => {
   }
 };
 
-const setArchiveKgiStatus = (message = "", isError = false) => {
-  if (!archiveKgiStatus) {
-    return;
-  }
-
-  archiveKgiStatus.textContent = message;
-  archiveKgiStatus.classList.toggle("error", isError);
-  archiveKgiStatus.classList.toggle("info", !isError && Boolean(message));
-};
-
-const updateArchiveDebugState = () => {};
-
-const logArchiveFlow = (message, detail = undefined, method = "info") => {
-  const logger = typeof console?.[method] === "function" ? console[method] : console.info;
-  if (detail === undefined) {
-    logger(message);
-    return;
-  }
-
-  logger(message, detail);
-};
-
-const resetArchiveDebugState = () => {};
-
-const updateArchiveKgiButtonState = (kgiData = currentKgiData) => {
-  if (!(archiveKgiButton instanceof HTMLButtonElement)) {
-    return;
-  }
-
-  const archived = isArchivedKgi(kgiData);
-  archiveKgiButton.disabled = !kgiData || archived;
-  archiveKgiButton.textContent = archived ? "このKGIはアーカイブ済みです" : "このKGIを削除";
-};
-
 const setAiLoading = (nextLoading) => {
   aiLoading = nextLoading;
   if (generateAiKpisButton) {
@@ -898,7 +804,6 @@ const getKpiCategory = (kpi) => normalizeKpiCategory(kpi?.category) || inferKpiC
 const normalizeKpiStatus = (value) => String(value ?? "").trim().toLowerCase() === "archived" ? "archived" : "active";
 const isArchivedKpi = (kpi) => normalizeKpiStatus(kpi?.status) === "archived";
 const isActiveKpi = (kpi) => !isArchivedKpi(kpi);
-const isArchivedKgi = (kgi) => kgi?.archived === true || String(kgi?.status ?? "").trim().toLowerCase() === "archived";
 
 const inferKpiCategory = (name = "", description = "") => {
   const text = `${name} ${description}`.toLowerCase();
@@ -1185,25 +1090,6 @@ showArchivedToggle?.addEventListener("change", async (event) => {
   showArchivedKpis = Boolean(event.target instanceof HTMLInputElement ? event.target.checked : false);
   await loadKpis();
 });
-
-const handleArchiveDeleteButtonClick = () => {
-  if (!currentKgiData || isArchivedKgi(currentKgiData)) {
-    return;
-  }
-
-  setArchiveKgiStatus("");
-  const params = new URLSearchParams({ id: currentKgiData.id ?? kgiId });
-  window.location.href = `./kgi-archive.html?${params.toString()}`;
-};
-
-const wireArchiveDeleteEvents = () => {
-  if (archiveKgiButton instanceof HTMLButtonElement) {
-    archiveKgiButton.addEventListener("click", handleArchiveDeleteButtonClick);
-    archiveKgiButton.onclick = handleArchiveDeleteButtonClick;
-  }
-};
-
-wireArchiveDeleteEvents();
 
 
 const resetAiSuggestions = () => {
@@ -3272,47 +3158,6 @@ const getKpisRef = () => collection(db, "kpis");
 const getKpisQuery = () => query(getKpisRef(), where("kgiId", "==", kgiId));
 const getTasksRef = (kpiId) => collection(getKpisRef(), kpiId, "tasks");
 const getKpiRef = (kpiId) => doc(getKpisRef(), kpiId);
-const enterArchivedDetailView = (source = "unknown", kgiData = null) => {
-  logArchiveFlow("switch to archived detail safe mode", {
-    source,
-    kgiId,
-    hasKgiData: Boolean(kgiData)
-  }, "warn");
-  teardownRealtimeListeners();
-  if (archivedKgiNotice) {
-    archivedKgiNotice.hidden = false;
-  }
-  setStatus("このKGIはアーカイブ済みです。");
-  setArchiveKgiStatus("このKGIはアーカイブ済みです。自動遷移は行いません。");
-  setKpiStatus("アーカイブ済みのため、KPIは編集できません。");
-  setRoutineTaskStatus("アーカイブ済みのため、運用タスクは編集できません。");
-  archiveKgiButton.disabled = true;
-  archiveKgiButton.textContent = "このKGIはアーカイブ済みです";
-  if (generateAiKpisButton) {
-    generateAiKpisButton.disabled = true;
-  }
-  if (addKpiButton) {
-    addKpiButton.disabled = true;
-  }
-  if (generateRoadmapKpisButton) {
-    generateRoadmapKpisButton.disabled = true;
-  }
-  if (generateRoutineSuggestionsButton) {
-    generateRoutineSuggestionsButton.disabled = true;
-  }
-  if (postRoadmapKpiSections) {
-    postRoadmapKpiSections.hidden = true;
-  }
-  updatePageInitState({
-    initStarted: true,
-    initSucceeded: true,
-    redirectFrom: "",
-    redirectTo: "",
-    lastErrorMessage: ""
-  });
-};
-
-const buildKgiDocPath = (targetKgiId) => `kgis/${targetKgiId}`;
 
 const persistKgiScheduleIfNeeded = async (kgiData = {}) => {
   const normalizedPhases = normalizeRoadmapPhases(kgiData?.roadmapPhases);
@@ -3400,14 +3245,11 @@ const renderKgiMeta = (kgiData) => {
   const normalizedPhases = normalizeRoadmapPhases(kgiData?.roadmapPhases);
   const schedule = buildKgiSchedule(kgiData, normalizedPhases);
   currentKgiData = {
-    id: kgiId,
     ...(kgiData ?? {}),
     startDate: schedule.startDate,
     deadline: schedule.deadline
   };
-  resetArchiveDebugState(currentKgiData.id);
   currentRoadmapPhases = applyScheduleToRoadmapPhases(normalizedPhases, schedule);
-  updateArchiveKgiButtonState(currentKgiData);
   roadmapPhaseOpenState = {};
   kpiDetailOpenState = {};
   taskSectionOpenState = {};
@@ -4332,6 +4174,7 @@ const renderKpiTable = (kpis) => {
             </div>
             <div class="kpi-card-actions-secondary">
               <button class="button secondary kpi-detail-toggle" type="button" data-kpi-toggle="${kpi.id}" aria-expanded="${isOpen ? "true" : "false"}">${isOpen ? "閉じる" : "開く"}</button>
+              ${isActiveKpi(kpi) ? `<button class="button secondary" type="button" data-kpi-archive="${kpi.id}">アーカイブ</button>` : `<button class="button secondary" type="button" data-kpi-restore="${kpi.id}">復元</button>`}
             </div>
           </div>
           ${shouldShowTaskEmptyState ? `
@@ -4952,6 +4795,24 @@ kpiTableBody.addEventListener("click", async (event) => {
       rerenderCurrentKpis();
     }
 
+    return;
+  }
+
+  const archiveButton = event.target instanceof HTMLElement ? event.target.closest("[data-kpi-archive], [data-kpi-restore]") : null;
+
+  if (archiveButton instanceof HTMLButtonElement) {
+    const targetId = archiveButton.dataset.kpiArchive || archiveButton.dataset.kpiRestore;
+    const nextStatus = archiveButton.dataset.kpiArchive ? "archived" : "active";
+
+    if (!targetId) {
+      return;
+    }
+
+    await updateDoc(getKpiRef(targetId), {
+      status: nextStatus,
+      updatedAt: serverTimestamp()
+    });
+    await loadKpis();
     return;
   }
 
@@ -5721,11 +5582,6 @@ const scheduleSnapshotRefresh = () => {
 
     try {
       if (latestKgiSnapshotData) {
-        if (isArchivedKgi(latestKgiSnapshotData)) {
-          enterArchivedDetailView("realtime snapshot refresh", latestKgiSnapshotData);
-          return;
-        }
-
         const hydratedKgiData = await persistKgiScheduleIfNeeded(latestKgiSnapshotData);
         renderKgiMeta(hydratedKgiData);
       }
@@ -5818,13 +5674,6 @@ const resolvePhaseIdFromUrl = () => {
 };
 
 const initializeDetailPage = async () => {
-  updatePageInitState({
-    initStarted: true,
-    initSucceeded: false,
-    lastErrorMessage: "",
-    redirectFrom: "",
-    redirectTo: ""
-  });
   resetKpiSection();
   disableKpiActions();
   aiHasGenerated = false;
@@ -5859,14 +5708,9 @@ const initializeDetailPage = async () => {
     setKpiStatus("KPIを表示できません。", true);
     setDebugSummary("id なし");
     updateDebugPanel([]);
-    updatePageInitState({
-      initSucceeded: false,
-      lastErrorMessage: "KGI ID が指定されていません"
-    });
     return;
   }
 
-  resetArchiveDebugState(kgiId);
   setDebugSummary(`取得したid: ${kgiId}`);
   restoreAiSuggestions();
   restoreSubKgiSavedState();
@@ -5885,16 +5729,6 @@ const initializeDetailPage = async () => {
       return;
     }
 
-    if (isArchivedKgi(kgiSnapshot.data())) {
-      updateArchiveDebugState({
-        targetKgiId: kgiId,
-        targetCollectionPath: buildKgiDocPath(kgiId),
-        archiveVerifySucceeded: true
-      });
-      enterArchivedDetailView("initializeDetailPage", kgiSnapshot.data());
-      return;
-    }
-
     const hydratedKgiData = await persistKgiScheduleIfNeeded(kgiSnapshot.data());
     selectedPhaseId = resolvePhaseIdFromUrl();
     renderKgiMeta(hydratedKgiData);
@@ -5904,19 +5738,14 @@ const initializeDetailPage = async () => {
     setDebugSummary(`取得したid: ${kgiId}`, "KGI読み込み成功");
     await loadRoutineTasks();
     await loadKpis();
-    updatePageInitState({ initSucceeded: true });
   } catch (error) {
     console.error(error);
     reportDebugError("initializeDetailPage", error);
-    setStatus("読み込みに失敗しました。再読み込みしてください。", true);
+    setStatus("KGIの読み込みに失敗しました", true);
     setKpiStatus("KPIを表示できません。", true);
     setRoutineTaskStatus("運用タスクを表示できません。", true);
     setDebugSummary(`取得したid: ${kgiId}`, "KGI読み込み失敗");
     updateDebugPanel([]);
-    updatePageInitState({
-      initSucceeded: false,
-      lastErrorMessage: error instanceof Error ? error.message : String(error ?? "Unknown error")
-    });
   }
 };
 
