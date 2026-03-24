@@ -38,6 +38,9 @@
         display: grid;
         gap: 8px;
       }
+      .button-row.inline {
+        grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      }
 
       .button {
         display: inline-flex;
@@ -87,6 +90,10 @@
       <section class="card">
         <h1>KGI削除確認</h1>
         <p id="statusText" class="hint">読み込み中...</p>
+        <div class="button-row inline">
+          <button id="reloadButton" class="button secondary" type="button">再読み込み</button>
+          <a class="button secondary" href="./index.html">トップへ戻る</a>
+        </div>
         <p><strong>KGI名:</strong> <span id="kgiName">-</span></p>
       </section>
 
@@ -105,6 +112,11 @@
             <dt>archiveWriteStarted</dt><dd id="archiveDebugWriteStarted">false</dd>
             <dt>archiveWriteSucceeded</dt><dd id="archiveDebugWriteSucceeded">false</dd>
             <dt>archiveVerifySucceeded</dt><dd id="archiveDebugVerifySucceeded">false</dd>
+            <dt>currentPage</dt><dd id="archiveDebugCurrentPage">kgi-archive.html</dd>
+            <dt>initStarted</dt><dd id="archiveDebugInitStarted">false</dd>
+            <dt>initSucceeded</dt><dd id="archiveDebugInitSucceeded">false</dd>
+            <dt>redirectFrom</dt><dd id="archiveDebugRedirectFrom">-</dd>
+            <dt>redirectTo</dt><dd id="archiveDebugRedirectTo">-</dd>
             <dt>lastErrorMessage</dt><dd id="archiveDebugLastErrorMessage">-</dd>
           </dl>
         </section>
