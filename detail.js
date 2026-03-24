@@ -76,11 +76,68 @@ if (bodyPage === "phase") {
     return trimmed.length > 0 ? trimmed : fallback;
   };
 
+  const formatUnknownValue = (value) => {
+    if (value === null || value === undefined) {
+      return "";
+    }
+
+    if (typeof value === "string") {
+      return value;
+    }
+
+    if (value && typeof value.toDate === "function") {
+      return value.toDate().toISOString().slice(0, 10);
+    }
+
+    if (value instanceof Date) {
+      return value.toISOString().slice(0, 10);
+    }
+
+    if (typeof value === "number") {
+      const fromUnixMs = new Date(value);
+      if (!Number.isNaN(fromUnixMs.getTime())) {
+        return fromUnixMs.toISOString().slice(0, 10);
+      }
+      return String(value);
+    }
+
+    if (typeof value === "boolean") {
+      return value ? "true" : "false";
+    }
+
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return String(value);
+    }
+  };
+
+  const pickFirstDisplayValue = (data, keys, fallback = "-") => {
+    for (const key of keys) {
+      const raw = data?.[key];
+      const normalized = asDisplayText(formatUnknownValue(raw), "");
+      if (normalized !== "") {
+        return normalized;
+      }
+    }
+
+    return fallback;
+  };
+
+  const getCandidateDebugLines = (data, keys, label) => (
+    `${label}: ${keys.map((key) => `${key}=${JSON.stringify(formatUnknownValue(data?.[key]))}`).join(", ")}`
+  );
+
   const renderDoc = (data) => {
-    const name = asDisplayText(data?.name, "KGI詳細");
-    const description = asDisplayText(data?.description);
-    const startDate = asDisplayText(data?.startDate);
-    const targetDate = asDisplayText(data?.targetDate);
+    const titleCandidates = ["title", "name", "kgiName"];
+    const goalCandidates = ["goalDescription", "goal", "description", "goalText"];
+    const startDateCandidates = ["startDate", "createdDate", "createdAt"];
+    const targetDateCandidates = ["targetDate", "deadline", "dueDate", "targetDeadline"];
+
+    const name = pickFirstDisplayValue(data, titleCandidates, "KGI詳細");
+    const description = pickFirstDisplayValue(data, goalCandidates);
+    const startDate = pickFirstDisplayValue(data, startDateCandidates);
+    const targetDate = pickFirstDisplayValue(data, targetDateCandidates);
 
     if (kgiNameElement) {
       kgiNameElement.textContent = name;
@@ -98,6 +155,23 @@ if (bodyPage === "phase") {
     if (detailFieldsElement) {
       detailFieldsElement.hidden = false;
     }
+
+    const debugElement = ensureDebugElement();
+    const prev = debugElement.textContent || "";
+    const rawKeys = Object.keys(data ?? {});
+    const debugLines = [
+      prev,
+      "",
+      "[detail debug: field mapping]",
+      `raw keys: ${JSON.stringify(rawKeys)}`,
+      getCandidateDebugLines(data, titleCandidates, "raw title candidate values"),
+      getCandidateDebugLines(data, goalCandidates, "raw goal candidate values"),
+      getCandidateDebugLines(data, startDateCandidates, "raw startDate candidate values"),
+      getCandidateDebugLines(data, targetDateCandidates, "raw targetDate candidate values")
+    ].filter(Boolean);
+
+    debugElement.textContent = debugLines.join("\n");
+    debugElement.hidden = false;
 
     setStatus("");
   };
