@@ -1,5 +1,7 @@
 import {
   collection,
+  doc,
+  getDoc,
   getDocs,
   orderBy,
   query
@@ -14,6 +16,8 @@ const todayTaskSection = document.getElementById("todayTaskSection");
 const todayTaskName = document.getElementById("todayTaskName");
 const todayTaskKpi = document.getElementById("todayTaskKpi");
 const todayTaskLink = document.getElementById("todayTaskLink");
+const listDebugPanel = document.getElementById("listDebugPanel");
+const listDebugText = document.getElementById("listDebugText");
 
 const setStatus = (message, isError = false) => {
   statusText.textContent = message;
@@ -110,6 +114,14 @@ const getFirstIncompleteTask = (tasks) => sortTasks(tasks)
   .find((task) => normalizeTaskTicketStatus(task) !== "done" && !getTaskIsCompleted(task)) ?? null;
 
 const isArchivedKpi = (kpi) => String(kpi?.status ?? "").trim().toLowerCase() === "archived";
+const isInactiveKgi = (kgi) => {
+  const status = String(kgi?.status ?? "").trim().toLowerCase();
+  if (status === "archived" || status === "deleted") {
+    return true;
+  }
+
+  return kgi?.isArchived === true || kgi?.isDeleted === true || kgi?.isStale === true;
+};
 
 const isCompletedKpi = (kpi) => {
   if (!kpi || isArchivedKpi(kpi)) {
@@ -141,6 +153,52 @@ const renderRows = (docs) => {
 
     tableBody.appendChild(row);
   });
+};
+
+const renderListDebug = (debugRows) => {
+  if (!listDebugPanel || !listDebugText) {
+    return;
+  }
+
+  const lines = debugRows.map((row) => (
+    `title="${row.title}" / href.id="${row.hrefId}" / firestore.doc.id="${row.firestoreDocId}" / exists=${row.exists}`
+  ));
+
+  listDebugText.textContent = lines.length > 0 ? lines.join("\n") : "debug rows: 0";
+  listDebugPanel.hidden = false;
+};
+
+const validateKgiDocs = async (db, docs) => {
+  const checks = await Promise.all(docs.map(async (docItem) => {
+    const data = docItem.data();
+    const displayName = typeof data?.name === "string" ? data.name : "";
+    const hrefId = docItem.id;
+    const snapshot = await getDoc(doc(db, "kgis", hrefId));
+    const exists = snapshot.exists();
+    const inactive = isInactiveKgi(data);
+
+    return {
+      docItem,
+      title: displayName,
+      hrefId,
+      firestoreDocId: snapshot.id,
+      exists,
+      inactive
+    };
+  }));
+
+  console.table(checks.map((item) => ({
+    title: item.title,
+    hrefId: item.hrefId,
+    firestoreDocId: item.firestoreDocId,
+    exists: item.exists,
+    inactive: item.inactive
+  })));
+  renderListDebug(checks);
+
+  return checks
+    .filter((item) => item.exists && !item.inactive && item.hrefId === item.firestoreDocId)
+    .map((item) => item.docItem);
 };
 
 const renderTodayTask = (todayTask) => {
@@ -206,13 +264,21 @@ const findTodayTask = async (db, kgis) => {
       return;
     }
 
-    renderRows(snapshot.docs);
+    const activeDocs = await validateKgiDocs(db, snapshot.docs);
+    if (activeDocs.length === 0) {
+      setStatus("表示可能なKGIが見つかりませんでした。");
+      emptyState.hidden = false;
+      renderTodayTask(null);
+      return;
+    }
+
+    renderRows(activeDocs);
     tableWrap.hidden = false;
 
-    const todayTask = await findTodayTask(db, snapshot.docs);
+    const todayTask = await findTodayTask(db, activeDocs);
     renderTodayTask(todayTask);
 
-    setStatus(`${snapshot.size}件のKGIを表示しています。`);
+    setStatus(`${activeDocs.length}件のKGIを表示しています。`);
   } catch (error) {
     console.error(error);
     setStatus("一覧の読み込みに失敗しました。Firebase設定とルールを確認してください。", true);
