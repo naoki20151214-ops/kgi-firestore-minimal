@@ -661,57 +661,26 @@
         min-height: 1.2em;
       }
 
-      .archive-debug-panel {
-        padding: 8px 10px;
-        border: 1px dashed #cbd5e1;
-        border-radius: 10px;
-        background: #f8fafc;
-        font-size: 0.78rem;
-        color: #475569;
+      .heavy-section-toggle {
+        border: 1px solid #e5e7eb;
+        border-radius: 12px;
+        background: #fff;
       }
 
-      .archive-debug-panel dl {
-        margin: 0;
-        display: grid;
-        grid-template-columns: minmax(110px, auto) 1fr;
-        gap: 4px 8px;
-      }
-
-      .archive-debug-panel dt {
+      .heavy-section-toggle > summary {
+        cursor: pointer;
+        list-style: none;
+        padding: 14px 16px;
         font-weight: 700;
+        color: #334155;
       }
 
-      .archive-debug-panel dd {
-        margin: 0;
-        word-break: break-word;
+      .heavy-section-toggle > summary::-webkit-details-marker {
+        display: none;
       }
 
-      dialog.confirm-dialog {
-        width: min(92vw, 520px);
-        border: none;
-        border-radius: 16px;
-        padding: 0;
-        box-shadow: 0 24px 64px rgba(15, 23, 42, 0.22);
-      }
-
-      dialog.confirm-dialog::backdrop {
-        background: rgba(15, 23, 42, 0.42);
-      }
-
-      .confirm-dialog-body {
-        display: grid;
-        gap: 14px;
-        padding: 20px;
-      }
-
-      .confirm-dialog-body h2,
-      .confirm-dialog-body p {
-        margin: 0;
-      }
-
-      .confirm-dialog-actions {
-        display: grid;
-        gap: 8px;
+      .heavy-section-body {
+        padding: 0 0 4px;
       }
 
       label {
@@ -1951,54 +1920,69 @@
       </section>
 
       <div id="postRoadmapKpiSections">
-        <section id="currentLocationSection" class="card">
-          <h2>現在地と次の到達点</h2>
-          <div id="currentLocationContainer" class="location-grid">
-            <p class="hint">ロードマップを確認中...</p>
-          </div>
-        </section>
-
-        <section id="nextActionSection" class="card next-action-card">
-          <h2>今やるべきこと</h2>
-          <div id="nextActionContainer" class="next-action-body">
-            <p class="hint">算出中...</p>
-          </div>
-        </section>
-
-        <section id="routineTaskSection" class="card routine-task-card">
-          <div class="routine-task-header">
-            <div>
-              <h2>運用タスク</h2>
-              <p class="hint">KPIに直接紐づかない、プロジェクト全体の定常タスクを小さく管理します。</p>
-            </div>
-            <p id="routineTaskStatusText" class="hint">読み込み中...</p>
-          </div>
-          <form id="routineTaskForm" class="routine-task-form">
-            <h3>運用タスクを追加</h3>
-            <div class="routine-task-form-grid">
-              <div class="field"><label for="routineTaskTitle">タイトル</label><input id="routineTaskTitle" name="title" type="text" placeholder="例: 毎朝トップページを確認する" required /></div>
-              <div class="field"><label for="routineTaskDescription">補足説明</label><input id="routineTaskDescription" name="description" type="text" placeholder="任意" /></div>
-              <div class="field"><label for="routineTaskCadence">頻度</label><select id="routineTaskCadence" name="cadence"><option value="daily">daily</option><option value="weekly">weekly</option><option value="ad_hoc">ad_hoc</option></select></div>
-            </div>
-            <button class="button" type="submit">運用タスクを追加</button>
-          </form>
-          <section class="routine-task-ai-panel" aria-labelledby="routineTaskAiTitle">
-            <div class="routine-task-header">
-              <div>
-                <h3 id="routineTaskAiTitle">AI候補から追加</h3>
-                <p class="hint">固定テンプレートから必要な運用タスクだけを選んで追加できます。</p>
+        <details class="heavy-section-toggle">
+          <summary>現在地と次の到達点（必要時のみ表示）</summary>
+          <div class="heavy-section-body">
+            <section id="currentLocationSection" class="card">
+              <h2>現在地と次の到達点</h2>
+              <div id="currentLocationContainer" class="location-grid">
+                <p class="hint">ロードマップを確認中...</p>
               </div>
-            </div>
-            <div class="routine-task-ai-actions">
-              <button id="generateRoutineSuggestionsButton" class="button secondary" type="button">AIでルーティン案を作る</button>
-              <div id="routineSuggestionList" class="routine-task-suggestion-list" hidden></div>
-              <button id="addSelectedRoutineSuggestionsButton" class="button" type="button" hidden disabled>選択した候補を追加</button>
-            </div>
-          </section>
-          <div id="routineTaskList" class="routine-task-list">
-            <p class="hint">運用タスクを読み込み中...</p>
+            </section>
           </div>
-        </section>
+        </details>
+
+        <details class="heavy-section-toggle">
+          <summary>今やるべきこと（必要時のみ表示）</summary>
+          <div class="heavy-section-body">
+            <section id="nextActionSection" class="card next-action-card">
+              <h2>今やるべきこと</h2>
+              <div id="nextActionContainer" class="next-action-body">
+                <p class="hint">算出中...</p>
+              </div>
+            </section>
+          </div>
+        </details>
+
+        <details class="heavy-section-toggle">
+          <summary>運用タスク（必要時のみ表示）</summary>
+          <div class="heavy-section-body">
+            <section id="routineTaskSection" class="card routine-task-card">
+              <div class="routine-task-header">
+                <div>
+                  <h2>運用タスク</h2>
+                  <p class="hint">KPIに直接紐づかない、プロジェクト全体の定常タスクを小さく管理します。</p>
+                </div>
+                <p id="routineTaskStatusText" class="hint">読み込み中...</p>
+              </div>
+              <form id="routineTaskForm" class="routine-task-form">
+                <h3>運用タスクを追加</h3>
+                <div class="routine-task-form-grid">
+                  <div class="field"><label for="routineTaskTitle">タイトル</label><input id="routineTaskTitle" name="title" type="text" placeholder="例: 毎朝トップページを確認する" required /></div>
+                  <div class="field"><label for="routineTaskDescription">補足説明</label><input id="routineTaskDescription" name="description" type="text" placeholder="任意" /></div>
+                  <div class="field"><label for="routineTaskCadence">頻度</label><select id="routineTaskCadence" name="cadence"><option value="daily">daily</option><option value="weekly">weekly</option><option value="ad_hoc">ad_hoc</option></select></div>
+                </div>
+                <button class="button" type="submit">運用タスクを追加</button>
+              </form>
+              <section class="routine-task-ai-panel" aria-labelledby="routineTaskAiTitle">
+                <div class="routine-task-header">
+                  <div>
+                    <h3 id="routineTaskAiTitle">AI候補から追加</h3>
+                    <p class="hint">固定テンプレートから必要な運用タスクだけを選んで追加できます。</p>
+                  </div>
+                </div>
+                <div class="routine-task-ai-actions">
+                  <button id="generateRoutineSuggestionsButton" class="button secondary" type="button">AIでルーティン案を作る</button>
+                  <div id="routineSuggestionList" class="routine-task-suggestion-list" hidden></div>
+                  <button id="addSelectedRoutineSuggestionsButton" class="button" type="button" hidden disabled>選択した候補を追加</button>
+                </div>
+              </section>
+              <div id="routineTaskList" class="routine-task-list">
+                <p class="hint">運用タスクを読み込み中...</p>
+              </div>
+            </section>
+          </div>
+        </details>
 
         <section id="kpiSummarySection" class="card kpi-summary-card">
           <div class="kpi-summary-header">
@@ -2056,32 +2040,10 @@
           <a class="button secondary" href="./list.html">一覧に戻る</a>
           <button id="archiveKgiButton" class="button danger-subtle danger-zone-delete-button" type="button">このKGIを削除</button>
           <p id="archiveKgiStatus" class="hint danger-zone-status"></p>
-          <section id="archiveDebugPanel" class="archive-debug-panel" aria-label="archive debug">
-            <dl>
-              <dt>targetKgiId</dt><dd id="archiveDebugTargetKgiId">-</dd>
-              <dt>targetCollectionPath</dt><dd id="archiveDebugTargetCollectionPath">-</dd>
-              <dt>archiveWriteStarted</dt><dd id="archiveDebugWriteStarted">false</dd>
-              <dt>archiveWriteSucceeded</dt><dd id="archiveDebugWriteSucceeded">false</dd>
-              <dt>archiveVerifySucceeded</dt><dd id="archiveDebugVerifySucceeded">false</dd>
-              <dt>lastErrorMessage</dt><dd id="archiveDebugLastErrorMessage">-</dd>
-            </dl>
-          </section>
         </div>
       </section>
 
     </main>
-
-    <dialog id="archiveKgiDialog" class="confirm-dialog" aria-labelledby="archiveKgiDialogTitle">
-      <form method="dialog" class="confirm-dialog-body">
-        <h2 id="archiveKgiDialogTitle">このKGIを削除しますか？</h2>
-        <p>このKGIに紐づくKPIやTask、振り返りも一覧に表示されなくなる可能性があります。まずはアーカイブ方式を優先してください。</p>
-        <div class="confirm-dialog-actions">
-          <button id="confirmArchiveKgiButton" class="button danger" type="button" value="confirm">削除する</button>
-          <button class="button secondary" value="cancel">キャンセル</button>
-        </div>
-      </form>
-    </dialog>
-
 
     <script type="module" src="./detail.js"></script>
   </body>

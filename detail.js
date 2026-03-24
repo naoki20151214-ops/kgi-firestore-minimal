@@ -67,15 +67,6 @@ const kpiAddFormPanel = document.getElementById("kpiAddFormPanel");
 const showArchivedToggle = document.getElementById("showArchivedToggle");
 const archiveKgiButton = document.getElementById("archiveKgiButton");
 const archiveKgiStatus = document.getElementById("archiveKgiStatus");
-const archiveKgiDialog = document.getElementById("archiveKgiDialog");
-const confirmArchiveKgiButton = document.getElementById("confirmArchiveKgiButton");
-const archiveKgiDialogForm = archiveKgiDialog?.querySelector("form");
-const archiveDebugTargetKgiId = document.getElementById("archiveDebugTargetKgiId");
-const archiveDebugTargetCollectionPath = document.getElementById("archiveDebugTargetCollectionPath");
-const archiveDebugWriteStarted = document.getElementById("archiveDebugWriteStarted");
-const archiveDebugWriteSucceeded = document.getElementById("archiveDebugWriteSucceeded");
-const archiveDebugVerifySucceeded = document.getElementById("archiveDebugVerifySucceeded");
-const archiveDebugLastErrorMessage = document.getElementById("archiveDebugLastErrorMessage");
 let overallProgressValue = document.getElementById("overallProgressValue");
 let overallProgressFill = document.getElementById("overallProgressFill");
 let overallProgressCaption = document.getElementById("overallProgressCaption");
@@ -236,8 +227,6 @@ let routineSuggestionSelections = new Set();
 let routineSuggestionsVisible = false;
 let routineSuggestionTemplates = [];
 let routineSuggestionLoading = false;
-let archiveKgiInFlight = false;
-let archiveSuccessMessageTimer = null;
 let realtimeUnsubscribers = [];
 let latestKpiDocs = [];
 let latestTaskDocsByKpiId = new Map();
@@ -789,40 +778,7 @@ const setArchiveKgiStatus = (message = "", isError = false) => {
   archiveKgiStatus.classList.toggle("info", !isError && Boolean(message));
 };
 
-const archiveDebugState = {
-  targetKgiId: "",
-  targetCollectionPath: "kgis",
-  archiveWriteStarted: false,
-  archiveWriteSucceeded: false,
-  archiveVerifySucceeded: false,
-  lastErrorMessage: ""
-};
-
-const renderArchiveDebugState = () => {
-  if (archiveDebugTargetKgiId) {
-    archiveDebugTargetKgiId.textContent = archiveDebugState.targetKgiId || "-";
-  }
-  if (archiveDebugTargetCollectionPath) {
-    archiveDebugTargetCollectionPath.textContent = archiveDebugState.targetCollectionPath || "-";
-  }
-  if (archiveDebugWriteStarted) {
-    archiveDebugWriteStarted.textContent = String(archiveDebugState.archiveWriteStarted);
-  }
-  if (archiveDebugWriteSucceeded) {
-    archiveDebugWriteSucceeded.textContent = String(archiveDebugState.archiveWriteSucceeded);
-  }
-  if (archiveDebugVerifySucceeded) {
-    archiveDebugVerifySucceeded.textContent = String(archiveDebugState.archiveVerifySucceeded);
-  }
-  if (archiveDebugLastErrorMessage) {
-    archiveDebugLastErrorMessage.textContent = archiveDebugState.lastErrorMessage || "-";
-  }
-};
-
-const updateArchiveDebugState = (partialState = {}) => {
-  Object.assign(archiveDebugState, partialState);
-  renderArchiveDebugState();
-};
+const updateArchiveDebugState = () => {};
 
 const logArchiveFlow = (message, detail = undefined, method = "info") => {
   const logger = typeof console?.[method] === "function" ? console[method] : console.info;
@@ -834,29 +790,7 @@ const logArchiveFlow = (message, detail = undefined, method = "info") => {
   logger(message, detail);
 };
 
-const resetArchiveDebugState = (targetId = kgiId) => {
-  updateArchiveDebugState({
-    targetKgiId: targetId || "",
-    targetCollectionPath: "kgis",
-    archiveWriteStarted: false,
-    archiveWriteSucceeded: false,
-    archiveVerifySucceeded: false,
-    lastErrorMessage: ""
-  });
-};
-
-const showArchiveSuccessThenRedirect = () => {
-  if (archiveSuccessMessageTimer) {
-    window.clearTimeout(archiveSuccessMessageTimer);
-  }
-
-  setArchiveKgiStatus("アーカイブしました");
-  archiveSuccessMessageTimer = window.setTimeout(() => {
-    requestKgiListRedirect("archive success");
-  }, 700);
-};
-
-renderArchiveDebugState();
+const resetArchiveDebugState = () => {};
 
 const updateArchiveKgiButtonState = (kgiData = currentKgiData) => {
   if (!(archiveKgiButton instanceof HTMLButtonElement)) {
@@ -1197,33 +1131,13 @@ showArchivedToggle?.addEventListener("change", async (event) => {
 });
 
 const handleArchiveDeleteButtonClick = () => {
-  logArchiveFlow("delete button clicked", {
-    buttonId: archiveKgiButton?.id ?? null,
-    hasDialog: archiveKgiDialog instanceof HTMLDialogElement,
-    archived: isArchivedKgi(currentKgiData),
-    archiveKgiInFlight
-  });
-
-  if (!(archiveKgiDialog instanceof HTMLDialogElement) || isArchivedKgi(currentKgiData) || archiveKgiInFlight) {
+  if (!currentKgiData || isArchivedKgi(currentKgiData)) {
     return;
   }
 
   setArchiveKgiStatus("");
-  archiveKgiDialog.showModal();
-  logArchiveFlow("dialog opened", {
-    dialogId: archiveKgiDialog.id,
-    open: archiveKgiDialog.open
-  });
-};
-
-const handleArchiveConfirm = async (event) => {
-  event?.preventDefault?.();
-  logArchiveFlow("confirm clicked", {
-    dialogId: archiveKgiDialog instanceof HTMLDialogElement ? archiveKgiDialog.id : null,
-    confirmButtonId: confirmArchiveKgiButton?.id ?? null,
-    dialogOpen: archiveKgiDialog instanceof HTMLDialogElement ? archiveKgiDialog.open : false
-  });
-  await archiveCurrentKgi();
+  const params = new URLSearchParams({ id: currentKgiData.id ?? kgiId });
+  window.location.href = `./kgi-archive.html?${params.toString()}`;
 };
 
 const wireArchiveDeleteEvents = () => {
@@ -1231,28 +1145,9 @@ const wireArchiveDeleteEvents = () => {
     archiveKgiButton.addEventListener("click", handleArchiveDeleteButtonClick);
     archiveKgiButton.onclick = handleArchiveDeleteButtonClick;
   }
-
-  if (confirmArchiveKgiButton instanceof HTMLButtonElement) {
-    confirmArchiveKgiButton.addEventListener("click", handleArchiveConfirm);
-    confirmArchiveKgiButton.onclick = handleArchiveConfirm;
-  }
-
-  if (archiveKgiDialogForm instanceof HTMLFormElement) {
-    archiveKgiDialogForm.addEventListener("submit", handleArchiveConfirm);
-  }
-
-  logArchiveFlow("archive delete events wired", {
-    deleteButtonId: archiveKgiButton?.id ?? null,
-    confirmButtonId: confirmArchiveKgiButton?.id ?? null,
-    hasDialog: archiveKgiDialog instanceof HTMLDialogElement
-  });
 };
 
 wireArchiveDeleteEvents();
-
-archiveKgiDialog?.addEventListener("close", () => {
-  archiveKgiDialog.returnValue = "";
-});
 
 
 const resetAiSuggestions = () => {
@@ -3378,144 +3273,6 @@ const requestKgiListRedirect = (source = "unknown") => {
 };
 
 const buildKgiDocPath = (targetKgiId) => `kgis/${targetKgiId}`;
-
-const archiveCurrentKgi = async () => {
-  const targetKgiId = String(currentKgiData?.id ?? kgiId ?? "").trim();
-  const targetDocPath = targetKgiId ? buildKgiDocPath(targetKgiId) : "kgis/(missing-id)";
-  let verificationStarted = false;
-
-  logArchiveFlow("archiveCurrentKgi entered", {
-    targetKgiId,
-    targetDocPath,
-    hasCurrentKgiData: Boolean(currentKgiData),
-    hasDb: Boolean(db),
-    kgiId,
-    archived: isArchivedKgi(currentKgiData),
-    archiveKgiInFlight
-  });
-
-  updateArchiveDebugState({
-    targetKgiId,
-    targetCollectionPath: targetDocPath,
-    archiveWriteStarted: true,
-    archiveWriteSucceeded: false,
-    archiveVerifySucceeded: false,
-    lastErrorMessage: ""
-  });
-
-  if (!currentKgiData || !db || !kgiId || isArchivedKgi(currentKgiData) || archiveKgiInFlight) {
-    const guardMessage = "archiveCurrentKgi の事前条件を満たさなかったため中断しました。";
-    updateArchiveDebugState({
-      lastErrorMessage: guardMessage
-    });
-    logArchiveFlow("update failed", { reason: guardMessage }, "warn");
-    return;
-  }
-
-  archiveKgiInFlight = true;
-  if (archiveSuccessMessageTimer) {
-    window.clearTimeout(archiveSuccessMessageTimer);
-    archiveSuccessMessageTimer = null;
-  }
-  setArchiveKgiStatus("KGIをアーカイブしています...");
-  updateArchiveKgiButtonState({ ...currentKgiData, archived: true, status: "archived" });
-
-  if (confirmArchiveKgiButton instanceof HTMLButtonElement) {
-    confirmArchiveKgiButton.disabled = true;
-  }
-
-  if (archiveKgiButton instanceof HTMLButtonElement) {
-    archiveKgiButton.disabled = true;
-  }
-
-  try {
-    logArchiveFlow("deletion process start", { targetKgiId, path: targetDocPath });
-
-    if (!targetKgiId) {
-      throw new Error("KGI document id を取得できませんでした。");
-    }
-
-    updateArchiveDebugState({
-      targetKgiId,
-      targetCollectionPath: targetDocPath,
-      archiveWriteStarted: true,
-      archiveWriteSucceeded: false,
-      archiveVerifySucceeded: false,
-      lastErrorMessage: ""
-    });
-
-    logArchiveFlow("Firestore update start", { kgiId: targetKgiId, path: targetDocPath });
-
-    const targetKgiRef = doc(getKgisRef(), targetKgiId);
-
-    await updateDoc(targetKgiRef, {
-      archived: true,
-      status: "archived",
-      archivedAt: serverTimestamp(),
-      updatedAt: serverTimestamp()
-    });
-
-    updateArchiveDebugState({
-      archiveWriteSucceeded: true
-    });
-    logArchiveFlow("update success", { path: targetDocPath });
-
-    verificationStarted = true;
-    const verifySnapshot = await getDoc(targetKgiRef);
-
-    if (!verifySnapshot.exists()) {
-      throw new Error(`アーカイブ確認に失敗しました: ${targetDocPath} が再読込時に存在しません。`);
-    }
-
-    const verifyData = verifySnapshot.data();
-    const archivedVerified = verifyData?.archived === true;
-    const statusVerified = verifyData?.status === "archived";
-
-    if (!archivedVerified || !statusVerified) {
-      throw new Error(`アーカイブ確認に失敗しました: archived=${String(verifyData?.archived)} status=${String(verifyData?.status ?? "")}`);
-    }
-
-    updateArchiveDebugState({
-      archiveVerifySucceeded: true
-    });
-    logArchiveFlow("verify success", { path: targetDocPath });
-
-    currentKgiData = {
-      ...currentKgiData,
-      id: targetKgiId,
-      archived: true,
-      status: "archived",
-      archivedAt: verifyData?.archivedAt ?? currentKgiData?.archivedAt,
-      updatedAt: verifyData?.updatedAt ?? currentKgiData?.updatedAt
-    };
-
-    if (archiveKgiDialog instanceof HTMLDialogElement && archiveKgiDialog.open) {
-      archiveKgiDialog.close();
-    }
-
-    showArchiveSuccessThenRedirect();
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error ?? "Unknown error");
-    updateArchiveDebugState({
-      archiveWriteSucceeded: false,
-      archiveVerifySucceeded: false,
-      lastErrorMessage: message
-    });
-    logArchiveFlow(verificationStarted ? "verify failed" : "update failed", { path: targetDocPath, message, error }, "error");
-    setArchiveKgiStatus(message, true);
-    updateArchiveKgiButtonState(currentKgiData);
-  } finally {
-    archiveKgiInFlight = false;
-
-    if (confirmArchiveKgiButton instanceof HTMLButtonElement) {
-      confirmArchiveKgiButton.disabled = false;
-    }
-
-    if (archiveKgiButton instanceof HTMLButtonElement) {
-      updateArchiveKgiButtonState(currentKgiData);
-    }
-  }
-};
 
 const persistKgiScheduleIfNeeded = async (kgiData = {}) => {
   const normalizedPhases = normalizeRoadmapPhases(kgiData?.roadmapPhases);
