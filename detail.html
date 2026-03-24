@@ -742,6 +742,16 @@
         color: #b91c1c;
       }
 
+      .archived-notice {
+        border: 1px solid #fecaca;
+        background: #fff7f7;
+        border-radius: 12px;
+        padding: 12px;
+        margin-top: 10px;
+        display: grid;
+        gap: 10px;
+      }
+
       .progress-wrap {
         width: 100%;
         display: grid;
@@ -1908,6 +1918,13 @@
       <section class="card">
         <h1>KGI詳細</h1>
         <p id="statusText" class="hint">読み込み中...</p>
+        <section id="archivedKgiNotice" class="archived-notice" hidden>
+          <p class="hint error">このKGIはアーカイブ済みです。</p>
+          <div class="top-actions-secondary">
+            <a class="button secondary" href="./list.html">一覧に戻る</a>
+            <a class="button secondary" href="./index.html">トップへ戻る</a>
+          </div>
+        </section>
         <div class="top-actions-secondary">
           <button id="reloadButton" class="button secondary" type="button">再読み込み</button>
           <a class="button secondary" href="./index.html">トップへ戻る</a>

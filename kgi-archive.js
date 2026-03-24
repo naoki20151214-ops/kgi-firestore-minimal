@@ -31,6 +31,7 @@ let db;
 let targetKgiId = "";
 let targetKgiRef = null;
 let archiveInFlight = false;
+let listNavigationRequested = false;
 
 const debugState = {
   targetKgiId: "",
@@ -95,6 +96,10 @@ const parseKgiId = () => {
 };
 
 const navigateList = () => {
+  if (listNavigationRequested) {
+    return;
+  }
+  listNavigationRequested = true;
   const trace = {
     at: new Date().toISOString(),
     source: "kgi-archive.js:navigateList",
