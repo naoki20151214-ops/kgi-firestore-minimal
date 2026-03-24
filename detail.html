@@ -87,6 +87,29 @@
         color: #6b7280;
         font-size: 0.92rem;
       }
+
+      .kpi-summary-grid {
+        margin-top: 10px;
+        display: grid;
+        gap: 8px;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+      .kpi-summary-item {
+        padding: 10px;
+        border: 1px solid #e5e7eb;
+        border-radius: 10px;
+        background: #f9fafb;
+      }
+      .kpi-summary-label {
+        margin: 0;
+        font-size: 0.8rem;
+        color: #6b7280;
+      }
+      .kpi-summary-value {
+        margin: 4px 0 0;
+        font-size: 1.15rem;
+        font-weight: 600;
+      }
     </style>
   </head>
   <body>
@@ -114,6 +137,21 @@
         <h2>ロードマップ</h2>
         <ol id="roadmapList" class="roadmap-list"></ol>
         <p id="roadmapEmpty" class="roadmap-empty" hidden>ロードマップは未設定です。</p>
+      </section>
+
+
+      <section class="card" id="kpiSummarySection" hidden>
+        <h2>KPIサマリー</h2>
+        <div class="kpi-summary-grid">
+          <div class="kpi-summary-item">
+            <p class="kpi-summary-label">KPI総数</p>
+            <p id="kpiTotalCount" class="kpi-summary-value">0</p>
+          </div>
+          <div class="kpi-summary-item">
+            <p class="kpi-summary-label">完了KPI</p>
+            <p id="kpiCompletedCount" class="kpi-summary-value">0</p>
+          </div>
+        </div>
       </section>
 
       <a class="back-link" href="./list.html">一覧に戻る</a>
