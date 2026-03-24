@@ -852,7 +852,7 @@ const showArchiveSuccessThenRedirect = () => {
 
   setArchiveKgiStatus("アーカイブしました");
   archiveSuccessMessageTimer = window.setTimeout(() => {
-    redirectToKgiList();
+    requestKgiListRedirect("archive success");
   }, 700);
 };
 
@@ -3322,9 +3322,59 @@ const getKpisQuery = () => query(getKpisRef(), where("kgiId", "==", kgiId));
 const getTasksRef = (kpiId) => collection(getKpisRef(), kpiId, "tasks");
 const getKpiRef = (kpiId) => doc(getKpisRef(), kpiId);
 const getKgiListPageUrl = () => "./list.html";
+const LIST_REDIRECT_TRACE_KEY = "kgi_redirect_trace";
+
+const redirectDebugState = {
+  count: 0,
+  inFlight: false,
+  lastSource: ""
+};
 
 const redirectToKgiList = () => {
-  window.location.replace(getKgiListPageUrl());
+  const relativeUrl = getKgiListPageUrl();
+  const actualUrl = new URL(relativeUrl, window.location.href).href;
+  logArchiveFlow(`navigating to: ${actualUrl}`, {
+    redirectCount: redirectDebugState.count,
+    redirectSource: redirectDebugState.lastSource
+  });
+  window.location.replace(actualUrl);
+};
+
+const requestKgiListRedirect = (source = "unknown") => {
+  redirectDebugState.count += 1;
+  redirectDebugState.lastSource = source;
+  logArchiveFlow("redirect count / redirect source", {
+    redirectCount: redirectDebugState.count,
+    redirectSource: source
+  });
+
+  if (redirectDebugState.inFlight) {
+    logArchiveFlow("redirect skipped because another redirect is already in flight", {
+      redirectCount: redirectDebugState.count,
+      redirectSource: source
+    }, "warn");
+    return;
+  }
+
+  redirectDebugState.inFlight = true;
+
+  try {
+    window.sessionStorage.setItem(LIST_REDIRECT_TRACE_KEY, JSON.stringify({
+      at: new Date().toISOString(),
+      source,
+      count: redirectDebugState.count,
+      fromHref: window.location.href
+    }));
+    logArchiveFlow("window.location.replace() call start", { source });
+    redirectToKgiList();
+    logArchiveFlow("window.location.replace() call completed", { source });
+  } catch (error) {
+    redirectDebugState.inFlight = false;
+    const message = error instanceof Error ? error.message : String(error ?? "Unknown error");
+    logArchiveFlow("window.location.replace() failed", { source, message, error }, "error");
+    setStatus(`一覧への遷移に失敗しました: ${message}`, true);
+    setArchiveKgiStatus(`一覧への遷移に失敗しました: ${message}`, true);
+  }
 };
 
 const buildKgiDocPath = (targetKgiId) => `kgis/${targetKgiId}`;
@@ -3379,6 +3429,8 @@ const archiveCurrentKgi = async () => {
   }
 
   try {
+    logArchiveFlow("deletion process start", { targetKgiId, path: targetDocPath });
+
     if (!targetKgiId) {
       throw new Error("KGI document id を取得できませんでした。");
     }
@@ -3392,7 +3444,7 @@ const archiveCurrentKgi = async () => {
       lastErrorMessage: ""
     });
 
-    logArchiveFlow("updating path: kgis/{id}", { kgiId: targetKgiId, path: targetDocPath });
+    logArchiveFlow("Firestore update start", { kgiId: targetKgiId, path: targetDocPath });
 
     const targetKgiRef = doc(getKgisRef(), targetKgiId);
 
@@ -5873,7 +5925,11 @@ const scheduleSnapshotRefresh = () => {
     try {
       if (latestKgiSnapshotData) {
         if (isArchivedKgi(latestKgiSnapshotData)) {
-          redirectToKgiList();
+          logArchiveFlow("archived guard triggered", {
+            source: "realtime snapshot refresh",
+            kgiId
+          });
+          requestKgiListRedirect("archived guard: realtime snapshot refresh");
           return;
         }
 
@@ -6026,13 +6082,17 @@ const initializeDetailPage = async () => {
     }
 
     if (isArchivedKgi(kgiSnapshot.data())) {
+      logArchiveFlow("archived guard triggered", {
+        source: "initializeDetailPage",
+        kgiId
+      });
       updateArchiveDebugState({
         targetKgiId: kgiId,
         targetCollectionPath: buildKgiDocPath(kgiId),
         archiveVerifySucceeded: true
       });
       setArchiveKgiStatus("このKGIはアーカイブ済みです。一覧へ戻ります。");
-      redirectToKgiList();
+      requestKgiListRedirect("archived guard: initializeDetailPage");
       return;
     }
 
