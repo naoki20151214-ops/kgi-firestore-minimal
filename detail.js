@@ -87,8 +87,9 @@ const actionKpiSuggestions = document.getElementById("actionKpiSuggestions");
 const subKgiSuggestions = document.getElementById("subKgiSuggestions");
 const debugPanel = document.getElementById("debugPanel");
 const debugPanelContent = document.getElementById("debugPanelContent");
+const detailDebugSection = document.getElementById("detailDebugSection");
 
-const debugMode = false;
+const debugMode = new URLSearchParams(window.location.search).get("debug") === "1";
 let latestDebugState = [];
 let latestDebugSummary = [];
 const pageInitState = {
@@ -205,6 +206,10 @@ const reportDebugError = (label, error) => {
     lastErrorMessage: message
   });
 };
+
+if (detailDebugSection) {
+  detailDebugSection.hidden = !debugMode;
+}
 
 renderPageInitState();
 updateDebugPanel([]);
@@ -708,8 +713,10 @@ const updateInitialRoadmapKpiGuide = (kpiCount = latestRenderedKpis.length) => {
     roadmapKpiIntro.hidden = !isFirstKpiGuidance;
   }
 
+  const shouldShowPostRoadmapSections = normalizedKpiCount > 0 && !isFirstKpiGuidance;
+
   if (postRoadmapKpiSections) {
-    postRoadmapKpiSections.hidden = isFirstKpiGuidance;
+    postRoadmapKpiSections.hidden = !shouldShowPostRoadmapSections;
   }
 
 
