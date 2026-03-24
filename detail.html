@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>KGI詳細（軽量版）</title>
+    <title>KGI詳細（俯瞰）</title>
     <style>
       :root { color-scheme: light; }
       body {
@@ -25,30 +25,11 @@
         border-radius: 12px;
         padding: 16px;
       }
-      h1 {
-        margin: 0 0 8px;
-        font-size: 1.3rem;
-      }
-      h2 {
-        margin: 0;
-        font-size: 1.05rem;
-      }
-      dl {
-        margin: 0;
-        display: grid;
-        gap: 10px;
-      }
-      dt {
-        font-size: 0.82rem;
-        color: #6b7280;
-        margin-bottom: 2px;
-      }
-      dd {
-        margin: 0;
-        font-size: 1rem;
-        white-space: pre-wrap;
-        word-break: break-word;
-      }
+      h1 { margin: 0 0 8px; font-size: 1.3rem; }
+      h2 { margin: 0; font-size: 1.05rem; }
+      dl { margin: 0; display: grid; gap: 10px; }
+      dt { font-size: 0.82rem; color: #6b7280; margin-bottom: 2px; }
+      dd { margin: 0; font-size: 1rem; white-space: pre-wrap; word-break: break-word; }
       .back-link {
         display: inline-block;
         margin-top: 8px;
@@ -59,56 +40,31 @@
         color: #111827;
         background: #fff;
       }
-      .status {
-        margin: 0;
-        font-size: 0.95rem;
-        color: #374151;
+      .status { margin: 0; font-size: 0.95rem; color: #374151; }
+      .status.error { color: #b91c1c; }
+      .roadmap-list { margin: 0; padding-left: 20px; display: grid; gap: 12px; }
+      .roadmap-title-link {
+        font-weight: 700;
+        color: #1d4ed8;
+        text-decoration: none;
       }
-      .status.error {
-        color: #b91c1c;
-      }
-      .roadmap-list {
-        margin: 0;
-        padding-left: 20px;
-        display: grid;
-        gap: 8px;
-      }
-      .roadmap-title {
-        font-weight: 600;
-      }
+      .roadmap-title-link:hover { text-decoration: underline; }
       .roadmap-description {
-        margin: 2px 0 0;
+        margin: 4px 0 0;
         font-size: 0.92rem;
         color: #4b5563;
         white-space: pre-wrap;
       }
-      .roadmap-empty {
-        margin: 0;
-        color: #6b7280;
-        font-size: 0.92rem;
-      }
-
-      .kpi-summary-grid {
-        margin-top: 10px;
-        display: grid;
-        gap: 8px;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-      }
-      .kpi-summary-item {
-        padding: 10px;
-        border: 1px solid #e5e7eb;
-        border-radius: 10px;
-        background: #f9fafb;
-      }
-      .kpi-summary-label {
-        margin: 0;
-        font-size: 0.8rem;
+      .roadmap-deadline {
+        margin: 6px 0 0;
+        font-size: 0.85rem;
         color: #6b7280;
       }
-      .kpi-summary-value {
-        margin: 4px 0 0;
-        font-size: 1.15rem;
-        font-weight: 600;
+      .roadmap-empty { margin: 0; color: #6b7280; font-size: 0.92rem; }
+      .kpi-summary-inline {
+        margin: 8px 0 0;
+        font-size: 0.9rem;
+        color: #4b5563;
       }
     </style>
   </head>
@@ -139,19 +95,9 @@
         <p id="roadmapEmpty" class="roadmap-empty" hidden>ロードマップは未設定です。</p>
       </section>
 
-
       <section class="card" id="kpiSummarySection" hidden>
-        <h2>KPIサマリー</h2>
-        <div class="kpi-summary-grid">
-          <div class="kpi-summary-item">
-            <p class="kpi-summary-label">KPI総数</p>
-            <p id="kpiTotalCount" class="kpi-summary-value">0</p>
-          </div>
-          <div class="kpi-summary-item">
-            <p class="kpi-summary-label">完了KPI</p>
-            <p id="kpiCompletedCount" class="kpi-summary-value">0</p>
-          </div>
-        </div>
+        <h2>KPIサマリー（最小表示）</h2>
+        <p id="kpiSummaryText" class="kpi-summary-inline">-</p>
       </section>
 
       <a class="back-link" href="./list.html">一覧に戻る</a>
