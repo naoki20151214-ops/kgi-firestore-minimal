@@ -4,6 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>KGI詳細（俯瞰）</title>
+    <link rel="stylesheet" href="./readable-text.css" />
     <style>
       :root { color-scheme: light; }
       body {
@@ -25,11 +26,11 @@
         border-radius: 12px;
         padding: 16px;
       }
-      h1 { margin: 0 0 8px; font-size: 1.3rem; }
-      h2 { margin: 0; font-size: 1.05rem; }
-      dl { margin: 0; display: grid; gap: 10px; }
-      dt { font-size: 0.82rem; color: #6b7280; margin-bottom: 2px; }
-      dd { margin: 0; font-size: 1rem; white-space: pre-wrap; word-break: break-word; }
+      h1 { margin: 0 0 10px; font-size: clamp(1.3rem, 1.18rem + 0.6vw, 1.65rem); line-height: 1.35; }
+      h2 { margin: 0; font-size: clamp(1.08rem, 1.02rem + 0.25vw, 1.2rem); }
+      dl { margin: 0; display: grid; gap: 16px; }
+      dt { font-size: 0.86rem; color: #374151; font-weight: 700; letter-spacing: 0.02em; margin-bottom: 6px; }
+      dd { margin: 0; }
       .back-link {
         display: inline-block;
         margin-top: 8px;
@@ -50,21 +51,23 @@
       }
       .roadmap-title-link:hover { text-decoration: underline; }
       .roadmap-description {
-        margin: 4px 0 0;
-        font-size: 0.92rem;
-        color: #4b5563;
-        white-space: pre-wrap;
+        margin: 8px 0 0;
       }
       .roadmap-deadline {
-        margin: 6px 0 0;
-        font-size: 0.85rem;
+        margin: 10px 0 0;
+        font-size: 0.9rem;
         color: #6b7280;
       }
       .roadmap-empty { margin: 0; color: #6b7280; font-size: 0.92rem; }
       .kpi-summary-inline {
         margin: 8px 0 0;
-        font-size: 0.9rem;
+        font-size: 0.98rem;
+        line-height: 1.75;
         color: #4b5563;
+      }
+      @media (max-width: 640px) {
+        body { padding: 14px; }
+        .card { padding: 14px; }
       }
     </style>
   </head>
@@ -76,7 +79,7 @@
         <dl id="detailFields" hidden>
           <div>
             <dt>ゴール説明</dt>
-            <dd id="goalDescription">-</dd>
+            <dd id="goalDescription" data-readable data-lines="3">-</dd>
           </div>
           <div>
             <dt>開始日</dt>

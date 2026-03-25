@@ -7,6 +7,7 @@ import {
   where
 } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
 import { getDb } from "./firebase-config.js";
+import { enhanceReadableText } from "./readable-text.js";
 
 const kgiNameElement = document.getElementById("kgiName");
 const statusTextElement = document.getElementById("statusText");
@@ -129,6 +130,7 @@ const renderRoadmap = ({ kgiId, phases = [] }) => {
     const purpose = document.createElement("p");
     purpose.className = "roadmap-description";
     purpose.textContent = asDisplayText(phase.purpose, "説明は未設定です。");
+    enhanceReadableText(purpose, { lines: 3 });
 
     const deadline = document.createElement("p");
     deadline.className = "roadmap-deadline";
@@ -195,6 +197,9 @@ const renderDoc = ({ kgiId, data }) => {
   }
   if (goalDescriptionElement) {
     goalDescriptionElement.textContent = description;
+    enhanceReadableText(goalDescriptionElement, {
+      lines: Number(goalDescriptionElement.dataset.lines) || 3
+    });
   }
   if (startDateElement) {
     startDateElement.textContent = startDate;

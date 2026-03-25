@@ -4,6 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>フェーズ詳細</title>
+    <link rel="stylesheet" href="./readable-text.css" />
     <style>
       :root { color-scheme: light; }
       body {
@@ -15,16 +16,17 @@
       }
       .container { max-width: 760px; margin: 0 auto; display: grid; gap: 12px; }
       .card { background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 16px; }
-      h1, h2 { margin: 0; }
+      h1 { margin: 0; font-size: clamp(1.3rem, 1.18rem + 0.55vw, 1.65rem); line-height: 1.35; }
+      h2 { margin: 0; font-size: clamp(1.08rem, 1.02rem + 0.25vw, 1.2rem); }
       .hint { margin: 8px 0 0; color: #4b5563; font-size: 0.92rem; }
       .hint.error { color: #b91c1c; }
-      .phase-meta { margin-top: 10px; display: grid; gap: 8px; }
-      .phase-meta-item dt { font-size: 0.82rem; color: #6b7280; }
-      .phase-meta-item dd { margin: 2px 0 0; }
+      .phase-meta { margin-top: 12px; display: grid; gap: 14px; }
+      .phase-meta-item dt { font-size: 0.86rem; color: #374151; font-weight: 700; letter-spacing: 0.02em; margin-bottom: 6px; }
+      .phase-meta-item dd { margin: 0; }
       .kpi-list { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 10px; }
       .kpi-item { border: 1px solid #e5e7eb; border-radius: 10px; padding: 12px; background: #f9fafb; }
       .kpi-item h3 { margin: 0; font-size: 1rem; }
-      .kpi-item p { margin: 6px 0 0; color: #4b5563; font-size: 0.92rem; }
+      .kpi-item p { margin: 8px 0 0; color: #4b5563; font-size: 0.96rem; line-height: 1.7; }
       .kpi-link { color: #1d4ed8; text-decoration: none; }
       .kpi-link:hover { text-decoration: underline; }
       .field { margin-top: 10px; display: grid; gap: 6px; }
@@ -51,7 +53,7 @@
       }
       .candidate-list { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 10px; }
       .candidate-item { border: 1px solid #bfdbfe; border-radius: 10px; padding: 12px; background: #eff6ff; }
-      .candidate-meta { font-size: 0.82rem; color: #1d4ed8; margin-top: 6px; }
+      .candidate-meta { font-size: 0.9rem; color: #1d4ed8; margin-top: 8px; line-height: 1.6; }
       .candidate-actions { margin-top: 10px; display: flex; gap: 8px; }
       details.manual-kpi > summary {
         cursor: pointer;
@@ -67,6 +69,10 @@
       }
       details.manual-kpi[open] > summary::before { content: "▼"; }
       .manual-kpi-body { margin-top: 10px; }
+      @media (max-width: 640px) {
+        body { padding: 14px; }
+        .card { padding: 14px; }
+      }
     </style>
   </head>
   <body>
@@ -81,7 +87,7 @@
         <dl class="phase-meta" id="phaseMeta" hidden>
           <div class="phase-meta-item">
             <dt>フェーズの目的</dt>
-            <dd id="phasePurpose">-</dd>
+            <dd id="phasePurpose" data-readable data-lines="3">-</dd>
           </div>
           <div class="phase-meta-item">
             <dt>フェーズ期限</dt>

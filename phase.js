@@ -9,6 +9,7 @@ import {
   where
 } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
 import { getDb } from "./firebase-config.js";
+import { enhanceReadableText } from "./readable-text.js";
 
 const backToKgiLink = document.getElementById("backToKgiLink");
 const phaseName = document.getElementById("phaseName");
@@ -130,6 +131,9 @@ const normalizeKpi = (kpiDoc) => {
 const renderPhase = (phase) => {
   phaseName.textContent = `フェーズ${phase.phaseNumber}: ${phase.name}`;
   phasePurpose.textContent = phase.purpose;
+  enhanceReadableText(phasePurpose, {
+    lines: Number(phasePurpose.dataset.lines) || 3
+  });
   phaseDeadline.textContent = phase.deadline;
   phaseMeta.hidden = false;
   phaseStatus.textContent = "";
