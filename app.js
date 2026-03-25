@@ -7,6 +7,18 @@ const deadlineInput = document.getElementById("kgiDeadline");
 const levelInput = document.getElementById("kgiLevel");
 const saveButton = document.getElementById("saveButton");
 const statusText = document.getElementById("statusText");
+const simpleModeButton = document.getElementById("simpleModeButton");
+const aiModeButton = document.getElementById("aiModeButton");
+const aiModeSection = document.getElementById("aiModeSection");
+const roughGoalInput = document.getElementById("roughGoalInput");
+const roughReasonInput = document.getElementById("roughReasonInput");
+const roughDeadlineInput = document.getElementById("roughDeadlineInput");
+const roughCurrentStateInput = document.getElementById("roughCurrentStateInput");
+const generatePromptButton = document.getElementById("generatePromptButton");
+const externalPromptOutput = document.getElementById("externalPromptOutput");
+const copyPromptButton = document.getElementById("copyPromptButton");
+const refinedKgiInput = document.getElementById("refinedKgiInput");
+const applyRefinedKgiButton = document.getElementById("applyRefinedKgiButton");
 const buildInitialDetailEntryStorageKey = (kgiId) => `kgi-detail-entry:${kgiId}`;
 
 const DEFAULT_KGI_DURATION_DAYS = 100;
@@ -25,6 +37,7 @@ const addDays = (date, days) => {
 };
 
 let db;
+let currentMode = "simple";
 
 const generateRoadmap = async (kgiData) => {
   const response = await fetch("/api/generate-roadmap", {
@@ -59,6 +72,67 @@ const setStatus = (message, isError = false) => {
   statusText.classList.toggle("error", isError);
 };
 
+const setMode = (mode) => {
+  currentMode = mode === "ai" ? "ai" : "simple";
+  const isAiMode = currentMode === "ai";
+  aiModeSection?.classList.toggle("hidden", !isAiMode);
+  simpleModeButton?.classList.toggle("active", !isAiMode);
+  aiModeButton?.classList.toggle("active", isAiMode);
+};
+
+const buildExternalAiPrompt = ({ roughGoal, reason, deadline, currentState }) => {
+  const targetDeadline = deadline || "未設定";
+
+  return [
+    "あなたは事業KGI設計の専門家です。",
+    "以下の情報をもとに、実行可能で測定可能なKGIを1つに整えてください。",
+    "",
+    "【入力情報】",
+    `- やりたいこと: ${roughGoal || "未入力"}`,
+    `- なぜやりたいか: ${reason || "未入力"}`,
+    `- 期限: ${targetDeadline}`,
+    `- 今の状況: ${currentState || "未入力"}`,
+    "",
+    "【要件】",
+    "- 抽象表現ではなく、定量・期限付きで表現する",
+    "- 達成判断できる成功条件を含める",
+    "- 必要なら前提条件や補足を簡潔に示す",
+    "",
+    "次のJSON形式で回答してください（前後に説明文は不要）。",
+    '{"name":"KGI名","goalText":"ゴール説明","deadline":"YYYY-MM-DD","level":"easy|normal|detailed"}'
+  ].join("\n");
+};
+
+const applyRefinedKgiToForm = (rawText) => {
+  if (!rawText.trim()) {
+    alert("貼り戻し欄に内容を入力してください。");
+    return false;
+  }
+
+  try {
+    const parsed = JSON.parse(rawText);
+    if (typeof parsed?.name === "string") {
+      nameInput.value = parsed.name.trim();
+    }
+    if (typeof parsed?.goalText === "string") {
+      goalTextInput.value = parsed.goalText.trim();
+    }
+    if (typeof parsed?.deadline === "string") {
+      deadlineInput.value = parsed.deadline.trim();
+    }
+    if (typeof parsed?.level === "string" && ["easy", "normal", "detailed"].includes(parsed.level)) {
+      levelInput.value = parsed.level;
+    }
+    setStatus("貼り戻したKGIを保存フォームに反映しました。");
+    return true;
+  } catch (error) {
+    alert("貼り戻し欄はJSON形式で入力してください。");
+    return false;
+  }
+};
+
+setMode("simple");
+
 saveButton.disabled = true;
 setStatus("Firebase接続を初期化しています...");
 
@@ -72,6 +146,48 @@ setStatus("Firebase接続を初期化しています...");
     setStatus("Firebase接続に失敗しました。設定を確認してください。", true);
   }
 })();
+
+simpleModeButton?.addEventListener("click", () => {
+  setMode("simple");
+});
+
+aiModeButton?.addEventListener("click", () => {
+  setMode("ai");
+});
+
+generatePromptButton?.addEventListener("click", () => {
+  const promptText = buildExternalAiPrompt({
+    roughGoal: roughGoalInput?.value.trim() || "",
+    reason: roughReasonInput?.value.trim() || "",
+    deadline: roughDeadlineInput?.value || "",
+    currentState: roughCurrentStateInput?.value.trim() || ""
+  });
+
+  externalPromptOutput.value = promptText;
+  setStatus("外部AI向けプロンプトを生成しました。");
+});
+
+copyPromptButton?.addEventListener("click", async () => {
+  const promptText = externalPromptOutput?.value.trim() || "";
+  if (!promptText) {
+    alert("先にプロンプトを生成してください。");
+    return;
+  }
+
+  try {
+    await navigator.clipboard.writeText(promptText);
+    setStatus("プロンプトをコピーしました。");
+  } catch (error) {
+    alert("コピーに失敗しました。手動でコピーしてください。");
+  }
+});
+
+applyRefinedKgiButton?.addEventListener("click", () => {
+  const applied = applyRefinedKgiToForm(refinedKgiInput?.value || "");
+  if (applied) {
+    setMode("simple");
+  }
+});
 
 saveButton.addEventListener("click", async () => {
   if (!db) {

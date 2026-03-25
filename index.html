@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>KGI保存アプリ</title>
+    <title>KGI設計・保存アプリ</title>
     <style>
       :root {
         color-scheme: light;
@@ -29,6 +29,12 @@
       h1 {
         font-size: 1.25rem;
         margin: 0 0 16px;
+      }
+
+      .subtitle {
+        margin: -8px 0 16px;
+        font-size: 0.9rem;
+        color: #4b5563;
       }
 
       .field {
@@ -66,6 +72,49 @@
         cursor: pointer;
       }
 
+      .secondary {
+        background: #1d4ed8;
+      }
+
+      .mode-switch {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+        margin-bottom: 18px;
+      }
+
+      .mode-button {
+        background: #e5e7eb;
+        color: #111827;
+      }
+
+      .mode-button.active {
+        background: #2563eb;
+        color: #fff;
+      }
+
+      .section {
+        border: 1px solid #e5e7eb;
+        border-radius: 12px;
+        padding: 14px;
+        margin-bottom: 14px;
+      }
+
+      .section h2 {
+        margin: 0 0 12px;
+        font-size: 1rem;
+      }
+
+      .helper {
+        margin: 0 0 10px;
+        font-size: 0.84rem;
+        color: #6b7280;
+      }
+
+      .hidden {
+        display: none;
+      }
+
       @media (min-width: 641px) {
         body {
           display: grid;
@@ -74,7 +123,7 @@
         }
 
         .card {
-          max-width: 420px;
+          max-width: 640px;
         }
       }
 
@@ -96,33 +145,85 @@
   </head>
   <body>
     <main class="card">
-      <h1>KGIを1件保存</h1>
+      <h1>KGI設計の入口ページ</h1>
+      <p class="subtitle">「かんたん作成」と「AIで深掘りして作成」から選べます。</p>
 
-      <div class="field">
-        <label for="kgiName">KGI名</label>
-        <input id="kgiName" type="text" placeholder="例: 月間売上" required />
+      <div class="mode-switch">
+        <button id="simpleModeButton" class="mode-button active" type="button">かんたん作成</button>
+        <button id="aiModeButton" class="mode-button" type="button">AIで深掘りして作成</button>
       </div>
 
-      <div class="field">
-        <label for="kgiGoalText">ゴール説明</label>
-        <textarea id="kgiGoalText" placeholder="例: 月末までに月間売上100万円を達成する"></textarea>
-      </div>
+      <section id="aiModeSection" class="hidden">
+        <div class="section">
+          <h2>1. ざっくり入力</h2>
+          <div class="field">
+            <label for="roughGoalInput">やりたいこと</label>
+            <textarea id="roughGoalInput" placeholder="例: 自社ECの月商を伸ばしたい"></textarea>
+          </div>
+          <div class="field">
+            <label for="roughReasonInput">なぜやりたいか</label>
+            <textarea id="roughReasonInput" placeholder="例: 広告費回収率が悪化しており、利益体質にしたい"></textarea>
+          </div>
+          <div class="field">
+            <label for="roughDeadlineInput">期限（任意）</label>
+            <input id="roughDeadlineInput" type="date" />
+          </div>
+          <div class="field">
+            <label for="roughCurrentStateInput">今の状況（任意）</label>
+            <textarea id="roughCurrentStateInput" placeholder="例: 現在月商70万円、CVR1.2%、既存顧客比率が高い"></textarea>
+          </div>
+          <button id="generatePromptButton" type="button">AIに相談するためのプロンプトを作る</button>
+        </div>
 
-      <div class="field">
-        <label for="kgiDeadline">目標期限日</label>
-        <input id="kgiDeadline" type="date" />
-      </div>
+        <div class="section">
+          <h2>2. 外部AI用プロンプト</h2>
+          <p class="helper">生成したプロンプトをコピーして、普段使っているAIに貼り付けてください。</p>
+          <div class="field">
+            <label for="externalPromptOutput">外部AIに渡すプロンプト</label>
+            <textarea id="externalPromptOutput" readonly></textarea>
+          </div>
+          <button id="copyPromptButton" class="secondary" type="button">プロンプトをコピー</button>
+        </div>
 
-      <div class="field">
-        <label for="kgiLevel">説明レベル</label>
-        <select id="kgiLevel">
-          <option value="easy">やさしく</option>
-          <option value="normal" selected>ふつう</option>
-          <option value="detailed">くわしく</option>
-        </select>
-      </div>
+        <div class="section">
+          <h2>3. 整ったKGIの貼り戻し</h2>
+          <p class="helper">外部AIの回答を貼り戻し、「保存フォームへ反映」で下の保存欄に転記できます。</p>
+          <div class="field">
+            <label for="refinedKgiInput">貼り戻し欄（JSON推奨）</label>
+            <textarea id="refinedKgiInput" placeholder='例: {"name":"月商120万円達成","goalText":"2026-09-30までに月商120万円を達成する","deadline":"2026-09-30","level":"normal"}'></textarea>
+          </div>
+          <button id="applyRefinedKgiButton" class="secondary" type="button">保存フォームへ反映</button>
+        </div>
+      </section>
 
-      <button id="saveButton" type="button">保存</button>
+      <section class="section">
+        <h2>既存のシンプル保存フォーム</h2>
+        <div class="field">
+          <label for="kgiName">KGI名</label>
+          <input id="kgiName" type="text" placeholder="例: 月間売上" required />
+        </div>
+
+        <div class="field">
+          <label for="kgiGoalText">ゴール説明</label>
+          <textarea id="kgiGoalText" placeholder="例: 月末までに月間売上100万円を達成する"></textarea>
+        </div>
+
+        <div class="field">
+          <label for="kgiDeadline">目標期限日</label>
+          <input id="kgiDeadline" type="date" />
+        </div>
+
+        <div class="field">
+          <label for="kgiLevel">説明レベル</label>
+          <select id="kgiLevel">
+            <option value="easy">やさしく</option>
+            <option value="normal" selected>ふつう</option>
+            <option value="detailed">くわしく</option>
+          </select>
+        </div>
+
+        <button id="saveButton" type="button">保存</button>
+      </section>
       <p id="statusText" class="hint"></p>
     </main>
 
