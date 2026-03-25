@@ -44,20 +44,56 @@
       .status { margin: 0; font-size: 0.95rem; color: #374151; }
       .status.error { color: #b91c1c; }
       .roadmap-list { margin: 0; padding-left: 20px; display: grid; gap: 12px; }
-      .roadmap-title-link {
+      .roadmap-item details {
+        border: 1px solid #e5e7eb;
+        border-radius: 10px;
+        background: #f9fafb;
+      }
+      .roadmap-item summary {
+        cursor: pointer;
+        list-style: none;
+        padding: 12px;
+      }
+      .roadmap-item summary::-webkit-details-marker { display: none; }
+      .roadmap-item summary::before {
+        content: "▶";
+        margin-right: 8px;
+        font-size: 0.82rem;
+        color: #4b5563;
+      }
+      .roadmap-item details[open] > summary::before { content: "▼"; }
+      .roadmap-summary-title {
         font-weight: 700;
-        color: #1d4ed8;
-        text-decoration: none;
+        color: #111827;
       }
-      .roadmap-title-link:hover { text-decoration: underline; }
-      .roadmap-description {
-        margin: 8px 0 0;
+      .roadmap-summary-intro {
+        margin-top: 6px;
+        font-size: 0.93rem;
+        color: #4b5563;
+        line-height: 1.6;
       }
-      .roadmap-deadline {
-        margin: 10px 0 0;
-        font-size: 0.9rem;
+      .roadmap-summary-deadline {
+        margin-top: 6px;
+        font-size: 0.88rem;
         color: #6b7280;
       }
+      .roadmap-body {
+        padding: 0 12px 12px;
+      }
+      .roadmap-description {
+        margin: 0;
+        white-space: pre-wrap;
+        line-height: 1.8;
+        color: #1f2937;
+      }
+      .roadmap-title-link {
+        display: inline-block;
+        margin-top: 10px;
+        color: #1d4ed8;
+        text-decoration: none;
+        font-weight: 600;
+      }
+      .roadmap-title-link:hover { text-decoration: underline; }
       .roadmap-empty { margin: 0; color: #6b7280; font-size: 0.92rem; }
       .kpi-summary-inline {
         margin: 8px 0 0;
