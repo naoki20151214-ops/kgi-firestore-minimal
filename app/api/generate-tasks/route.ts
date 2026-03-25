@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 
 const OPENAI_API_URL = "https://api.openai.com/v1/responses";
 
-const SYSTEM_PROMPT = `あなたはPDCAアプリのTask生成AIです。KPIから必ずユーザーがすぐ動けるTaskを日本語JSONのみで返してください。
+const SYSTEM_PROMPT = `あなたはPDCAアプリのTask生成AIです。KGI全体・全KPI・対象KPI・既存Taskを踏まえ、対象KPIに必要なTaskを日本語JSONのみで返してください。
 
 最重要ルール:
 - KPIごとに最低1つは「Next Action」としてそのまま使えるTaskを含める
@@ -11,7 +11,9 @@ const SYSTEM_PROMPT = `あなたはPDCAアプリのTask生成AIです。KPIか�
 - 良い例: 競合記事を3つ開く / 読者候補1人にDM送る / noteのタイトルを1つ書く
 - titleは短い行動文、descriptionは1行の補足説明にする
 - stage は必ず setup / research / decision / build / launch / review のいずれかを入れる（迷う場合は build を返す）
-- TaskはすべてKPIに直接つながる内容だけにする`;
+- Taskはすべて対象KPIに直接つながる内容にする
+- 他KPIと重複するTask名や内容は避ける
+- フェーズ目的と期限に沿って自然な順序にする`;
 
 const TASK_RESPONSE_SCHEMA = {
   name: "generate_tasks_response",
@@ -24,7 +26,7 @@ const TASK_RESPONSE_SCHEMA = {
       tasks: {
         type: "array",
         minItems: 3,
-        maxItems: 7,
+        maxItems: 5,
         items: {
           type: "object",
           additionalProperties: false,
@@ -54,14 +56,16 @@ type RecentReflection = {
 type TaskRequest = {
   kgiId?: string;
   kgiName?: string;
-  kgiGoalText?: string;
+  goalDescription?: string;
   kpiId?: string;
-  kpiName?: string;
-  kpiDescription?: string;
-  kpiType?: "result" | "action";
-  targetValue?: number;
   phaseId?: string;
-  phaseName?: string;
+  roadmapPhases?: unknown[];
+  targetPhase?: Record<string, unknown> | null;
+  allKpis?: unknown[];
+  targetKpi?: Record<string, unknown> | null;
+  existingTasksForTargetKpi?: unknown[];
+  targetDate?: string;
+  phaseDeadline?: string;
   recentReflections?: RecentReflection[];
 };
 
@@ -217,39 +221,40 @@ const buildAdaptationHints = (recentReflections: NormalizedReflection[]) => {
 
 const buildTaskPrompt = ({
   kgiName,
-  kgiGoalText,
-  kpiName,
-  kpiDescription,
-  kpiType,
-  targetValue,
+  goalDescription,
+  roadmapPhases,
+  targetPhase,
+  allKpis,
+  targetKpi,
+  existingTasksForTargetKpi,
+  targetDate,
+  phaseDeadline,
   adaptationHints,
-  phaseName
+  
 }: {
   kgiName: string;
-  kgiGoalText: string;
-  kpiName: string;
-  kpiDescription: string;
-  kpiType: "result" | "action";
-  targetValue: number;
+  goalDescription: string;
+  roadmapPhases: unknown[];
+  targetPhase: Record<string, unknown> | null;
+  allKpis: unknown[];
+  targetKpi: Record<string, unknown> | null;
+  existingTasksForTargetKpi: unknown[];
+  targetDate: string;
+  phaseDeadline: string;
   adaptationHints: string[];
-  phaseName: string;
 }) => JSON.stringify({
-  kgi: {
-    name: kgiName,
-    goal: kgiGoalText || "未設定"
-  },
-  roadmap: {
-    phaseName: phaseName || "未分類"
-  },
-  kpi: {
-    name: kpiName,
-    description: kpiDescription || "未設定",
-    type: kpiType,
-    targetValue
-  },
+  kgiName,
+  goalDescription: goalDescription || "未設定",
+  roadmapPhases,
+  targetPhase,
+  allKpis,
+  targetKpi,
+  existingTasksForTargetKpi,
+  targetDate,
+  phaseDeadline,
   adaptationHints,
   output: {
-    tasks: "3-7件",
+    tasks: "3-5件",
     language: "ja",
     type: "one_time",
     progressValue: 1,
@@ -414,33 +419,38 @@ export async function POST(request: Request) {
   const body = await request.json().catch(() => null) as TaskRequest | null;
   const kgiId = typeof body?.kgiId === "string" ? body.kgiId.trim() : "";
   const kgiName = typeof body?.kgiName === "string" ? body.kgiName.trim() : "";
-  const kgiGoalText = typeof body?.kgiGoalText === "string" ? body.kgiGoalText.trim() : "";
+  const goalDescription = typeof body?.goalDescription === "string" ? body.goalDescription.trim() : "";
   const kpiId = typeof body?.kpiId === "string" ? body.kpiId.trim() : "";
-  const kpiName = typeof body?.kpiName === "string" ? body.kpiName.trim() : "";
-  const kpiDescription = typeof body?.kpiDescription === "string" ? body.kpiDescription.trim() : "";
-  const kpiType = body?.kpiType;
-  const targetValue = Number(body?.targetValue);
   const phaseId = typeof body?.phaseId === "string" ? body.phaseId.trim() : "";
-  const phaseName = typeof body?.phaseName === "string" ? body.phaseName.trim() : "";
+  const roadmapPhases = Array.isArray(body?.roadmapPhases) ? body.roadmapPhases : [];
+  const targetPhase = body?.targetPhase && typeof body.targetPhase === "object" ? body.targetPhase : null;
+  const allKpis = Array.isArray(body?.allKpis) ? body.allKpis : [];
+  const targetKpi = body?.targetKpi && typeof body.targetKpi === "object" ? body.targetKpi : null;
+  const existingTasksForTargetKpi = Array.isArray(body?.existingTasksForTargetKpi) ? body.existingTasksForTargetKpi : [];
+  const targetDate = typeof body?.targetDate === "string" ? body.targetDate.trim() : "";
+  const phaseDeadline = typeof body?.phaseDeadline === "string" ? body.phaseDeadline.trim() : "";
+  const kpiName = typeof targetKpi?.name === "string" ? targetKpi.name.trim() : "";
   const recentReflections = normalizeRecentReflections(body?.recentReflections);
   const adaptationHints = buildAdaptationHints(recentReflections);
 
-  if (!kgiName || !kpiName || (kpiType !== "result" && kpiType !== "action") || !Number.isFinite(targetValue)) {
+  if (!kgiName || !kpiName) {
     return NextResponse.json({
-      error: "Invalid request body. Expected JSON with kgiName, kgiGoalText, kpiName, kpiDescription, kpiType, targetValue."
+      error: "Invalid request body. Expected JSON with kgiName, goalDescription, roadmapPhases, targetPhase, allKpis, targetKpi."
     }, { status: 400 });
   }
 
   try {
     const promptText = buildTaskPrompt({
       kgiName,
-      kgiGoalText,
-      kpiName,
-      kpiDescription,
-      kpiType,
-      targetValue,
+      goalDescription,
+      roadmapPhases,
+      targetPhase,
+      allKpis,
+      targetKpi,
+      existingTasksForTargetKpi,
+      targetDate,
+      phaseDeadline,
       adaptationHints,
-      phaseName
     });
     console.log("[generate-tasks] request", {
       kgiId,
@@ -448,8 +458,8 @@ export async function POST(request: Request) {
       phaseId,
       kgiName,
       kpiName,
-      kpiType,
-      targetValue,
+      allKpisCount: allKpis.length,
+      existingTasksCount: existingTasksForTargetKpi.length,
       rawReflectionsCount: recentReflections.length,
       adaptationHintsCount: adaptationHints.length,
       promptChars: SYSTEM_PROMPT.length + promptText.length

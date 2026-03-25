@@ -1,6 +1,6 @@
 const OPENAI_API_URL = "https://api.openai.com/v1/responses";
 
-const SYSTEM_PROMPT = `あなたはPDCAアプリのTask生成AIです。KPIから必ずユーザーがすぐ動けるTaskを日本語JSONのみで返してください。
+const SYSTEM_PROMPT = `あなたはPDCAアプリのTask生成AIです。KGI全体・全KPI・対象KPI・既存Taskを踏まえ、対象KPIに必要なTaskを日本語JSONのみで返してください。
 
 最重要ルール:
 - KPIごとに最低1つは「Next Action」としてそのまま使えるTaskを含める
@@ -9,7 +9,9 @@ const SYSTEM_PROMPT = `あなたはPDCAアプリのTask生成AIです。KPIか�
 - 良い例: 競合記事を3つ開く / 読者候補1人にDM送る / noteのタイトルを1つ書く
 - titleは短い行動文、descriptionは1行の補足説明にする
 - stage は必ず setup / research / decision / build / launch / review のいずれかを入れる（迷う場合は build を返す）
-- TaskはすべてKPIに直接つながる内容だけにする`;
+- Taskはすべて対象KPIに直接つながる内容にする
+- 他KPIと重複するTask名や内容は避ける
+- フェーズ目的と期限に沿って自然な順序にする`;
 
 const TASK_RESPONSE_SCHEMA = {
   name: "generate_tasks_response",
@@ -22,7 +24,7 @@ const TASK_RESPONSE_SCHEMA = {
       tasks: {
         type: "array",
         minItems: 3,
-        maxItems: 7,
+        maxItems: 5,
         items: {
           type: "object",
           additionalProperties: false,
@@ -42,7 +44,6 @@ const TASK_RESPONSE_SCHEMA = {
 };
 
 const isNonEmptyString = (value) => typeof value === "string" && value.trim().length > 0;
-const isValidKpiType = (value) => value === "result" || value === "action";
 const isValidReflectionResult = (value) => (
   value === "as_planned"
   || value === "harder_than_expected"
@@ -186,23 +187,30 @@ const buildAdaptationHints = (recentReflections) => {
   return Array.from(hintSet).slice(0, MAX_ADAPTATION_HINTS);
 };
 
-const buildTaskPrompt = ({ kgiName, kgiGoalText, kpiName, kpiDescription, kpiType, targetValue, phaseName, adaptationHints }) => JSON.stringify({
-  kgi: {
-    name: kgiName,
-    goal: kgiGoalText || "未設定"
-  },
-  roadmap: {
-    phaseName: phaseName || "未分類"
-  },
-  kpi: {
-    name: kpiName,
-    description: kpiDescription || "未設定",
-    type: kpiType,
-    targetValue
-  },
+const buildTaskPrompt = ({
+  kgiName,
+  goalDescription,
+  roadmapPhases,
+  targetPhase,
+  allKpis,
+  targetKpi,
+  existingTasksForTargetKpi,
+  targetDate,
+  phaseDeadline,
+  adaptationHints
+}) => JSON.stringify({
+  kgiName,
+  goalDescription: goalDescription || "未設定",
+  roadmapPhases: Array.isArray(roadmapPhases) ? roadmapPhases : [],
+  targetPhase: targetPhase ?? null,
+  allKpis: Array.isArray(allKpis) ? allKpis : [],
+  targetKpi: targetKpi ?? null,
+  existingTasksForTargetKpi: Array.isArray(existingTasksForTargetKpi) ? existingTasksForTargetKpi : [],
+  targetDate: targetDate || "",
+  phaseDeadline: phaseDeadline || "",
   adaptationHints,
   output: {
-    tasks: "3-7件",
+    tasks: "3-5件",
     language: "ja",
     type: "one_time",
     progressValue: 1,
@@ -366,32 +374,37 @@ module.exports = async function handler(req, res) {
   const requestBody = getRequestBody(req);
   const kgiId = typeof requestBody?.kgiId === "string" ? requestBody.kgiId.trim() : "";
   const kgiName = typeof requestBody?.kgiName === "string" ? requestBody.kgiName.trim() : "";
-  const kgiGoalText = typeof requestBody?.kgiGoalText === "string" ? requestBody.kgiGoalText.trim() : "";
+  const goalDescription = typeof requestBody?.goalDescription === "string" ? requestBody.goalDescription.trim() : "";
   const kpiId = typeof requestBody?.kpiId === "string" ? requestBody.kpiId.trim() : "";
-  const kpiName = typeof requestBody?.kpiName === "string" ? requestBody.kpiName.trim() : "";
-  const kpiDescription = typeof requestBody?.kpiDescription === "string" ? requestBody.kpiDescription.trim() : "";
-  const kpiType = requestBody?.kpiType;
-  const targetValue = Number(requestBody?.targetValue);
   const phaseId = typeof requestBody?.phaseId === "string" ? requestBody.phaseId.trim() : "";
-  const phaseName = typeof requestBody?.phaseName === "string" ? requestBody.phaseName.trim() : "";
+  const roadmapPhases = Array.isArray(requestBody?.roadmapPhases) ? requestBody.roadmapPhases : [];
+  const targetPhase = requestBody?.targetPhase && typeof requestBody.targetPhase === "object" ? requestBody.targetPhase : null;
+  const allKpis = Array.isArray(requestBody?.allKpis) ? requestBody.allKpis : [];
+  const targetKpi = requestBody?.targetKpi && typeof requestBody.targetKpi === "object" ? requestBody.targetKpi : null;
+  const existingTasksForTargetKpi = Array.isArray(requestBody?.existingTasksForTargetKpi) ? requestBody.existingTasksForTargetKpi : [];
+  const targetDate = typeof requestBody?.targetDate === "string" ? requestBody.targetDate.trim() : "";
+  const phaseDeadline = typeof requestBody?.phaseDeadline === "string" ? requestBody.phaseDeadline.trim() : "";
+  const kpiName = typeof targetKpi?.name === "string" ? targetKpi.name.trim() : "";
   const recentReflections = normalizeRecentReflections(requestBody?.recentReflections);
   const adaptationHints = buildAdaptationHints(recentReflections);
 
-  if (!kgiName || !kpiName || !isValidKpiType(kpiType) || !Number.isFinite(targetValue)) {
+  if (!kgiName || !kpiName) {
     return sendJson(res, 400, {
-      error: "Invalid request body. Expected JSON with kgiName, kgiGoalText, kpiName, kpiDescription, kpiType, targetValue."
+      error: "Invalid request body. Expected JSON with kgiName, goalDescription, roadmapPhases, targetPhase, allKpis, targetKpi."
     });
   }
 
   try {
     const promptText = buildTaskPrompt({
       kgiName,
-      kgiGoalText,
-      kpiName,
-      kpiDescription,
-      kpiType,
-      targetValue,
-      phaseName,
+      goalDescription,
+      roadmapPhases,
+      targetPhase,
+      allKpis,
+      targetKpi,
+      existingTasksForTargetKpi,
+      targetDate,
+      phaseDeadline,
       adaptationHints
     });
     console.log("[generate-tasks] request", {
@@ -400,8 +413,8 @@ module.exports = async function handler(req, res) {
       phaseId,
       kgiName,
       kpiName,
-      kpiType,
-      targetValue,
+      allKpisCount: allKpis.length,
+      existingTasksCount: existingTasksForTargetKpi.length,
       rawReflectionsCount: recentReflections.length,
       adaptationHintsCount: adaptationHints.length,
       promptChars: SYSTEM_PROMPT.length + promptText.length
