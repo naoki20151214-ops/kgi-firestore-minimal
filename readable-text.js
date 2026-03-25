@@ -8,6 +8,20 @@ const toFiniteLineCount = (value, fallback = 3) => {
   return Math.max(2, Math.round(numeric));
 };
 
+const toLineHeightPx = (styles) => {
+  const lineHeight = Number.parseFloat(styles.lineHeight);
+  if (Number.isFinite(lineHeight) && lineHeight > 0) {
+    return lineHeight;
+  }
+
+  const fontSize = Number.parseFloat(styles.fontSize);
+  if (Number.isFinite(fontSize) && fontSize > 0) {
+    return fontSize * 1.5;
+  }
+
+  return 0;
+};
+
 const estimateRenderedLineCount = (element) => {
   if (!element || !element.isConnected) {
     return 0;
@@ -31,15 +45,64 @@ const estimateRenderedLineCount = (element) => {
   return 0;
 };
 
-const isOverflowing = (element) => {
+const measureExpandedHeight = (element) => {
+  if (!element || !element.isConnected) {
+    return { height: 0, lineHeight: 0 };
+  }
+
+  const styles = window.getComputedStyle(element);
+  const rect = element.getBoundingClientRect();
+  const width = Math.max(0, rect.width || element.clientWidth);
+  if (width <= 0) {
+    return { height: 0, lineHeight: toLineHeightPx(styles) };
+  }
+
+  const clone = element.cloneNode(true);
+  clone.classList.remove("is-collapsed");
+  clone.setAttribute("aria-hidden", "true");
+  clone.style.position = "absolute";
+  clone.style.visibility = "hidden";
+  clone.style.pointerEvents = "none";
+  clone.style.left = "-9999px";
+  clone.style.top = "0";
+  clone.style.width = `${width}px`;
+  clone.style.maxWidth = `${width}px`;
+  clone.style.height = "auto";
+  clone.style.maxHeight = "none";
+  clone.style.overflow = "visible";
+  clone.style.display = "block";
+  clone.style.webkitLineClamp = "unset";
+  clone.style.webkitBoxOrient = "unset";
+
+  document.body.appendChild(clone);
+  const height = clone.scrollHeight;
+  clone.remove();
+
+  return { height, lineHeight: toLineHeightPx(styles) };
+};
+
+const isOverflowing = (element, options = {}) => {
   const maxLines = toFiniteLineCount(window.getComputedStyle(element).getPropertyValue("--collapsed-lines"), 3);
+  const { fallbackCharacterThreshold = 100 } = options;
+  const expanded = measureExpandedHeight(element);
+  const collapsedHeight = expanded.lineHeight > 0 ? expanded.lineHeight * maxLines : 0;
+
+  if (expanded.height > 0 && collapsedHeight > 0) {
+    return expanded.height > collapsedHeight + 1;
+  }
+
   const renderedLines = estimateRenderedLineCount(element);
 
   if (renderedLines > 0) {
     return renderedLines > maxLines;
   }
 
-  return element.scrollHeight > element.clientHeight + 1;
+  if (element.scrollHeight > element.clientHeight + 1) {
+    return true;
+  }
+
+  const textLength = (element.textContent || "").trim().length;
+  return textLength >= Math.max(80, Number(fallbackCharacterThreshold) || 0);
 };
 
 const applyParagraphBreaks = (text) => {
@@ -62,6 +125,9 @@ export const enhanceReadableText = (element, options = {}) => {
   }
 
   const lines = toFiniteLineCount(options.lines, 3);
+  const fallbackCharacterThreshold = Number.isFinite(Number(options.fallbackCharacterThreshold))
+    ? Number(options.fallbackCharacterThreshold)
+    : 100;
   const moreLabel = options.moreLabel ?? "続きを読む";
   const lessLabel = options.lessLabel ?? "閉じる";
 
@@ -100,9 +166,12 @@ export const enhanceReadableText = (element, options = {}) => {
       return;
     }
 
-    const canCollapse = isOverflowing(element);
+    const canCollapse = isOverflowing(element, { fallbackCharacterThreshold });
     element.dataset.collapsible = canCollapse ? "true" : "false";
     toggleButton.hidden = !canCollapse;
+    element.dataset.toggleGenerated = "true";
+    element.dataset.toggleHidden = String(toggleButton.hidden);
+    element.dataset.measuredWhileCollapsed = String(element.classList.contains("is-collapsed"));
 
     if (!canCollapse) {
       toggleButton.textContent = "";
