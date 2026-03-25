@@ -104,6 +104,19 @@ const normalizeRoadmapPhases = (phases) => {
   });
 };
 
+const createSummaryIntro = (text, maxLength = 46) => {
+  const normalized = asDisplayText(text, "").replace(/\s+/g, " ").trim();
+  if (!normalized) {
+    return "説明は未設定です。";
+  }
+
+  if (normalized.length <= maxLength) {
+    return normalized;
+  }
+
+  return `${normalized.slice(0, maxLength)}…`;
+};
+
 const renderRoadmap = ({ kgiId, phases = [] }) => {
   if (!roadmapSectionElement || !roadmapListElement || !roadmapEmptyElement) {
     return;
@@ -121,22 +134,42 @@ const renderRoadmap = ({ kgiId, phases = [] }) => {
 
   phases.forEach((phase, index) => {
     const item = document.createElement("li");
+    item.className = "roadmap-item";
+
+    const details = document.createElement("details");
+    details.open = false;
+
+    const summary = document.createElement("summary");
+
+    const summaryTitle = document.createElement("div");
+    summaryTitle.className = "roadmap-summary-title";
+    summaryTitle.textContent = `フェーズ${phase.phaseNumber ?? index + 1}: ${phase.title}`;
+
+    const summaryIntro = document.createElement("p");
+    summaryIntro.className = "roadmap-summary-intro";
+    summaryIntro.textContent = createSummaryIntro(phase.purpose);
+
+    const summaryDeadline = document.createElement("p");
+    summaryDeadline.className = "roadmap-summary-deadline";
+    summaryDeadline.textContent = `期限: ${asDisplayText(phase.deadline, "期限未設定")}`;
+
+    summary.append(summaryTitle, summaryIntro, summaryDeadline);
 
     const titleLink = document.createElement("a");
     titleLink.className = "roadmap-title-link";
     titleLink.href = `./phase.html?id=${encodeURIComponent(kgiId)}&phaseId=${encodeURIComponent(phase.id)}`;
-    titleLink.textContent = `フェーズ${phase.phaseNumber ?? index + 1}: ${phase.title}`;
+    titleLink.textContent = "このフェーズの詳細ページを開く";
 
     const purpose = document.createElement("p");
     purpose.className = "roadmap-description";
     purpose.textContent = asDisplayText(phase.purpose, "説明は未設定です。");
-    enhanceReadableText(purpose, { lines: 3 });
 
-    const deadline = document.createElement("p");
-    deadline.className = "roadmap-deadline";
-    deadline.textContent = `期限: ${asDisplayText(phase.deadline, "期限未設定")}`;
+    const body = document.createElement("div");
+    body.className = "roadmap-body";
+    body.append(purpose, titleLink);
 
-    item.append(titleLink, purpose, deadline);
+    details.append(summary, body);
+    item.appendChild(details);
     fragment.appendChild(item);
   });
 
