@@ -163,6 +163,10 @@ const renderRoadmap = ({ kgiId, phases = [] }) => {
     const purpose = document.createElement("p");
     purpose.className = "roadmap-description";
     purpose.textContent = asDisplayText(phase.purpose, "説明は未設定です。");
+    enhanceReadableText(purpose, {
+      lines: 5,
+      formatAsSentenceBlocks: true
+    });
 
     const body = document.createElement("div");
     body.className = "roadmap-body";
