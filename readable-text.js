@@ -1,16 +1,45 @@
 const observers = new WeakMap();
 
-const isOverflowing = (element) => {
-  const styles = window.getComputedStyle(element);
-  const lineHeight = Number.parseFloat(styles.lineHeight);
-  const maxLines = Number.parseInt(styles.getPropertyValue("--collapsed-lines"), 10) || 3;
+const toFiniteLineCount = (value, fallback = 3) => {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return fallback;
+  }
+  return Math.max(2, Math.round(numeric));
+};
 
-  if (!Number.isFinite(lineHeight) || lineHeight <= 0) {
-    return element.scrollHeight > element.clientHeight + 1;
+const estimateRenderedLineCount = (element) => {
+  if (!element || !element.isConnected) {
+    return 0;
   }
 
-  const threshold = lineHeight * maxLines + 1;
-  return element.scrollHeight > threshold;
+  const range = document.createRange();
+  range.selectNodeContents(element);
+  const rects = Array.from(range.getClientRects()).filter((rect) => rect.height > 0);
+  range.detach?.();
+
+  if (rects.length > 0) {
+    return rects.length;
+  }
+
+  const styles = window.getComputedStyle(element);
+  const lineHeight = Number.parseFloat(styles.lineHeight);
+  if (Number.isFinite(lineHeight) && lineHeight > 0) {
+    return Math.ceil(element.scrollHeight / lineHeight);
+  }
+
+  return 0;
+};
+
+const isOverflowing = (element) => {
+  const maxLines = toFiniteLineCount(window.getComputedStyle(element).getPropertyValue("--collapsed-lines"), 3);
+  const renderedLines = estimateRenderedLineCount(element);
+
+  if (renderedLines > 0) {
+    return renderedLines > maxLines;
+  }
+
+  return element.scrollHeight > element.clientHeight + 1;
 };
 
 const applyParagraphBreaks = (text) => {
@@ -19,8 +48,9 @@ const applyParagraphBreaks = (text) => {
     .replace(/。\s*/g, "。\n")
     .replace(/\s*(?=\d+\))/g, " ")
     .replace(/(^|[^\n])\s*(\d+\))/g, (match, prefix, marker) => `${prefix}\n${marker}`)
-    .replace(/(^|[^\n])\s*・\s*/g, (match, prefix) => `${prefix}\n・ `)
-    .replace(/\s*(?=(条件|成功条件|前提|達成条件)\s*[：:])/g, "\n")
+    .replace(/(^|[^\n])\s*[-・●◦]\s*/g, (match, prefix) => `${prefix}\n・ `)
+    .replace(/\s*(?=(条件|成功条件|前提|達成条件|評価条件|判断基準)\s*[：:])/g, "\n")
+    .replace(/\s*(?=(かつ|または|もしくは|および)\s*[^\n]{8,})/g, "\n")
     .replace(/\n{3,}/g, "\n\n");
 
   return normalized.trim();
@@ -31,7 +61,7 @@ export const enhanceReadableText = (element, options = {}) => {
     return;
   }
 
-  const lines = Number.isFinite(Number(options.lines)) ? Math.max(2, Math.round(Number(options.lines))) : 3;
+  const lines = toFiniteLineCount(options.lines, 3);
   const moreLabel = options.moreLabel ?? "続きを読む";
   const lessLabel = options.lessLabel ?? "閉じる";
 
