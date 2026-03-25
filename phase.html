@@ -53,6 +53,20 @@
       .candidate-item { border: 1px solid #bfdbfe; border-radius: 10px; padding: 12px; background: #eff6ff; }
       .candidate-meta { font-size: 0.82rem; color: #1d4ed8; margin-top: 6px; }
       .candidate-actions { margin-top: 10px; display: flex; gap: 8px; }
+      details.manual-kpi > summary {
+        cursor: pointer;
+        font-weight: 700;
+        list-style: none;
+      }
+      details.manual-kpi > summary::-webkit-details-marker { display: none; }
+      details.manual-kpi > summary::before {
+        content: "▶";
+        margin-right: 8px;
+        font-size: 0.82rem;
+        color: #4b5563;
+      }
+      details.manual-kpi[open] > summary::before { content: "▼"; }
+      .manual-kpi-body { margin-top: 10px; }
     </style>
   </head>
   <body>
@@ -91,17 +105,21 @@
       </section>
 
       <section class="card">
-        <h2>KPI作成</h2>
-        <p class="hint">このフェーズに紐づくKPIを追加します。</p>
-        <div class="field">
-          <label for="kpiNameInput">KPI名</label>
-          <input id="kpiNameInput" type="text" placeholder="例: 初回相談予約を月20件" />
-        </div>
-        <div class="field">
-          <label for="kpiDescriptionInput">KPI説明（任意）</label>
-          <textarea id="kpiDescriptionInput" placeholder="補足説明を入力"></textarea>
-        </div>
-        <button id="createKpiButton" type="button">このフェーズにKPIを作成</button>
+        <details class="manual-kpi">
+          <summary>手動でKPIを作成（補助機能）</summary>
+          <div class="manual-kpi-body">
+            <p class="hint">必要なときだけ手動でKPIを追加できます。</p>
+            <div class="field">
+              <label for="kpiNameInput">KPI名</label>
+              <input id="kpiNameInput" type="text" placeholder="例: 初回相談予約を月20件" />
+            </div>
+            <div class="field">
+              <label for="kpiDescriptionInput">KPI説明（任意）</label>
+              <textarea id="kpiDescriptionInput" placeholder="補足説明を入力"></textarea>
+            </div>
+            <button id="createKpiButton" type="button">このフェーズにKPIを作成</button>
+          </div>
+        </details>
       </section>
     </main>
 
