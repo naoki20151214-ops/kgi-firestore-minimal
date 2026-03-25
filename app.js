@@ -93,14 +93,45 @@ const buildExternalAiPrompt = ({ roughGoal, reason, deadline, currentState }) =>
     `- 期限: ${targetDeadline}`,
     `- 今の状況: ${currentState || "未入力"}`,
     "",
-    "【要件】",
-    "- 抽象表現ではなく、定量・期限付きで表現する",
-    "- 達成判断できる成功条件を含める",
-    "- 必要なら前提条件や補足を簡潔に示す",
+    "【出力要件（厳守）】",
+    "1. 返答は純粋なJSONオブジェクト1つのみ。",
+    "2. 説明文、見出し、箇条書き、Markdown、コードブロックを一切含めない。",
+    "3. 必ず半角ダブルクォーテーション \" を使う。全角引用符（“ ” 「 」）は禁止。",
+    "4. キー名は必ず次の4つに固定し、スペルを変更しない: name, goalText, deadline, level",
+    "5. level は easy / normal / detailed のいずれか。",
+    "6. deadline は YYYY-MM-DD 形式。",
+    "7. 上記以外のキーを追加しない。",
     "",
-    "次のJSON形式で回答してください（前後に説明文は不要）。",
-    '{"name":"KGI名","goalText":"ゴール説明","deadline":"YYYY-MM-DD","level":"easy|normal|detailed"}'
+    "【JSON返答例】",
+    "{\"name\":\"月商120万円達成\",\"goalText\":\"2026-09-30までに月商120万円を達成する\",\"deadline\":\"2026-09-30\",\"level\":\"normal\"}",
+    "",
+    "この例と同じ形式のJSONだけを返してください。"
   ].join("\n");
+};
+
+const sanitizeRefinedKgiJsonText = (rawText) => {
+  let normalized = String(rawText ?? "").trim();
+  normalized = normalized.replace(/^\s*```json\s*/i, "").replace(/^\s*```\s*/i, "").replace(/\s*```\s*$/i, "");
+  normalized = normalized.trim();
+  normalized = normalized
+    .replace(/[“”]/g, "\"")
+    .replace(/[‘’]/g, "\"")
+    .replace(/[「」]/g, "\"");
+  return normalized;
+};
+
+const getJsonParseErrorMessageJa = (error, text) => {
+  const message = typeof error?.message === "string" ? error.message : "";
+  const positionMatch = message.match(/position\s+(\d+)/i);
+  if (positionMatch) {
+    return `JSONの解析に失敗しました。${positionMatch[1]}文字目付近の構文が不正です。キー名と文字列は半角ダブルクォーテーション \" で囲み、余分な説明文がないか確認してください。`;
+  }
+
+  if (!text.startsWith("{") || !text.endsWith("}")) {
+    return "JSONの解析に失敗しました。先頭が {、末尾が } の純粋なJSONオブジェクトのみ貼り付けてください。";
+  }
+
+  return "JSONの解析に失敗しました。説明文やMarkdownを除去し、キー名と文字列を半角ダブルクォーテーション \" で囲んだ有効なJSONにしてください。";
 };
 
 const applyRefinedKgiToForm = (rawText) => {
@@ -110,7 +141,8 @@ const applyRefinedKgiToForm = (rawText) => {
   }
 
   try {
-    const parsed = JSON.parse(rawText);
+    const normalizedText = sanitizeRefinedKgiJsonText(rawText);
+    const parsed = JSON.parse(normalizedText);
     if (typeof parsed?.name === "string") {
       nameInput.value = parsed.name.trim();
     }
@@ -126,7 +158,8 @@ const applyRefinedKgiToForm = (rawText) => {
     setStatus("貼り戻したKGIを保存フォームに反映しました。");
     return true;
   } catch (error) {
-    alert("貼り戻し欄はJSON形式で入力してください。");
+    const normalizedText = sanitizeRefinedKgiJsonText(rawText);
+    alert(getJsonParseErrorMessageJa(error, normalizedText));
     return false;
   }
 };
