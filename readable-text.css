@@ -19,7 +19,7 @@
   position: relative;
 }
 
-.readable-text.is-collapsed {
+.readable-text.is-collapsed[data-collapsible="true"] {
   display: -webkit-box;
   -webkit-line-clamp: var(--collapsed-lines, 3);
   -webkit-box-orient: vertical;
@@ -27,7 +27,7 @@
 }
 
 
-.readable-text.is-collapsed::before {
+.readable-text.is-collapsed[data-collapsible="true"]::before {
   content: "…";
   position: absolute;
   right: 4px;
@@ -36,7 +36,7 @@
   color: #6b7280;
 }
 
-.readable-text.is-collapsed::after {
+.readable-text.is-collapsed[data-collapsible="true"]::after {
   content: "";
   position: absolute;
   inset: auto 0 0;
