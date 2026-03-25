@@ -4,7 +4,6 @@ import {
   doc,
   getDoc,
   getDocs,
-  orderBy,
   query,
   serverTimestamp,
   updateDoc,
@@ -31,11 +30,19 @@ const taskTitleInput = document.getElementById("taskTitleInput");
 const taskDescriptionInput = document.getElementById("taskDescriptionInput");
 const createTaskButton = document.getElementById("createTaskButton");
 const taskCreateStatus = document.getElementById("taskCreateStatus");
+const generateAiTaskButton = document.getElementById("generateAiTaskButton");
+const aiTaskGenerateStatus = document.getElementById("aiTaskGenerateStatus");
+const aiTaskCandidateList = document.getElementById("aiTaskCandidateList");
 const taskStatus = document.getElementById("taskStatus");
 const taskList = document.getElementById("taskList");
 
 let db;
 let currentKpi = null;
+let currentKgi = null;
+let allKpisForKgi = [];
+let currentTargetPhase = null;
+let currentTasksForKpi = [];
+let aiTaskCandidates = [];
 const japaneseTextPattern = /[ぁ-んァ-ヶ一-龠々ー]/;
 const tasksDebugState = {
   lastQueryConditions: null,
@@ -155,13 +162,16 @@ const loadTasks = async () => {
   console.info("[KPI tasks query] where conditions", tasksDebugState.lastQueryConditions);
 
   try {
-    const taskQuery = query(
-      collection(db, "tasks"),
-      where("kpiId", "==", kpiId),
-      orderBy("createdAt", "desc")
-    );
+    const taskQuery = query(collection(db, "tasks"), where("kpiId", "==", kpiId));
     const taskSnapshot = await getDocs(taskQuery);
-    const tasks = taskSnapshot.docs.map((taskDoc) => ({ id: taskDoc.id, ...taskDoc.data() }));
+    const tasks = taskSnapshot.docs
+      .map((taskDoc) => ({ id: taskDoc.id, ...taskDoc.data() }))
+      .sort((a, b) => {
+        const aTime = a?.createdAt && typeof a.createdAt.toMillis === "function" ? a.createdAt.toMillis() : 0;
+        const bTime = b?.createdAt && typeof b.createdAt.toMillis === "function" ? b.createdAt.toMillis() : 0;
+        return bTime - aTime;
+      });
+    currentTasksForKpi = tasks;
     renderTasks(tasks);
     taskStatus.textContent = `${tasks.length}件のタスクを表示しています。 (query: kpiId=${asText(kpiId, "undefined")})`;
   } catch (error) {
@@ -175,10 +185,192 @@ const loadTasks = async () => {
     });
     taskList.hidden = true;
     taskList.innerHTML = "";
-    taskStatus.textContent = `タスクの読み込みに失敗しました。 code=${code} / message=${message} / query={kpiId:${asText(
+    const isIndexError = code.includes("failed-precondition") || message.includes("requires an index");
+    taskStatus.textContent = isIndexError
+      ? "タスク取得クエリがインデックス不足で失敗しました。クエリ条件を簡素化して再試行してください。"
+      : `タスクの読み込みに失敗しました。 code=${code} / message=${message} / query={kpiId:${asText(
+          kpiId,
+          "undefined"
+        )},kgiId:${asText(kgiId, "undefined")},phaseId:${asText(phaseId, "undefined")}}`;
+  }
+};
+
+const normalizeRoadmapPhase = (phase, index = 0) => {
+  const phaseNumber = Number.isFinite(Number(phase?.phaseNumber)) ? Number(phase.phaseNumber) : index + 1;
+  return {
+    id: asText(phase?.id, `phase_${phaseNumber}`),
+    name: asText(phase?.title ?? phase?.name, `フェーズ${phaseNumber}`),
+    purpose: asText(phase?.description ?? phase?.goal ?? phase?.summary, "説明は未設定です。"),
+    deadline: asText(phase?.deadline ?? phase?.targetDate ?? phase?.dueDate, ""),
+    phaseNumber
+  };
+};
+
+const toPlainTask = (task) => ({
+  id: asText(task?.id, ""),
+  title: asText(task?.title, ""),
+  description: asText(task?.description, ""),
+  status: asText(task?.status, ""),
+  isCompleted: Boolean(task?.isCompleted)
+});
+
+const renderAiTaskCandidates = () => {
+  if (!aiTaskCandidates.length) {
+    aiTaskCandidateList.hidden = true;
+    aiTaskCandidateList.innerHTML = "";
+    return;
+  }
+
+  aiTaskCandidateList.innerHTML = "";
+  const fragment = document.createDocumentFragment();
+  aiTaskCandidates.forEach((candidate, index) => {
+    const item = document.createElement("li");
+    item.className = "task-item";
+    const title = document.createElement("h3");
+    title.textContent = asText(candidate?.title, `AIタスク候補 ${index + 1}`);
+    const description = document.createElement("p");
+    description.textContent = asText(candidate?.description, "説明は未設定です。");
+    const meta = document.createElement("p");
+    meta.className = "task-meta";
+    meta.textContent = `stage: ${asText(candidate?.stage, "build")} / priority: ${Number.isFinite(Number(candidate?.priority)) ? String(candidate.priority) : "-"}`;
+
+    const actions = document.createElement("div");
+    actions.className = "task-actions";
+    const saveButton = document.createElement("button");
+    saveButton.type = "button";
+    saveButton.textContent = "このタスクを保存";
+    saveButton.addEventListener("click", () => {
+      void saveAiTaskCandidate(index, saveButton);
+    });
+    actions.appendChild(saveButton);
+    item.append(title, description, meta, actions);
+    fragment.appendChild(item);
+  });
+
+  aiTaskCandidateList.appendChild(fragment);
+  aiTaskCandidateList.hidden = false;
+};
+
+const loadKgiContext = async () => {
+  const kgiSnapshot = await getDoc(doc(db, "kgis", kgiId));
+  if (!kgiSnapshot.exists()) {
+    throw new Error("KGI_NOT_FOUND");
+  }
+  const kgiData = kgiSnapshot.data();
+  const roadmapPhases = Array.isArray(kgiData?.roadmapPhases) ? kgiData.roadmapPhases : [];
+  const normalizedRoadmapPhases = roadmapPhases.map((phase, index) => normalizeRoadmapPhase(phase, index));
+  currentTargetPhase = normalizedRoadmapPhases.find((phase) => phase.id === phaseId) ?? null;
+
+  const kpiSnapshot = await getDocs(query(collection(db, "kpis"), where("kgiId", "==", kgiId)));
+  allKpisForKgi = kpiSnapshot.docs.map((snapshot) => {
+    const data = snapshot.data();
+    return {
+      id: snapshot.id,
+      phaseId: asText(data?.phaseId, ""),
+      name: asText(data?.name, ""),
+      description: asText(data?.description, ""),
+      type: asText(data?.type, ""),
+      targetValue: Number.isFinite(Number(data?.targetValue)) ? Number(data.targetValue) : null
+    };
+  });
+
+  currentKgi = {
+    kgiName: asText(kgiData?.name ?? kgiData?.title ?? kgiData?.kgiName, "名称未設定KGI"),
+    goalDescription: asText(kgiData?.goalDescription ?? kgiData?.goal ?? kgiData?.goalText ?? kgiData?.description, "ゴール説明は未設定です。"),
+    targetDate: asText(kgiData?.targetDate ?? kgiData?.deadline ?? kgiData?.dueDate, ""),
+    roadmapPhases: normalizedRoadmapPhases
+  };
+};
+
+const saveAiTaskCandidate = async (index, saveButton) => {
+  const candidate = aiTaskCandidates[index];
+  if (!candidate) {
+    return;
+  }
+  saveButton.disabled = true;
+  try {
+    await addDoc(collection(db, "tasks"), {
+      title: asText(candidate.title, "名称未設定タスク"),
+      description: asText(candidate.description, ""),
+      stage: asText(candidate.stage, "build"),
+      type: asText(candidate.type, "one_time"),
+      progressValue: Number.isFinite(Number(candidate.progressValue)) ? Number(candidate.progressValue) : 1,
+      priority: Number.isFinite(Number(candidate.priority)) ? Number(candidate.priority) : 1,
+      status: "active",
+      isCompleted: false,
+      source: "ai",
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
       kpiId,
-      "undefined"
-    )},kgiId:${asText(kgiId, "undefined")},phaseId:${asText(phaseId, "undefined")}}`;
+      kgiId,
+      phaseId
+    });
+    aiTaskCandidates.splice(index, 1);
+    renderAiTaskCandidates();
+    aiTaskGenerateStatus.textContent = "AI候補を保存しました。";
+    await loadTasks();
+  } catch (error) {
+    console.error(error);
+    aiTaskGenerateStatus.textContent = "AI候補の保存に失敗しました。";
+    saveButton.disabled = false;
+  }
+};
+
+const generateAiTasks = async () => {
+  if (!currentKpi || !currentKgi) {
+    aiTaskGenerateStatus.textContent = "KPIまたはKGIの読み込みが完了していません。";
+    return;
+  }
+
+  generateAiTaskButton.disabled = true;
+  aiTaskGenerateStatus.textContent = "AIがタスク候補を生成中です...";
+
+  const payload = {
+    kgiName: currentKgi.kgiName,
+    goalDescription: currentKgi.goalDescription,
+    roadmapPhases: currentKgi.roadmapPhases,
+    targetPhase: currentTargetPhase,
+    allKpis: allKpisForKgi,
+    targetKpi: {
+      id: currentKpi.id,
+      name: asText(currentKpi.name, ""),
+      description: asText(currentKpi.description, ""),
+      type: asText(currentKpi.type, "action"),
+      targetValue: Number.isFinite(Number(currentKpi.targetValue)) ? Number(currentKpi.targetValue) : null
+    },
+    existingTasksForTargetKpi: currentTasksForKpi.map((task) => toPlainTask(task)),
+    targetDate: currentKgi.targetDate,
+    phaseDeadline: asText(currentTargetPhase?.deadline, "")
+  };
+
+  try {
+    const response = await fetch("/api/generate-tasks", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(payload)
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(asText(data?.error, "AI生成に失敗しました。"));
+    }
+
+    const tasks = Array.isArray(data?.tasks) ? data.tasks.slice(0, 5) : [];
+    if (!tasks.length) {
+      aiTaskCandidates = [];
+      renderAiTaskCandidates();
+      aiTaskGenerateStatus.textContent = "候補が生成されませんでした。";
+      return;
+    }
+    aiTaskCandidates = tasks;
+    renderAiTaskCandidates();
+    aiTaskGenerateStatus.textContent = `${tasks.length}件の候補を生成しました。保存したいタスクを選んでください。`;
+  } catch (error) {
+    console.error(error);
+    aiTaskGenerateStatus.textContent = `AI生成に失敗しました: ${asText(error?.message, "unknown error")}`;
+  } finally {
+    generateAiTaskButton.disabled = false;
   }
 };
 
@@ -255,6 +447,7 @@ const init = async () => {
   try {
     db = await getDb();
     await loadKpi();
+    await loadKgiContext();
   } catch (error) {
     const { code, message } = formatErrorDetail(error);
     console.error("[KPI doc load failed]", { code, message });
@@ -272,6 +465,9 @@ const init = async () => {
 
 createTaskButton.addEventListener("click", () => {
   void createTask();
+});
+generateAiTaskButton.addEventListener("click", () => {
+  void generateAiTasks();
 });
 
 void init();

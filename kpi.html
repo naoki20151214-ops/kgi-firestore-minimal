@@ -87,6 +87,14 @@
       </section>
 
       <section class="card">
+        <h2>AIでこのKPIのタスクを作成</h2>
+        <p class="hint">KGI全体・全KPI・このKPIの既存タスクを文脈にして、候補を3〜5件生成します。</p>
+        <button id="generateAiTaskButton" type="button">AIでこのKPIのタスクを作成</button>
+        <p id="aiTaskGenerateStatus" class="hint"></p>
+        <ul id="aiTaskCandidateList" class="task-list" hidden></ul>
+      </section>
+
+      <section class="card">
         <h2>タスクを追加</h2>
         <p class="hint">タスク名は日本語で入力してください（例: 初回ヒアリング項目を10件見直す）。</p>
         <div class="field">
