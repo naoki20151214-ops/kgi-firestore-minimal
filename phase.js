@@ -25,6 +25,7 @@ const createKpiButton = document.getElementById("createKpiButton");
 const generateAiKpiButton = document.getElementById("generateAiKpiButton");
 const aiGenerateStatus = document.getElementById("aiGenerateStatus");
 const aiCandidateList = document.getElementById("aiCandidateList");
+const aiFocusInput = document.getElementById("aiFocusInput");
 
 const params = new URLSearchParams(window.location.search);
 const kgiId = params.get("id")?.trim() ?? "";
@@ -34,6 +35,7 @@ let db;
 let currentPhase = null;
 let currentKgi = null;
 let currentKpis = [];
+let currentRoadmapPhases = [];
 let aiCandidates = [];
 let isGeneratingAiKpis = false;
 let hasGeneratedAiCandidates = false;
@@ -106,6 +108,11 @@ const getPhaseFromKgi = (kgiData, phaseIdValue) => {
   }
 
   return phases.find((phase, index) => `phase_${index + 1}` === phaseIdValue) ?? null;
+};
+
+const normalizeRoadmapPhasesFromKgi = (kgiData) => {
+  const phases = Array.isArray(kgiData?.roadmapPhases) ? kgiData.roadmapPhases : [];
+  return phases.map((phase, index) => normalizePhase(phase, index));
 };
 
 const normalizePhase = (phase, index = 0) => {
@@ -312,6 +319,7 @@ const loadPhaseAndKpis = async () => {
   };
 
   const rawPhase = getPhaseFromKgi(kgiData, phaseId);
+  currentRoadmapPhases = normalizeRoadmapPhasesFromKgi(kgiData);
 
   if (!rawPhase) {
     throw new Error("PHASE_NOT_FOUND");
@@ -423,6 +431,14 @@ const generateAiKpis = async () => {
       description: asText(kpi.description, ""),
       type: asText(kpi.type, "action")
     })).filter((kpi) => kpi.name);
+    const focusOrAvoid = asText(aiFocusInput?.value, "");
+    const allPhasesForPrompt = currentRoadmapPhases.map((phase) => ({
+      id: asText(phase.id, ""),
+      phaseNumber: Number.isFinite(Number(phase.phaseNumber)) ? Number(phase.phaseNumber) : null,
+      name: asText(phase.name, ""),
+      purpose: asText(phase.purpose, ""),
+      deadline: asText(phase.deadline, "期限未設定")
+    })).filter((phase) => phase.id && phase.name);
 
     const response = await fetch("/api/generate-kpis", {
       method: "POST",
@@ -436,7 +452,9 @@ const generateAiKpis = async () => {
         phasePurpose: currentPhase.purpose,
         targetDate: currentKgi.targetDate,
         phaseDeadline: currentPhase.deadline,
-        existingKpis: existingKpisForPrompt
+        existingKpis: existingKpisForPrompt,
+        allPhases: allPhasesForPrompt,
+        focusOrAvoid
       })
     });
 
