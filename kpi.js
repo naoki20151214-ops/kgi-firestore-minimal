@@ -21,6 +21,7 @@ const backToPhaseLink = document.getElementById("backToPhaseLink");
 const kpiTitle = document.getElementById("kpiTitle");
 const kpiStatus = document.getElementById("kpiStatus");
 const kpiMeta = document.getElementById("kpiMeta");
+const kpiName = document.getElementById("kpiName");
 const kpiDescription = document.getElementById("kpiDescription");
 const kpiType = document.getElementById("kpiType");
 const kpiTargetValue = document.getElementById("kpiTargetValue");
@@ -35,6 +36,7 @@ const taskList = document.getElementById("taskList");
 
 let db;
 let currentKpi = null;
+const japaneseTextPattern = /[ぁ-んァ-ヶ一-龠々ー]/;
 
 const asText = (value, fallback = "-") => {
   if (typeof value !== "string") {
@@ -53,9 +55,16 @@ const toDateText = (timestamp) => {
 
 const formatTaskStatus = (task) => {
   if (task.isCompleted) {
-    return "completed";
+    return "完了";
   }
-  return asText(task.status, "active");
+  const statusValue = asText(task.status, "active");
+  if (statusValue === "active") {
+    return "進行中";
+  }
+  if (statusValue === "completed") {
+    return "完了";
+  }
+  return statusValue;
 };
 
 const renderTasks = (tasks) => {
@@ -114,7 +123,9 @@ const loadKpiAndTasks = async () => {
 
   const data = kpiSnapshot.data();
   currentKpi = { id: kpiSnapshot.id, ...data };
-  kpiTitle.textContent = asText(data?.name, "名称未設定KPI");
+  const displayKpiName = asText(data?.name, "名称未設定KPI");
+  kpiTitle.textContent = displayKpiName;
+  kpiName.textContent = displayKpiName;
   kpiDescription.textContent = asText(data?.description, "説明は未設定です。");
   kpiType.textContent = asText(data?.type, "action");
   kpiTargetValue.textContent = Number.isFinite(Number(data?.targetValue)) ? String(Number(data.targetValue)) : "-";
@@ -147,6 +158,10 @@ const createTask = async () => {
   const description = taskDescriptionInput.value.trim();
   if (!title) {
     taskCreateStatus.textContent = "タスク名を入力してください。";
+    return;
+  }
+  if (!japaneseTextPattern.test(title)) {
+    taskCreateStatus.textContent = "タスク名は日本語で入力してください。";
     return;
   }
 

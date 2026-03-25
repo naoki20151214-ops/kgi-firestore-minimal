@@ -60,6 +60,10 @@
         <p id="kpiStatus" class="hint">読み込み中...</p>
         <dl id="kpiMeta" hidden>
           <div>
+            <dt>KPI名</dt>
+            <dd id="kpiName">-</dd>
+          </div>
+          <div>
             <dt>KPI説明</dt>
             <dd id="kpiDescription">-</dd>
           </div>
@@ -84,9 +88,10 @@
 
       <section class="card">
         <h2>タスクを追加</h2>
+        <p class="hint">タスク名は日本語で入力してください（例: 初回ヒアリング項目を10件見直す）。</p>
         <div class="field">
           <label for="taskTitleInput">タスク名</label>
-          <input id="taskTitleInput" type="text" placeholder="例: ヒアリング項目を10件更新する" />
+          <input id="taskTitleInput" type="text" placeholder="例: 初回ヒアリング項目を10件見直す" />
         </div>
         <div class="field">
           <label for="taskDescriptionInput">タスク説明（任意）</label>
