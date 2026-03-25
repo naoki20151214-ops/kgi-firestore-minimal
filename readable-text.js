@@ -128,6 +128,97 @@ const applyParagraphBreaks = (text) => {
   return normalized.trim();
 };
 
+const SECTION_TITLES = [
+  "やること",
+  "実施内容",
+  "タスク",
+  "成功指標",
+  "計測方法",
+  "検証項目",
+  "チェック項目"
+];
+
+const toBulletItem = (line) => line.replace(/^[-・●◦*]\s*/, "").replace(/^\d+[.)]\s*/, "").trim();
+
+const parseStructuredLines = (text) => {
+  const normalized = applyParagraphBreaks(text);
+  if (!normalized) {
+    return [];
+  }
+
+  const lines = normalized
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  return lines;
+};
+
+const buildStructuredContent = (element, text) => {
+  const lines = parseStructuredLines(text);
+  if (!lines.length) {
+    element.textContent = "";
+    return;
+  }
+
+  element.textContent = "";
+  const fragment = document.createDocumentFragment();
+  let activeSection = null;
+
+  const appendSection = (titleText) => {
+    const section = document.createElement("section");
+    section.className = "readable-section";
+
+    const title = document.createElement("p");
+    title.className = "readable-section-title";
+    title.textContent = titleText;
+
+    const list = document.createElement("ul");
+    list.className = "readable-section-list";
+
+    section.append(title, list);
+    fragment.appendChild(section);
+    activeSection = list;
+  };
+
+  lines.forEach((line) => {
+    const headingMatch = line.match(/^([^:：]{2,20})\s*[：:]\s*(.*)$/);
+    if (headingMatch) {
+      const maybeTitle = headingMatch[1].trim();
+      const body = headingMatch[2].trim();
+
+      if (SECTION_TITLES.includes(maybeTitle)) {
+        appendSection(maybeTitle);
+        if (body) {
+          const item = document.createElement("li");
+          item.textContent = toBulletItem(body);
+          activeSection?.appendChild(item);
+        }
+        return;
+      }
+    }
+
+    const isBulletLine = /^[-・●◦*]\s+/.test(line) || /^\d+[.)]\s+/.test(line);
+
+    if (isBulletLine) {
+      if (!activeSection) {
+        appendSection("やること");
+      }
+      const item = document.createElement("li");
+      item.textContent = toBulletItem(line);
+      activeSection?.appendChild(item);
+      return;
+    }
+
+    const paragraph = document.createElement("p");
+    paragraph.textContent = line;
+    fragment.appendChild(paragraph);
+    activeSection = null;
+  });
+
+  element.appendChild(fragment);
+};
+
 export const enhanceReadableText = (element, options = {}) => {
   if (!element) {
     return;
@@ -139,6 +230,7 @@ export const enhanceReadableText = (element, options = {}) => {
     : 100;
   const moreLabel = options.moreLabel ?? "続きを読む";
   const lessLabel = options.lessLabel ?? "閉じる";
+  const formatAsBulletSections = options.formatAsBulletSections === true;
   const maxRecheckCount = Number.isFinite(Number(options.maxRecheckCount))
     ? Math.max(0, Math.round(Number(options.maxRecheckCount)))
     : 3;
@@ -147,7 +239,13 @@ export const enhanceReadableText = (element, options = {}) => {
     : 120;
 
   const sourceText = (element.textContent || "").trim();
-  element.textContent = applyParagraphBreaks(sourceText);
+  if (formatAsBulletSections) {
+    buildStructuredContent(element, sourceText);
+    element.classList.add("readable-text--structured");
+  } else {
+    element.textContent = applyParagraphBreaks(sourceText);
+    element.classList.remove("readable-text--structured");
+  }
   element.classList.add("readable-text");
   element.style.setProperty("--collapsed-lines", String(lines));
   element.dataset.collapsible = "false";
