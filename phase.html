@@ -98,7 +98,11 @@
 
       <section class="card">
         <h2>AIでこのフェーズのKPIを作成</h2>
-        <p class="hint">KGIとフェーズ情報からKPI候補を3〜5件作成します。</p>
+        <p class="hint">KGIと全フェーズ情報を使って、初回から採用しやすいKPI候補を3〜5件作成します。</p>
+        <div class="field">
+          <label for="aiFocusInput">このフェーズで特に重視したいこと / 避けたいこと（任意）</label>
+          <textarea id="aiFocusInput" placeholder="例: 初期は商談数より、ヒアリング品質を重視したい。広告運用の最適化は次フェーズに回したい。"></textarea>
+        </div>
         <button id="generateAiKpiButton" type="button" class="secondary">AIでこのフェーズのKPIを作成</button>
         <p id="aiGenerateStatus" class="hint"></p>
         <ul id="aiCandidateList" class="candidate-list" hidden></ul>

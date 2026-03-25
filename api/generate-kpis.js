@@ -2,6 +2,7 @@ const OPENAI_API_URL = "https://api.openai.com/v1/responses";
 
 const SYSTEM_PROMPT = `あなたはKPI設計の専門家です。
 与えられたKGIとフェーズ情報から、そのフェーズで追うべきKPI候補を作成してください。
+この機能は初回生成の品質を最優先します。再生成前提ではなく、最初の提案がそのまま採用される精度を目指してください。
 
 ルール:
 - JSONのみ返す
@@ -16,6 +17,10 @@ const SYSTEM_PROMPT = `あなたはKPI設計の専門家です。
 - 既存KPIと重複するKPIを絶対に出さない
 - 同義反復（言い換えだけで実質同じKPI）を避ける
 - 役割・意図が同じKPIを複数出さない
+- result と action をバランスよく含める（どちらかに偏らせない）
+- 対象フェーズで本当に必要なKPIだけに絞る
+- 後続フェーズで実施すべき内容を先取りしない
+- 生成前メモ（重視/回避）がある場合は最優先で反映する
 - 日本語で返す`;
 
 const KPI_RESPONSE_SCHEMA = {
@@ -47,6 +52,13 @@ const KPI_RESPONSE_SCHEMA = {
 };
 
 const isNonEmptyString = (value) => typeof value === "string" && value.trim().length > 0;
+const parsePhaseNumber = (value, fallback) => {
+  const numberValue = Number(value);
+  if (Number.isFinite(numberValue) && numberValue > 0) {
+    return Math.round(numberValue);
+  }
+  return fallback;
+};
 
 const sendJson = (res, status, body) => {
   res.statusCode = status;
@@ -173,6 +185,24 @@ module.exports = async function handler(req, res) {
       })
       .filter(Boolean)
     : [];
+  const allPhases = Array.isArray(requestBody?.allPhases)
+    ? requestBody.allPhases
+      .map((phase, index) => {
+        const id = isNonEmptyString(phase?.id) ? phase.id.trim() : `phase_${index + 1}`;
+        const name = isNonEmptyString(phase?.name) ? phase.name.trim() : "";
+        const purpose = isNonEmptyString(phase?.purpose) ? phase.purpose.trim() : "未設定";
+        const deadline = isNonEmptyString(phase?.deadline) ? phase.deadline.trim() : "未設定";
+        const phaseNumber = parsePhaseNumber(phase?.phaseNumber, index + 1);
+
+        if (!name) {
+          return null;
+        }
+
+        return { id, phaseNumber, name, purpose, deadline };
+      })
+      .filter(Boolean)
+    : [];
+  const focusOrAvoid = isNonEmptyString(requestBody?.focusOrAvoid) ? requestBody.focusOrAvoid.trim() : "";
 
   if (!kgiName || !phaseName) {
     return sendJson(res, 400, {
@@ -205,9 +235,15 @@ module.exports = async function handler(req, res) {
                 `対象フェーズの目的: ${phasePurpose || "未設定"}`,
                 `目標期限日: ${targetDate}`,
                 `フェーズ期限: ${phaseDeadline}`,
+                `全フェーズ一覧: ${allPhases.length ? JSON.stringify(allPhases, null, 2) : "未設定"}`,
                 `既存KPI一覧: ${existingKpis.length ? JSON.stringify(existingKpis, null, 2) : "なし"}`,
+                `生成前メモ（重視/回避）: ${focusOrAvoid || "なし"}`,
+                "初回生成でそのまま採用できる品質を最優先してください。",
                 "既存KPIと重複しない候補のみを返してください。",
                 "同じ役割・同じ評価軸になる候補は1つに絞ってください。",
+                "result と action は偏りなくバランスよく含めてください。",
+                "対象フェーズで今すぐ必要なKPIのみを提案してください。",
+                "後続フェーズで取り組む内容を先取りしたKPIは提案しないでください。",
                 "JSONスキーマに厳密に従い、KPI候補のみを返してください。"
               ].join("\n")
             }]
