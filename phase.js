@@ -131,8 +131,10 @@ const normalizeKpi = (kpiDoc) => {
 const renderPhase = (phase) => {
   phaseName.textContent = `フェーズ${phase.phaseNumber}: ${phase.name}`;
   phasePurpose.textContent = phase.purpose;
+  phasePurpose.classList.add("readable-text--phase");
   enhanceReadableText(phasePurpose, {
-    lines: Number(phasePurpose.dataset.lines) || 3
+    lines: Number(phasePurpose.dataset.lines) || 3,
+    formatAsBulletSections: true
   });
   phaseDeadline.textContent = phase.deadline;
   phaseMeta.hidden = false;
