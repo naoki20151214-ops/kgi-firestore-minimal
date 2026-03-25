@@ -395,6 +395,50 @@ const createKpi = async () => {
   }
 };
 
+const getAiDecisionLabel = (decision) => {
+  if (decision === "no_additional_kpis_needed") {
+    return "追加不要";
+  }
+
+  if (decision === "cleanup_only") {
+    return "整理提案のみ";
+  }
+
+  if (decision === "propose_missing_only") {
+    return "不足分だけ追加提案";
+  }
+
+  return "判定なし";
+};
+
+const buildAiDecisionStatusText = ({ decision, reason, duplicates, missingCategories, proposedCount }) => {
+  const chunks = [`判定: ${getAiDecisionLabel(decision)}`];
+
+  if (asText(reason, "")) {
+    chunks.push(`理由: ${asText(reason, "")}`);
+  }
+
+  if (Array.isArray(duplicates) && duplicates.length > 0) {
+    const duplicateNames = duplicates
+      .map((item) => asText(item?.kpiName, ""))
+      .filter(Boolean)
+      .join("、");
+    if (duplicateNames) {
+      chunks.push(`重複/役割かぶり: ${duplicateNames}`);
+    }
+  }
+
+  if (Array.isArray(missingCategories) && missingCategories.length > 0) {
+    chunks.push(`不足役割: ${missingCategories.map((item) => asText(item, "")).filter(Boolean).join("、")}`);
+  }
+
+  if (Number.isFinite(Number(proposedCount))) {
+    chunks.push(`提案KPI: ${Math.max(0, Number(proposedCount))}件`);
+  }
+
+  return chunks.join(" / ");
+};
+
 const generateAiKpis = async () => {
   if (!currentPhase || !currentKgi) {
     return;
@@ -463,7 +507,15 @@ const generateAiKpis = async () => {
       throw new Error(asText(payload?.error, "AIでKPI候補を作成できませんでした。"));
     }
 
-    const generated = Array.isArray(payload?.kpis) ? payload.kpis : [];
+    const decision = asText(payload?.decision, "");
+    const reason = asText(payload?.reason, "");
+    const duplicates = Array.isArray(payload?.duplicates) ? payload.duplicates : [];
+    const missingCategories = Array.isArray(payload?.missingCategories) ? payload.missingCategories : [];
+    const generated = Array.isArray(payload?.proposedKpis)
+      ? payload.proposedKpis
+      : Array.isArray(payload?.kpis)
+        ? payload.kpis
+        : [];
     const normalizedCandidates = generated
       .map((item) => ({
         name: asText(item?.name, ""),
@@ -489,14 +541,22 @@ const generateAiKpis = async () => {
 
     renderAiCandidates();
 
+    const decisionText = buildAiDecisionStatusText({
+      decision,
+      reason,
+      duplicates,
+      missingCategories,
+      proposedCount: aiCandidates.length
+    });
+
     if (!aiCandidates.length) {
-      aiGenerateStatus.classList.add("error");
-      aiGenerateStatus.textContent = "候補が生成されませんでした。入力情報を見直して再実行してください。";
+      aiGenerateStatus.classList.remove("error");
+      aiGenerateStatus.textContent = decisionText || "判定の結果、追加提案はありませんでした。";
       return;
     }
 
     aiGenerateStatus.classList.remove("error");
-    aiGenerateStatus.textContent = `${aiCandidates.length}件のKPI候補を作成しました。必要な候補を保存してください。`;
+    aiGenerateStatus.textContent = `${decisionText} / 必要な候補を保存してください。`;
   } catch (error) {
     console.error(error);
     aiCandidates = [];

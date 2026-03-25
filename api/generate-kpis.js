@@ -1,23 +1,40 @@
 const OPENAI_API_URL = "https://api.openai.com/v1/responses";
 
+const DECISIONS = {
+  NO_ADDITIONAL: "no_additional_kpis_needed",
+  CLEANUP_ONLY: "cleanup_only",
+  PROPOSE_MISSING_ONLY: "propose_missing_only"
+};
+
 const SYSTEM_PROMPT = `あなたはKPI設計の専門家です。
-与えられたKGIとフェーズ情報から、そのフェーズで追うべきKPI候補を作成してください。
-この機能は初回生成の品質を最優先します。再生成前提ではなく、最初の提案がそのまま採用される精度を目指してください。
+与えられたKGIとフェーズ情報、既存KPI一覧を必ず先に評価し、必要最小限の提案だけを返してください。
+
+目的:
+- フェーズごとのKPIを必要最小限に保つ
+- 重複や役割かぶりを減らす
+- 不足している役割がある場合のみ追加提案する
 
 ルール:
 - JSONのみ返す
-- kpis配列を返す
-- KPI件数は3〜5件
-- 各KPIは name, description, type, targetValue を持つ
+- 既存KPI一覧を必ず先に評価する
+- まず重複・役割かぶり・不足役割・必要十分性を判定する
+- decision は次のいずれか
+  - no_additional_kpis_needed
+  - cleanup_only
+  - propose_missing_only
+- reason は日本語で具体的に書く
+- duplicates には重複/役割かぶりの候補を入れる
+- missingCategories には不足している役割カテゴリのみ入れる
+- proposedKpis は不足がある時だけ必要最小限で提案する（0〜3件）
+- decision が no_additional_kpis_needed または cleanup_only の場合、proposedKpis は空配列にする
+- proposedKpis の各要素は name, description, type, targetValue を持つ
 - type は result または action
-- result と action を最低1件ずつ含める
 - name は測定できる指標名にする
 - description は短く具体的にする
 - targetValue は現実的な正の整数にする
-- 既存KPIと重複するKPIを絶対に出さない
+- 既存KPIと重複する候補を出さない
 - 同義反復（言い換えだけで実質同じKPI）を避ける
 - 役割・意図が同じKPIを複数出さない
-- result と action をバランスよく含める（どちらかに偏らせない）
 - 対象フェーズで本当に必要なKPIだけに絞る
 - 後続フェーズで実施すべき内容を先取りしない
 - 生成前メモ（重視/回避）がある場合は最優先で反映する
@@ -29,12 +46,34 @@ const KPI_RESPONSE_SCHEMA = {
   schema: {
     type: "object",
     additionalProperties: false,
-    required: ["kpis"],
+    required: ["decision", "reason", "duplicates", "missingCategories", "proposedKpis"],
     properties: {
-      kpis: {
+      decision: {
+        type: "string",
+        enum: [DECISIONS.NO_ADDITIONAL, DECISIONS.CLEANUP_ONLY, DECISIONS.PROPOSE_MISSING_ONLY]
+      },
+      reason: { type: "string" },
+      duplicates: {
         type: "array",
-        minItems: 3,
-        maxItems: 5,
+        maxItems: 10,
+        items: {
+          type: "object",
+          additionalProperties: false,
+          required: ["kpiName", "reason"],
+          properties: {
+            kpiName: { type: "string" },
+            reason: { type: "string" }
+          }
+        }
+      },
+      missingCategories: {
+        type: "array",
+        maxItems: 8,
+        items: { type: "string" }
+      },
+      proposedKpis: {
+        type: "array",
+        maxItems: 3,
         items: {
           type: "object",
           additionalProperties: false,
@@ -106,12 +145,39 @@ const extractOutputText = (responseData) => {
   return "";
 };
 
-const normalizeKpis = (value) => {
+const normalizeTextList = (value) => {
   if (!Array.isArray(value)) {
     return [];
   }
 
-  const normalized = value
+  return value
+    .map((item) => (isNonEmptyString(item) ? item.trim() : ""))
+    .filter(Boolean);
+};
+
+const normalizeDuplicates = (value) => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((item) => {
+      const kpiName = isNonEmptyString(item?.kpiName) ? item.kpiName.trim() : "";
+      const reason = isNonEmptyString(item?.reason) ? item.reason.trim() : "";
+      if (!kpiName || !reason) {
+        return null;
+      }
+      return { kpiName, reason };
+    })
+    .filter(Boolean);
+};
+
+const normalizeProposedKpis = (value) => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
     .map((item) => {
       const name = isNonEmptyString(item?.name) ? item.name.trim() : "";
       const description = isNonEmptyString(item?.description) ? item.description.trim() : "";
@@ -129,20 +195,31 @@ const normalizeKpis = (value) => {
         targetValue
       };
     })
-    .filter(Boolean);
+    .filter(Boolean)
+    .slice(0, 3);
+};
 
-  if (normalized.length < 3 || normalized.length > 5) {
-    return [];
+const normalizeDecisionPayload = (value) => {
+  const decision = value?.decision;
+  const reason = isNonEmptyString(value?.reason) ? value.reason.trim() : "";
+
+  if (!Object.values(DECISIONS).includes(decision) || !reason) {
+    return null;
   }
 
-  const hasResult = normalized.some((kpi) => kpi.type === "result");
-  const hasAction = normalized.some((kpi) => kpi.type === "action");
+  const duplicates = normalizeDuplicates(value?.duplicates);
+  const missingCategories = normalizeTextList(value?.missingCategories);
+  const proposedKpis = normalizeProposedKpis(value?.proposedKpis);
 
-  if (!hasResult || !hasAction) {
-    return [];
+  if ((decision === DECISIONS.NO_ADDITIONAL || decision === DECISIONS.CLEANUP_ONLY) && proposedKpis.length > 0) {
+    return null;
   }
 
-  return normalized;
+  if (decision === DECISIONS.PROPOSE_MISSING_ONLY && proposedKpis.length === 0) {
+    return null;
+  }
+
+  return { decision, reason, duplicates, missingCategories, proposedKpis };
 };
 
 module.exports = async function handler(req, res) {
@@ -238,13 +315,12 @@ module.exports = async function handler(req, res) {
                 `全フェーズ一覧: ${allPhases.length ? JSON.stringify(allPhases, null, 2) : "未設定"}`,
                 `既存KPI一覧: ${existingKpis.length ? JSON.stringify(existingKpis, null, 2) : "なし"}`,
                 `生成前メモ（重視/回避）: ${focusOrAvoid || "なし"}`,
-                "初回生成でそのまま採用できる品質を最優先してください。",
-                "既存KPIと重複しない候補のみを返してください。",
-                "同じ役割・同じ評価軸になる候補は1つに絞ってください。",
-                "result と action は偏りなくバランスよく含めてください。",
-                "対象フェーズで今すぐ必要なKPIのみを提案してください。",
-                "後続フェーズで取り組む内容を先取りしたKPIは提案しないでください。",
-                "JSONスキーマに厳密に従い、KPI候補のみを返してください。"
+                "まず既存KPIの重複・役割かぶり・不足役割・必要十分性を判断してください。",
+                "3〜5件の固定出力は禁止。不足があるときだけ必要最小限を提案してください。",
+                "主要な役割が埋まっている場合は no_additional_kpis_needed を返してください。",
+                "整理だけ必要で追加不要なら cleanup_only を返してください。",
+                "不足がある場合のみ propose_missing_only として不足分だけ提案してください。",
+                "JSONスキーマに厳密に従って返してください。"
               ].join("\n")
             }]
           }
@@ -285,12 +361,15 @@ module.exports = async function handler(req, res) {
       return sendJson(res, 502, { error: "Failed to parse model output as JSON" });
     }
 
-    const kpis = normalizeKpis(parsed?.kpis);
-    if (!kpis.length) {
+    const normalized = normalizeDecisionPayload(parsed);
+    if (!normalized) {
       return sendJson(res, 502, { error: "Model output validation failed" });
     }
 
-    return sendJson(res, 200, { kpis });
+    return sendJson(res, 200, {
+      ...normalized,
+      kpis: normalized.proposedKpis
+    });
   } catch (error) {
     return sendJson(res, 500, {
       error: "Failed to generate KPI candidates",
