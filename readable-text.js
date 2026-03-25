@@ -105,6 +105,15 @@ const isOverflowing = (element, options = {}) => {
   return textLength >= Math.max(80, Number(fallbackCharacterThreshold) || 0);
 };
 
+const shouldRetryMeasurement = (element) => {
+  if (!element || !element.isConnected) {
+    return true;
+  }
+
+  const rect = element.getBoundingClientRect();
+  return rect.width <= 0 || rect.height <= 0;
+};
+
 const applyParagraphBreaks = (text) => {
   const normalized = text
     .replace(/\r\n?/g, "\n")
@@ -130,6 +139,12 @@ export const enhanceReadableText = (element, options = {}) => {
     : 100;
   const moreLabel = options.moreLabel ?? "続きを読む";
   const lessLabel = options.lessLabel ?? "閉じる";
+  const maxRecheckCount = Number.isFinite(Number(options.maxRecheckCount))
+    ? Math.max(0, Math.round(Number(options.maxRecheckCount)))
+    : 3;
+  const recheckDelayMs = Number.isFinite(Number(options.recheckDelayMs))
+    ? Math.max(0, Math.round(Number(options.recheckDelayMs)))
+    : 120;
 
   const sourceText = (element.textContent || "").trim();
   element.textContent = applyParagraphBreaks(sourceText);
@@ -147,6 +162,10 @@ export const enhanceReadableText = (element, options = {}) => {
   }
 
   const collapse = () => {
+    if (toggleButton.hidden || element.dataset.collapsible !== "true") {
+      element.classList.remove("is-collapsed");
+      return;
+    }
     element.classList.add("is-collapsed");
     toggleButton.textContent = moreLabel;
     toggleButton.setAttribute("aria-expanded", "false");
@@ -158,11 +177,18 @@ export const enhanceReadableText = (element, options = {}) => {
     toggleButton.setAttribute("aria-expanded", "true");
   };
 
-  const update = () => {
+  const update = (attempt = 0) => {
     element.classList.remove("is-collapsed");
 
     if (!element.isConnected) {
       toggleButton.hidden = true;
+      return;
+    }
+
+    if (shouldRetryMeasurement(element) && attempt < maxRecheckCount) {
+      window.setTimeout(() => {
+        window.requestAnimationFrame(() => update(attempt + 1));
+      }, recheckDelayMs);
       return;
     }
 
@@ -191,7 +217,7 @@ export const enhanceReadableText = (element, options = {}) => {
   };
 
   update();
-  window.requestAnimationFrame(update);
+  window.requestAnimationFrame(() => update(1));
 
   const existing = observers.get(element);
   if (existing) {
@@ -199,7 +225,7 @@ export const enhanceReadableText = (element, options = {}) => {
   }
 
   const resizeHandler = () => {
-    window.requestAnimationFrame(update);
+    window.requestAnimationFrame(() => update(0));
   };
   observers.set(element, resizeHandler);
   window.addEventListener("resize", resizeHandler);
