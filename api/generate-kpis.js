@@ -13,6 +13,9 @@ const SYSTEM_PROMPT = `あなたはKPI設計の専門家です。
 - name は測定できる指標名にする
 - description は短く具体的にする
 - targetValue は現実的な正の整数にする
+- 既存KPIと重複するKPIを絶対に出さない
+- 同義反復（言い換えだけで実質同じKPI）を避ける
+- 役割・意図が同じKPIを複数出さない
 - 日本語で返す`;
 
 const KPI_RESPONSE_SCHEMA = {
@@ -157,6 +160,19 @@ module.exports = async function handler(req, res) {
   const phasePurpose = isNonEmptyString(requestBody?.phasePurpose) ? requestBody.phasePurpose.trim() : "";
   const targetDate = isNonEmptyString(requestBody?.targetDate) ? requestBody.targetDate.trim() : "未設定";
   const phaseDeadline = isNonEmptyString(requestBody?.phaseDeadline) ? requestBody.phaseDeadline.trim() : "未設定";
+  const existingKpis = Array.isArray(requestBody?.existingKpis)
+    ? requestBody.existingKpis
+      .map((item) => {
+        const name = isNonEmptyString(item?.name) ? item.name.trim() : "";
+        const description = isNonEmptyString(item?.description) ? item.description.trim() : "";
+        const type = item?.type === "result" ? "result" : item?.type === "action" ? "action" : "";
+        if (!name) {
+          return null;
+        }
+        return { name, description: description || "未設定", type: type || "未設定" };
+      })
+      .filter(Boolean)
+    : [];
 
   if (!kgiName || !phaseName) {
     return sendJson(res, 400, {
@@ -189,6 +205,9 @@ module.exports = async function handler(req, res) {
                 `対象フェーズの目的: ${phasePurpose || "未設定"}`,
                 `目標期限日: ${targetDate}`,
                 `フェーズ期限: ${phaseDeadline}`,
+                `既存KPI一覧: ${existingKpis.length ? JSON.stringify(existingKpis, null, 2) : "なし"}`,
+                "既存KPIと重複しない候補のみを返してください。",
+                "同じ役割・同じ評価軸になる候補は1つに絞ってください。",
                 "JSONスキーマに厳密に従い、KPI候補のみを返してください。"
               ].join("\n")
             }]
