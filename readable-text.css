@@ -26,6 +26,16 @@
   overflow: hidden;
 }
 
+
+.readable-text.is-collapsed::before {
+  content: "…";
+  position: absolute;
+  right: 4px;
+  bottom: 2px;
+  font-weight: 700;
+  color: #6b7280;
+}
+
 .readable-text.is-collapsed::after {
   content: "";
   position: absolute;

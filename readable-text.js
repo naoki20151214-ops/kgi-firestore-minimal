@@ -14,10 +14,16 @@ const isOverflowing = (element) => {
 };
 
 const applyParagraphBreaks = (text) => {
-  return text
+  const normalized = text
+    .replace(/\r\n?/g, "\n")
     .replace(/。\s*/g, "。\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
+    .replace(/\s*(?=\d+\))/g, " ")
+    .replace(/(^|[^\n])\s*(\d+\))/g, (match, prefix, marker) => `${prefix}\n${marker}`)
+    .replace(/(^|[^\n])\s*・\s*/g, (match, prefix) => `${prefix}\n・ `)
+    .replace(/\s*(?=(条件|成功条件|前提|達成条件)\s*[：:])/g, "\n")
+    .replace(/\n{3,}/g, "\n\n");
+
+  return normalized.trim();
 };
 
 export const enhanceReadableText = (element, options = {}) => {
@@ -58,6 +64,12 @@ export const enhanceReadableText = (element, options = {}) => {
 
   const update = () => {
     element.classList.remove("is-collapsed");
+
+    if (!element.isConnected) {
+      toggleButton.hidden = true;
+      return;
+    }
+
     const canCollapse = isOverflowing(element);
     element.dataset.collapsible = canCollapse ? "true" : "false";
     toggleButton.hidden = !canCollapse;
@@ -80,6 +92,7 @@ export const enhanceReadableText = (element, options = {}) => {
   };
 
   update();
+  window.requestAnimationFrame(update);
 
   const existing = observers.get(element);
   if (existing) {
