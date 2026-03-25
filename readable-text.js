@@ -139,6 +139,7 @@ const SECTION_TITLES = [
 ];
 
 const toBulletItem = (line) => line.replace(/^[-・●◦*]\s*/, "").replace(/^\d+[.)]\s*/, "").trim();
+const SENTENCE_BOUNDARY_PATTERN = /(?<=[。！？!?])\s*/g;
 
 const parseStructuredLines = (text) => {
   const normalized = applyParagraphBreaks(text);
@@ -219,6 +220,39 @@ const buildStructuredContent = (element, text) => {
   element.appendChild(fragment);
 };
 
+const splitIntoSentences = (text) => {
+  const normalized = applyParagraphBreaks(text);
+  if (!normalized) {
+    return [];
+  }
+
+  return normalized
+    .split("\n")
+    .flatMap((line) => line.split(SENTENCE_BOUNDARY_PATTERN))
+    .map((sentence) => sentence.trim())
+    .filter(Boolean);
+};
+
+const buildSentenceContent = (element, text) => {
+  const sentences = splitIntoSentences(text);
+  if (!sentences.length) {
+    element.textContent = "";
+    return;
+  }
+
+  element.textContent = "";
+  const fragment = document.createDocumentFragment();
+
+  sentences.forEach((sentence) => {
+    const paragraph = document.createElement("p");
+    paragraph.className = "readable-sentence";
+    paragraph.textContent = sentence;
+    fragment.appendChild(paragraph);
+  });
+
+  element.appendChild(fragment);
+};
+
 export const enhanceReadableText = (element, options = {}) => {
   if (!element) {
     return;
@@ -231,6 +265,7 @@ export const enhanceReadableText = (element, options = {}) => {
   const moreLabel = options.moreLabel ?? "続きを読む";
   const lessLabel = options.lessLabel ?? "閉じる";
   const formatAsBulletSections = options.formatAsBulletSections === true;
+  const formatAsSentenceBlocks = options.formatAsSentenceBlocks === true;
   const maxRecheckCount = Number.isFinite(Number(options.maxRecheckCount))
     ? Math.max(0, Math.round(Number(options.maxRecheckCount)))
     : 3;
@@ -242,9 +277,15 @@ export const enhanceReadableText = (element, options = {}) => {
   if (formatAsBulletSections) {
     buildStructuredContent(element, sourceText);
     element.classList.add("readable-text--structured");
+    element.classList.remove("readable-text--sentence-blocks");
+  } else if (formatAsSentenceBlocks) {
+    buildSentenceContent(element, sourceText);
+    element.classList.remove("readable-text--structured");
+    element.classList.add("readable-text--sentence-blocks");
   } else {
     element.textContent = applyParagraphBreaks(sourceText);
     element.classList.remove("readable-text--structured");
+    element.classList.remove("readable-text--sentence-blocks");
   }
   element.classList.add("readable-text");
   element.style.setProperty("--collapsed-lines", String(lines));

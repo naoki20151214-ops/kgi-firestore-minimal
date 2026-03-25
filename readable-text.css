@@ -39,7 +39,20 @@
   margin: 0;
 }
 
-.readable-text p,
+.readable-text--sentence-blocks {
+  white-space: normal;
+}
+
+.readable-text--sentence-blocks .readable-sentence {
+  margin: 0 0 0.72em;
+  line-height: 1.98;
+}
+
+.readable-text--sentence-blocks .readable-sentence:last-child {
+  margin-bottom: 0;
+}
+
+.readable-text p:not(.readable-sentence),
 .readable-text ul,
 .readable-text ol {
   margin: 0;
