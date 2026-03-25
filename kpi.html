@@ -30,16 +30,23 @@
       dt { font-size: 0.82rem; color: #6b7280; }
       dd { margin: 2px 0 0; }
       .hint { margin: 8px 0 0; color: #4b5563; font-size: 0.92rem; }
-      .task-entry-link {
-        display: inline-flex;
-        margin-top: 8px;
-        text-decoration: none;
+      .field { margin-top: 10px; display: grid; gap: 6px; }
+      label { font-size: 0.9rem; font-weight: 600; }
+      input, textarea, button, select {
+        border: 1px solid #d1d5db;
         border-radius: 8px;
-        padding: 10px 12px;
-        background: #2563eb;
-        color: #fff;
-        font-weight: 700;
+        font-size: 1rem;
+        padding: 10px;
       }
+      textarea { min-height: 72px; resize: vertical; }
+      button { background: #2563eb; color: #fff; border: none; font-weight: 700; cursor: pointer; }
+      button.secondary { background: #fff; color: #1d4ed8; border: 1px solid #bfdbfe; }
+      .task-list { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 10px; }
+      .task-item { border: 1px solid #e5e7eb; border-radius: 10px; padding: 12px; background: #f9fafb; }
+      .task-item h3 { margin: 0; font-size: 1rem; }
+      .task-item p { margin: 6px 0 0; color: #4b5563; font-size: 0.92rem; }
+      .task-item .task-meta { margin-top: 8px; font-size: 0.82rem; color: #6b7280; }
+      .task-item .task-actions { margin-top: 10px; display: flex; gap: 8px; }
     </style>
   </head>
   <body>
@@ -57,11 +64,42 @@
             <dd id="kpiDescription">-</dd>
           </div>
           <div>
+            <dt>type</dt>
+            <dd id="kpiType">-</dd>
+          </div>
+          <div>
+            <dt>targetValue</dt>
+            <dd id="kpiTargetValue">-</dd>
+          </div>
+          <div>
             <dt>進捗</dt>
             <dd id="kpiProgress">-</dd>
           </div>
+          <div>
+            <dt>status</dt>
+            <dd id="kpiDocStatus">-</dd>
+          </div>
         </dl>
-        <a id="taskManageLink" class="task-entry-link" href="#">このKPIでタスク管理へ進む</a>
+      </section>
+
+      <section class="card">
+        <h2>タスクを追加</h2>
+        <div class="field">
+          <label for="taskTitleInput">タスク名</label>
+          <input id="taskTitleInput" type="text" placeholder="例: ヒアリング項目を10件更新する" />
+        </div>
+        <div class="field">
+          <label for="taskDescriptionInput">タスク説明（任意）</label>
+          <textarea id="taskDescriptionInput" placeholder="補足があれば入力"></textarea>
+        </div>
+        <button id="createTaskButton" type="button">このKPIにタスクを追加</button>
+        <p id="taskCreateStatus" class="hint"></p>
+      </section>
+
+      <section class="card">
+        <h2>このKPIに紐づくタスク一覧</h2>
+        <p id="taskStatus" class="hint">読み込み中...</p>
+        <ul id="taskList" class="task-list" hidden></ul>
       </section>
     </main>
 
