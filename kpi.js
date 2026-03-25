@@ -37,6 +37,11 @@ const taskList = document.getElementById("taskList");
 let db;
 let currentKpi = null;
 const japaneseTextPattern = /[ぁ-んァ-ヶ一-龠々ー]/;
+const tasksDebugState = {
+  lastQueryConditions: null,
+  errorCode: "",
+  errorMessage: ""
+};
 
 const asText = (value, fallback = "-") => {
   if (typeof value !== "string") {
@@ -115,7 +120,13 @@ const renderTasks = (tasks) => {
   taskStatus.textContent = `${tasks.length}件のタスクを表示しています。`;
 };
 
-const loadKpiAndTasks = async () => {
+const formatErrorDetail = (error) => {
+  const code = typeof error?.code === "string" ? error.code : "UNKNOWN_ERROR";
+  const message = typeof error?.message === "string" ? error.message : String(error);
+  return { code, message };
+};
+
+const loadKpi = async () => {
   const kpiSnapshot = await getDoc(doc(db, "kpis", kpiId));
   if (!kpiSnapshot.exists()) {
     throw new Error("KPI_NOT_FOUND");
@@ -133,20 +144,42 @@ const loadKpiAndTasks = async () => {
   const progress = Number.isFinite(progressRaw) ? Math.max(0, Math.min(100, progressRaw)) : 0;
   kpiProgress.textContent = `${Math.round(progress)}%`;
   kpiDocStatus.textContent = asText(data?.status, "active");
-
-  const taskQuery = query(
-    collection(db, "tasks"),
-    where("kpiId", "==", kpiId),
-    where("kgiId", "==", kgiId),
-    where("phaseId", "==", phaseId),
-    orderBy("createdAt", "desc")
-  );
-  const taskSnapshot = await getDocs(taskQuery);
-  const tasks = taskSnapshot.docs.map((taskDoc) => ({ id: taskDoc.id, ...taskDoc.data() }));
-  renderTasks(tasks);
-
   kpiMeta.hidden = false;
   kpiStatus.textContent = "";
+};
+
+const loadTasks = async () => {
+  tasksDebugState.lastQueryConditions = { kpiId, kgiId, phaseId };
+  tasksDebugState.errorCode = "";
+  tasksDebugState.errorMessage = "";
+  console.info("[KPI tasks query] where conditions", tasksDebugState.lastQueryConditions);
+
+  try {
+    const taskQuery = query(
+      collection(db, "tasks"),
+      where("kpiId", "==", kpiId),
+      orderBy("createdAt", "desc")
+    );
+    const taskSnapshot = await getDocs(taskQuery);
+    const tasks = taskSnapshot.docs.map((taskDoc) => ({ id: taskDoc.id, ...taskDoc.data() }));
+    renderTasks(tasks);
+    taskStatus.textContent = `${tasks.length}件のタスクを表示しています。 (query: kpiId=${asText(kpiId, "undefined")})`;
+  } catch (error) {
+    const { code, message } = formatErrorDetail(error);
+    tasksDebugState.errorCode = code;
+    tasksDebugState.errorMessage = message;
+    console.error("[KPI tasks query failed]", {
+      code,
+      message,
+      conditions: tasksDebugState.lastQueryConditions
+    });
+    taskList.hidden = true;
+    taskList.innerHTML = "";
+    taskStatus.textContent = `タスクの読み込みに失敗しました。 code=${code} / message=${message} / query={kpiId:${asText(
+      kpiId,
+      "undefined"
+    )},kgiId:${asText(kgiId, "undefined")},phaseId:${asText(phaseId, "undefined")}}`;
+  }
 };
 
 const createTask = async () => {
@@ -184,7 +217,8 @@ const createTask = async () => {
     taskTitleInput.value = "";
     taskDescriptionInput.value = "";
     taskCreateStatus.textContent = "タスクを追加しました。";
-    await loadKpiAndTasks();
+    await loadKpi();
+    await loadTasks();
   } catch (error) {
     console.error(error);
     taskCreateStatus.textContent = "タスクの追加に失敗しました。";
@@ -202,7 +236,7 @@ const completeTask = async (taskId, completeButton) => {
       isCompleted: true,
       updatedAt: serverTimestamp()
     });
-    await loadKpiAndTasks();
+    await loadTasks();
   } catch (error) {
     console.error(error);
     alert("タスク完了の更新に失敗しました。");
@@ -220,11 +254,19 @@ const init = async () => {
 
   try {
     db = await getDb();
-    await loadKpiAndTasks();
+    await loadKpi();
   } catch (error) {
-    console.error(error);
-    kpiStatus.textContent = "KPI詳細の読み込みに失敗しました。";
+    const { code, message } = formatErrorDetail(error);
+    console.error("[KPI doc load failed]", { code, message });
+    kpiStatus.textContent = `KPI詳細の読み込みに失敗しました。 code=${code} / message=${message}`;
     taskStatus.textContent = "";
+    return;
+  }
+
+  try {
+    await loadTasks();
+  } catch (error) {
+    console.error("[Unexpected tasks load flow error]", error);
   }
 };
 
