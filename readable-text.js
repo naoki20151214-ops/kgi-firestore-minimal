@@ -306,18 +306,21 @@ export const enhanceReadableText = (element, options = {}) => {
       return;
     }
     element.classList.add("is-collapsed");
+    element.dataset.readableState = "collapsed";
     toggleButton.textContent = moreLabel;
     toggleButton.setAttribute("aria-expanded", "false");
   };
 
   const expand = () => {
     element.classList.remove("is-collapsed");
+    element.dataset.readableState = "expanded";
     toggleButton.textContent = lessLabel;
     toggleButton.setAttribute("aria-expanded", "true");
   };
 
   const update = (attempt = 0) => {
-    element.classList.remove("is-collapsed");
+    const isUserExpanded = element.dataset.readableState === "expanded";
+    const isUserCollapsed = element.dataset.readableState === "collapsed";
 
     if (!element.isConnected) {
       toggleButton.hidden = true;
@@ -341,10 +344,19 @@ export const enhanceReadableText = (element, options = {}) => {
     if (!canCollapse) {
       toggleButton.textContent = "";
       toggleButton.setAttribute("aria-expanded", "true");
+      element.classList.remove("is-collapsed");
+      element.dataset.readableState = "expanded";
       return;
     }
 
-    collapse();
+    if (isUserExpanded) {
+      expand();
+      return;
+    }
+
+    if (isUserCollapsed || !element.dataset.readableState) {
+      collapse();
+    }
   };
 
   toggleButton.onclick = () => {
