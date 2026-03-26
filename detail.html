@@ -66,6 +66,45 @@
         font-weight: 700;
         color: #111827;
       }
+      .roadmap-summary-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+      }
+      .roadmap-status-badge {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 999px;
+        font-size: 0.74rem;
+        font-weight: 700;
+        padding: 3px 9px;
+        border: 1px solid #cbd5e1;
+        color: #334155;
+        background: #f8fafc;
+        white-space: nowrap;
+      }
+      .roadmap-status-badge.is-empty {
+        border-color: #d1d5db;
+        color: #4b5563;
+        background: #f9fafb;
+      }
+      .roadmap-status-badge.is-draft {
+        border-color: #bfdbfe;
+        color: #1d4ed8;
+        background: #eff6ff;
+      }
+      .roadmap-status-badge.is-cleanup-needed {
+        border-color: #fde68a;
+        color: #92400e;
+        background: #fffbeb;
+      }
+      .roadmap-status-badge.is-finalized {
+        border-color: #bbf7d0;
+        color: #166534;
+        background: #f0fdf4;
+      }
       .roadmap-summary-intro {
         margin-top: 6px;
         font-size: 0.93rem;

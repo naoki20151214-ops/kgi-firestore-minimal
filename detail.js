@@ -1,8 +1,8 @@
 import {
   collection,
   doc,
-  getCountFromServer,
   getDoc,
+  getDocs,
   query,
   where
 } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
@@ -99,9 +99,40 @@ const normalizeRoadmapPhases = (phases) => {
       title: pickFirstDisplayValue(phase, ["title", "name"], `フェーズ${index + 1}`),
       purpose: pickFirstDisplayValue(phase, ["description", "goal", "summary"], "説明は未設定です。"),
       deadline: pickFirstDisplayValue(phase, ["deadline", "targetDate", "dueDate"], "期限未設定"),
+      kpiPlanningStatus: asDisplayText(phase?.kpiPlanningStatus, "draft"),
       phaseNumber
     };
   });
+};
+
+const PHASE_KPI_STATUS_LABELS = {
+  no_kpi: "KPI未出力",
+  draft: "KPI整理中",
+  cleanup_needed: "KPI整理が必要",
+  finalized: "KPI整理済み"
+};
+
+const PHASE_KPI_STATUS_CLASSES = {
+  no_kpi: "is-empty",
+  draft: "is-draft",
+  cleanup_needed: "is-cleanup-needed",
+  finalized: "is-finalized"
+};
+
+const resolvePhaseKpiStatus = ({ phase, kpiCount = 0 }) => {
+  if (!Number.isFinite(kpiCount) || kpiCount <= 0) {
+    return { key: "no_kpi", label: PHASE_KPI_STATUS_LABELS.no_kpi };
+  }
+
+  const status = asDisplayText(phase?.kpiPlanningStatus, "draft");
+  if (status === "cleanup_needed") {
+    return { key: "cleanup_needed", label: PHASE_KPI_STATUS_LABELS.cleanup_needed };
+  }
+  if (status === "finalized") {
+    return { key: "finalized", label: PHASE_KPI_STATUS_LABELS.finalized };
+  }
+
+  return { key: "draft", label: PHASE_KPI_STATUS_LABELS.draft };
 };
 
 const createSummaryIntro = (text, maxLength = 46) => {
@@ -117,7 +148,7 @@ const createSummaryIntro = (text, maxLength = 46) => {
   return `${normalized.slice(0, maxLength)}…`;
 };
 
-const renderRoadmap = ({ kgiId, phases = [] }) => {
+const renderRoadmap = ({ kgiId, phases = [], kpiCountByPhaseId = new Map() }) => {
   if (!roadmapSectionElement || !roadmapListElement || !roadmapEmptyElement) {
     return;
   }
@@ -140,10 +171,20 @@ const renderRoadmap = ({ kgiId, phases = [] }) => {
     details.open = false;
 
     const summary = document.createElement("summary");
+    const summaryHeader = document.createElement("div");
+    summaryHeader.className = "roadmap-summary-header";
 
     const summaryTitle = document.createElement("div");
     summaryTitle.className = "roadmap-summary-title";
     summaryTitle.textContent = `フェーズ${phase.phaseNumber ?? index + 1}: ${phase.title}`;
+
+    const phaseKpiStatus = resolvePhaseKpiStatus({
+      phase,
+      kpiCount: Number(kpiCountByPhaseId.get(phase.id) ?? 0)
+    });
+    const statusBadge = document.createElement("span");
+    statusBadge.className = `roadmap-status-badge ${PHASE_KPI_STATUS_CLASSES[phaseKpiStatus.key] ?? "is-draft"}`;
+    statusBadge.textContent = phaseKpiStatus.label;
 
     const summaryIntro = document.createElement("p");
     summaryIntro.className = "roadmap-summary-intro";
@@ -153,7 +194,8 @@ const renderRoadmap = ({ kgiId, phases = [] }) => {
     summaryDeadline.className = "roadmap-summary-deadline";
     summaryDeadline.textContent = `期限: ${asDisplayText(phase.deadline, "期限未設定")}`;
 
-    summary.append(summaryTitle, summaryIntro, summaryDeadline);
+    summaryHeader.append(summaryTitle, statusBadge);
+    summary.append(summaryHeader, summaryIntro, summaryDeadline);
 
     const titleLink = document.createElement("a");
     titleLink.className = "roadmap-title-link";
@@ -198,26 +240,42 @@ const renderKpiSummary = ({ total = 0, completed = 0 } = {}) => {
 
 const loadKpiSummary = async (db, kgiId) => {
   try {
-    const kpiCollectionRef = collection(db, "kpis");
-    const [totalSnapshot, completedSnapshot] = await Promise.all([
-      getCountFromServer(query(kpiCollectionRef, where("kgiId", "==", kgiId))),
-      getCountFromServer(query(kpiCollectionRef, where("kgiId", "==", kgiId), where("isCompleted", "==", true)))
-    ]);
+    const kpiSnapshot = await getDocs(query(collection(db, "kpis"), where("kgiId", "==", kgiId)));
+    const kpiCountByPhaseId = new Map();
+    let total = 0;
+    let completed = 0;
+
+    kpiSnapshot.forEach((kpiDoc) => {
+      total += 1;
+      const data = kpiDoc.data();
+
+      if (data?.isCompleted === true) {
+        completed += 1;
+      }
+
+      const phaseId = asDisplayText(data?.phaseId, "");
+      if (!phaseId) {
+        return;
+      }
+      kpiCountByPhaseId.set(phaseId, Number(kpiCountByPhaseId.get(phaseId) ?? 0) + 1);
+    });
 
     renderKpiSummary({
-      total: totalSnapshot.data().count ?? 0,
-      completed: completedSnapshot.data().count ?? 0
+      total,
+      completed
     });
+    return kpiCountByPhaseId;
   } catch (error) {
     console.warn("Failed to load KPI summary. Continue without summary.", {
       kgiId,
       error
     });
     kpiSummarySectionElement.hidden = true;
+    return new Map();
   }
 };
 
-const renderDoc = ({ kgiId, data }) => {
+const renderDoc = ({ kgiId, data, kpiCountByPhaseId }) => {
   const titleCandidates = ["title", "name", "kgiName"];
   const goalCandidates = ["goalDescription", "goal", "description", "goalText"];
   const startDateCandidates = ["startDate", "createdDate", "createdAt"];
@@ -249,7 +307,7 @@ const renderDoc = ({ kgiId, data }) => {
     detailFieldsElement.hidden = false;
   }
 
-  renderRoadmap({ kgiId, phases: roadmapPhases });
+  renderRoadmap({ kgiId, phases: roadmapPhases, kpiCountByPhaseId });
   setStatus("");
 };
 
@@ -285,8 +343,8 @@ const init = async () => {
       return;
     }
 
-    renderDoc({ kgiId, data: kgiSnapshot.data() });
-    await loadKpiSummary(db, kgiId);
+    const kpiCountByPhaseId = await loadKpiSummary(db, kgiId);
+    renderDoc({ kgiId, data: kgiSnapshot.data(), kpiCountByPhaseId });
   } catch (error) {
     console.error("Failed to load detail document", {
       kgiId,
