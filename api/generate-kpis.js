@@ -218,15 +218,46 @@ const normalizeDecisionPayload = (value) => {
   const missingCategories = normalizeTextList(value?.missingCategories);
   const proposedKpis = normalizeProposedKpis(value?.proposedKpis);
 
-  if ((decision === DECISIONS.NO_ADDITIONAL || decision === DECISIONS.CLEANUP_ONLY) && proposedKpis.length > 0) {
-    return null;
-  }
-
-  if (decision === DECISIONS.PROPOSE_MISSING_ONLY && proposedKpis.length === 0) {
-    return null;
-  }
-
   return { decision, reason, duplicates, missingCategories, proposedKpis };
+};
+
+const enforceDecisionPriority = ({ normalized, requestMissingCategories }) => {
+  const requestedMissing = Array.isArray(requestMissingCategories)
+    ? requestMissingCategories.filter((item) => KPI_CATEGORIES.includes(item))
+    : [];
+  const duplicateHints = Array.isArray(normalized?.duplicates) ? normalized.duplicates : [];
+  const missingCategories = Array.isArray(normalized?.missingCategories)
+    ? normalized.missingCategories.filter((item) => KPI_CATEGORIES.includes(item))
+    : [];
+  const effectiveMissingCategories = requestedMissing.length > 0 ? requestedMissing : missingCategories;
+  const filteredProposed = Array.isArray(normalized?.proposedKpis)
+    ? normalized.proposedKpis.filter((item) => effectiveMissingCategories.includes(item?.category))
+    : [];
+
+  if (duplicateHints.length > 0) {
+    return {
+      ...normalized,
+      decision: DECISIONS.CLEANUP_ONLY,
+      missingCategories: effectiveMissingCategories,
+      proposedKpis: []
+    };
+  }
+
+  if (effectiveMissingCategories.length === 0) {
+    return {
+      ...normalized,
+      decision: DECISIONS.NO_ADDITIONAL,
+      missingCategories: [],
+      proposedKpis: []
+    };
+  }
+
+  return {
+    ...normalized,
+    decision: DECISIONS.PROPOSE_MISSING_ONLY,
+    missingCategories: effectiveMissingCategories,
+    proposedKpis: filteredProposed
+  };
 };
 
 module.exports = async function handler(req, res) {
@@ -382,10 +413,14 @@ module.exports = async function handler(req, res) {
     if (!normalized) {
       return sendJson(res, 502, { error: "Model output validation failed" });
     }
+    const prioritized = enforceDecisionPriority({
+      normalized,
+      requestMissingCategories: missingCategories
+    });
 
     return sendJson(res, 200, {
-      ...normalized,
-      kpis: normalized.proposedKpis
+      ...prioritized,
+      kpis: prioritized.proposedKpis
     });
   } catch (error) {
     return sendJson(res, 500, {
