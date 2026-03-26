@@ -5,6 +5,7 @@ const DECISIONS = {
   CLEANUP_ONLY: "cleanup_only",
   PROPOSE_MISSING_ONLY: "propose_missing_only"
 };
+const KPI_CATEGORIES = ["acquisition", "activation", "retention", "feedback", "monetization", "decision"];
 
 const SYSTEM_PROMPT = `あなたはKPI設計の専門家です。
 与えられたKGIとフェーズ情報、既存KPI一覧を必ず先に評価し、必要最小限の提案だけを返してください。
@@ -27,14 +28,17 @@ const SYSTEM_PROMPT = `あなたはKPI設計の専門家です。
 - missingCategories には不足している役割カテゴリのみ入れる
 - proposedKpis は不足がある時だけ必要最小限で提案する（0〜3件）
 - decision が no_additional_kpis_needed または cleanup_only の場合、proposedKpis は空配列にする
-- proposedKpis の各要素は name, description, type, targetValue を持つ
+- proposedKpis の各要素は name, description, type, category, targetValue を持つ
 - type は result または action
+- category は次のいずれか: acquisition / activation / retention / feedback / monetization / decision
 - name は測定できる指標名にする
 - description は短く具体的にする
 - targetValue は現実的な正の整数にする
 - 既存KPIと重複する候補を出さない
 - 同義反復（言い換えだけで実質同じKPI）を避ける
 - 役割・意図が同じKPIを複数出さない
+- 同じ phase 内では同じ category のKPIを複数提案しない
+- missingCategories で示された category だけを提案対象にする
 - 対象フェーズで本当に必要なKPIだけに絞る
 - 後続フェーズで実施すべき内容を先取りしない
 - 生成前メモ（重視/回避）がある場合は最優先で反映する
@@ -77,11 +81,12 @@ const KPI_RESPONSE_SCHEMA = {
         items: {
           type: "object",
           additionalProperties: false,
-          required: ["name", "description", "type", "targetValue"],
+          required: ["name", "description", "type", "category", "targetValue"],
           properties: {
             name: { type: "string" },
             description: { type: "string" },
             type: { type: "string", enum: ["result", "action"] },
+            category: { type: "string", enum: KPI_CATEGORIES },
             targetValue: { type: "integer" }
           }
         }
@@ -182,9 +187,10 @@ const normalizeProposedKpis = (value) => {
       const name = isNonEmptyString(item?.name) ? item.name.trim() : "";
       const description = isNonEmptyString(item?.description) ? item.description.trim() : "";
       const type = item?.type === "result" ? "result" : item?.type === "action" ? "action" : "";
+      const category = KPI_CATEGORIES.includes(item?.category) ? item.category : "";
       const targetValue = Number(item?.targetValue);
 
-      if (!name || !description || !type || !Number.isInteger(targetValue) || targetValue <= 0) {
+      if (!name || !description || !type || !category || !Number.isInteger(targetValue) || targetValue <= 0) {
         return null;
       }
 
@@ -192,6 +198,7 @@ const normalizeProposedKpis = (value) => {
         name,
         description,
         type,
+        category,
         targetValue
       };
     })
@@ -255,12 +262,19 @@ module.exports = async function handler(req, res) {
         const name = isNonEmptyString(item?.name) ? item.name.trim() : "";
         const description = isNonEmptyString(item?.description) ? item.description.trim() : "";
         const type = item?.type === "result" ? "result" : item?.type === "action" ? "action" : "";
+        const category = KPI_CATEGORIES.includes(item?.category) ? item.category : "未設定";
         if (!name) {
           return null;
         }
-        return { name, description: description || "未設定", type: type || "未設定" };
+        return { name, description: description || "未設定", type: type || "未設定", category };
       })
       .filter(Boolean)
+    : [];
+  const allowedCategories = Array.isArray(requestBody?.categoryPolicy?.allowedCategories)
+    ? requestBody.categoryPolicy.allowedCategories.filter((item) => KPI_CATEGORIES.includes(item))
+    : KPI_CATEGORIES;
+  const missingCategories = Array.isArray(requestBody?.categoryPolicy?.missingCategories)
+    ? requestBody.categoryPolicy.missingCategories.filter((item) => KPI_CATEGORIES.includes(item))
     : [];
   const allPhases = Array.isArray(requestBody?.allPhases)
     ? requestBody.allPhases
@@ -314,12 +328,15 @@ module.exports = async function handler(req, res) {
                 `フェーズ期限: ${phaseDeadline}`,
                 `全フェーズ一覧: ${allPhases.length ? JSON.stringify(allPhases, null, 2) : "未設定"}`,
                 `既存KPI一覧: ${existingKpis.length ? JSON.stringify(existingKpis, null, 2) : "なし"}`,
+                `利用可能なKPIカテゴリ: ${JSON.stringify(allowedCategories)}`,
+                `このフェーズで不足しているカテゴリ: ${JSON.stringify(missingCategories)}`,
                 `生成前メモ（重視/回避）: ${focusOrAvoid || "なし"}`,
                 "まず既存KPIの重複・役割かぶり・不足役割・必要十分性を判断してください。",
                 "3〜5件の固定出力は禁止。不足があるときだけ必要最小限を提案してください。",
                 "主要な役割が埋まっている場合は no_additional_kpis_needed を返してください。",
                 "整理だけ必要で追加不要なら cleanup_only を返してください。",
                 "不足がある場合のみ propose_missing_only として不足分だけ提案してください。",
+                "不足カテゴリが空なら no_additional_kpis_needed か cleanup_only を優先してください。",
                 "JSONスキーマに厳密に従って返してください。"
               ].join("\n")
             }]

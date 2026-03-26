@@ -55,6 +55,30 @@
       .candidate-item { border: 1px solid #bfdbfe; border-radius: 10px; padding: 12px; background: #eff6ff; }
       .candidate-meta { font-size: 0.9rem; color: #1d4ed8; margin-top: 8px; line-height: 1.6; }
       .candidate-actions { margin-top: 10px; display: flex; gap: 8px; }
+      .ai-guidance-box {
+        margin-top: 12px;
+        border-radius: 10px;
+        padding: 12px;
+        border: 1px solid #bfdbfe;
+        background: #eff6ff;
+      }
+      .ai-guidance-box--ok {
+        border-color: #86efac;
+        background: #f0fdf4;
+      }
+      .ai-guidance-box--cleanup {
+        border-color: #fcd34d;
+        background: #fffbeb;
+      }
+      .ai-guidance-box-title {
+        margin: 0;
+        font-weight: 700;
+      }
+      .ai-guidance-box-text {
+        margin: 8px 0 0;
+        color: #374151;
+        line-height: 1.7;
+      }
       details.manual-kpi > summary {
         cursor: pointer;
         font-weight: 700;
@@ -105,6 +129,14 @@
         </div>
         <button id="generateAiKpiButton" type="button" class="secondary">AIでこのフェーズのKPIを作成</button>
         <p id="aiGenerateStatus" class="hint"></p>
+        <div id="aiNoAdditionalBox" class="ai-guidance-box ai-guidance-box--ok" hidden>
+          <p class="ai-guidance-box-title">このフェーズのKPIは、これ以上追加しなくて大丈夫です</p>
+          <p class="ai-guidance-box-text">必要最小限のKPIセットが揃っています。必要なときは下のボタンからAIで全体の見直しだけ行えます。</p>
+        </div>
+        <div id="aiCleanupBox" class="ai-guidance-box ai-guidance-box--cleanup" hidden>
+          <p class="ai-guidance-box-title">追加ではなく整理をおすすめします</p>
+          <p class="ai-guidance-box-text">同じ役割のKPIが重なっている可能性があります。新規追加より、統合・名称整理・役割分担の明確化を優先してください。</p>
+        </div>
         <ul id="aiCandidateList" class="candidate-list" hidden></ul>
       </section>
 
@@ -126,6 +158,18 @@
             <div class="field">
               <label for="kpiDescriptionInput">KPI説明（任意）</label>
               <textarea id="kpiDescriptionInput" placeholder="補足説明を入力"></textarea>
+            </div>
+            <div class="field">
+              <label for="kpiCategoryInput">カテゴリ</label>
+              <select id="kpiCategoryInput">
+                <option value="">選択してください</option>
+                <option value="acquisition">acquisition</option>
+                <option value="activation">activation</option>
+                <option value="retention">retention</option>
+                <option value="feedback">feedback</option>
+                <option value="monetization">monetization</option>
+                <option value="decision">decision</option>
+              </select>
             </div>
             <button id="createKpiButton" type="button">このフェーズにKPIを作成</button>
           </div>
