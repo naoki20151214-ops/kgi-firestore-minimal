@@ -49,6 +49,7 @@ let currentPhasePlanningStatus = "draft";
 let currentTasksForKpi = [];
 let aiTaskCandidates = [];
 const AI_TASK_CANDIDATE_COUNT = 3;
+const MAX_ACTIVE_TASKS_FOR_AI_GENERATION = 3;
 const MAX_SAVED_AI_TASKS_PER_KPI = 20;
 const japaneseTextPattern = /[ぁ-んァ-ヶ一-龠々ー]/;
 const tasksDebugState = {
@@ -266,6 +267,108 @@ const toPlainTask = (task) => ({
   isCompleted: Boolean(task?.isCompleted)
 });
 
+const TASK_STOPWORDS = new Set([
+  "する", "した", "して", "します", "できる", "ため", "こと", "もの", "よう", "まず", "今回", "について",
+  "作成", "作る", "書く", "記入", "入力", "追加", "確認", "実施", "対応", "設定", "作業", "タスク"
+]);
+const TASK_VERB_SYNONYMS = {
+  作成: "作る",
+  作る: "作る",
+  書く: "書く",
+  記入: "書く",
+  入力: "書く",
+  定義: "決める",
+  決定: "決める",
+  決める: "決める",
+  確認: "確認",
+  チェック: "確認"
+};
+
+const normalizeTaskText = (value) => {
+  if (typeof value !== "string" || !value.trim()) {
+    return "";
+  }
+  return value
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/[0-9]+/g, "#")
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+};
+
+const tokenizeTaskText = (value) => {
+  const normalized = normalizeTaskText(value);
+  if (!normalized) {
+    return [];
+  }
+  return normalized
+    .split(" ")
+    .map((token) => TASK_VERB_SYNONYMS[token] ?? token)
+    .filter((token) => token.length >= 2 && !TASK_STOPWORDS.has(token));
+};
+
+const calcTokenOverlap = (leftTokens, rightTokens) => {
+  const left = new Set(leftTokens);
+  const right = new Set(rightTokens);
+  if (!left.size || !right.size) {
+    return 0;
+  }
+  let intersection = 0;
+  left.forEach((token) => {
+    if (right.has(token)) {
+      intersection += 1;
+    }
+  });
+  return intersection / Math.max(left.size, right.size);
+};
+
+const isSimilarTask = (taskA, taskB) => {
+  const titleA = normalizeTaskText(taskA?.title);
+  const titleB = normalizeTaskText(taskB?.title);
+  const combinedA = normalizeTaskText(`${asText(taskA?.title, "")} ${asText(taskA?.description, "")}`);
+  const combinedB = normalizeTaskText(`${asText(taskB?.title, "")} ${asText(taskB?.description, "")}`);
+  if (!combinedA || !combinedB) {
+    return false;
+  }
+  if (titleA === titleB || combinedA === combinedB) {
+    return true;
+  }
+  if (combinedA.includes(titleB) || combinedB.includes(titleA)) {
+    return true;
+  }
+  const titleOverlap = calcTokenOverlap(tokenizeTaskText(taskA?.title), tokenizeTaskText(taskB?.title));
+  if (titleOverlap >= 0.8) {
+    return true;
+  }
+  const combinedOverlap = calcTokenOverlap(
+    tokenizeTaskText(`${asText(taskA?.title, "")} ${asText(taskA?.description, "")}`),
+    tokenizeTaskText(`${asText(taskB?.title, "")} ${asText(taskB?.description, "")}`)
+  );
+  return combinedOverlap >= 0.72;
+};
+
+const filterDuplicateCandidates = (candidates, existingTasks) => {
+  const unique = [];
+  candidates.forEach((candidate) => {
+    if (existingTasks.some((task) => isSimilarTask(candidate, task))) {
+      return;
+    }
+    if (unique.some((task) => isSimilarTask(candidate, task))) {
+      return;
+    }
+    unique.push(candidate);
+  });
+  return unique;
+};
+
+const countActiveTasks = (tasks) => tasks
+  .filter((task) => {
+    const status = asText(task?.status, "active").toLowerCase();
+    return !Boolean(task?.isCompleted) && status === "active";
+  })
+  .length;
+
 const renderAiTaskCandidates = () => {
   if (!aiTaskCandidates.length) {
     aiTaskCandidateList.hidden = true;
@@ -392,6 +495,13 @@ const generateAiTasks = async () => {
     updateAiTaskGenerationUi();
     return;
   }
+  const activeTaskCount = countActiveTasks(currentTasksForKpi);
+  if (activeTaskCount >= MAX_ACTIVE_TASKS_FOR_AI_GENERATION) {
+    aiTaskCandidates = [];
+    renderAiTaskCandidates();
+    aiTaskGenerateStatus.textContent = "このKPIには進行中のタスクがすでに3件あります。まずは既存タスクを進めてください。";
+    return;
+  }
 
   generateAiTaskButton.disabled = true;
   aiTaskCandidates = [];
@@ -429,16 +539,18 @@ const generateAiTasks = async () => {
       throw new Error(asText(data?.error, "AI生成に失敗しました。"));
     }
 
-    const tasks = Array.isArray(data?.tasks) ? data.tasks.slice(0, AI_TASK_CANDIDATE_COUNT) : [];
-    if (!tasks.length) {
+    const responseTasks = Array.isArray(data?.tasks) ? data.tasks : [];
+    const deduplicatedTasks = filterDuplicateCandidates(responseTasks, currentTasksForKpi)
+      .slice(0, AI_TASK_CANDIDATE_COUNT);
+    if (!deduplicatedTasks.length) {
       aiTaskCandidates = [];
       renderAiTaskCandidates();
-      aiTaskGenerateStatus.textContent = "候補が生成されませんでした。";
+      aiTaskGenerateStatus.textContent = asText(data?.generationStoppedReason, "今は新しい候補はありません。既存タスクを進めてください。");
       return;
     }
-    aiTaskCandidates = tasks;
+    aiTaskCandidates = deduplicatedTasks;
     renderAiTaskCandidates();
-    aiTaskGenerateStatus.textContent = "AI候補を生成しました（未保存の候補3件）。必要なものだけ「このタスクを採用」を押してください。";
+    aiTaskGenerateStatus.textContent = `AI候補を生成しました（未保存の候補${deduplicatedTasks.length}件）。必要なものだけ「このタスクを採用」を押してください。`;
   } catch (error) {
     console.error(error);
     aiTaskGenerateStatus.textContent = `AI生成に失敗しました: ${asText(error?.message, "unknown error")}`;
