@@ -30,6 +30,7 @@
       dt { font-size: 0.82rem; color: #6b7280; }
       dd { margin: 2px 0 0; }
       .hint { margin: 8px 0 0; color: #4b5563; font-size: 0.92rem; }
+      .hint.warning { color: #92400e; }
       .field { margin-top: 10px; display: grid; gap: 6px; }
       label { font-size: 0.9rem; font-weight: 600; }
       input, textarea, button, select {
@@ -47,6 +48,17 @@
       .task-item p { margin: 6px 0 0; color: #4b5563; font-size: 0.92rem; }
       .task-item .task-meta { margin-top: 8px; font-size: 0.82rem; color: #6b7280; }
       .task-item .task-actions { margin-top: 10px; display: flex; gap: 8px; }
+      .badge-row { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        border-radius: 999px;
+        padding: 4px 10px;
+        font-size: 0.78rem;
+        font-weight: 700;
+      }
+      .badge.design { background: #fef3c7; color: #92400e; }
+      .badge.ready { background: #dcfce7; color: #166534; }
     </style>
   </head>
   <body>
@@ -84,12 +96,35 @@
             <dd id="kpiDocStatus">-</dd>
           </div>
         </dl>
+        <div class="field">
+          <label for="kpiPlanningStatusSelect">KPI確定状態</label>
+          <select id="kpiPlanningStatusSelect">
+            <option value="draft">draft（設計中）</option>
+            <option value="review_needed">review_needed（要見直し）</option>
+            <option value="finalized">finalized（確定）</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="kpiSetDecisionSelect">KPIセット判定</label>
+          <select id="kpiSetDecisionSelect">
+            <option value="">通常</option>
+            <option value="no_additional_kpis_needed">追加不要</option>
+            <option value="cleanup_only">整理推奨</option>
+          </select>
+        </div>
+        <button id="saveKpiPlanningStatusButton" class="secondary" type="button">確定状態を保存</button>
+        <p id="kpiPlanningStatusMessage" class="hint"></p>
+        <div class="badge-row">
+          <span id="kpiDesignStateBadge" class="badge design">設計中</span>
+          <span id="kpiExecutionStateBadge" class="badge design">実行保留</span>
+        </div>
       </section>
 
       <section class="card">
         <h2>AIでこのKPIのタスクを作成</h2>
         <p class="hint">KGI全体・全KPI・このKPIの既存タスクを文脈にして、候補を3〜5件生成します。</p>
         <button id="generateAiTaskButton" type="button">AIでこのKPIのタスクを作成</button>
+        <p id="aiTaskAvailabilityStatus" class="hint warning"></p>
         <p id="aiTaskGenerateStatus" class="hint"></p>
         <ul id="aiTaskCandidateList" class="task-list" hidden></ul>
       </section>
