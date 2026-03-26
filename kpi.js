@@ -251,6 +251,7 @@ const normalizeRoadmapPhase = (phase, index = 0) => {
     name: asText(phase?.title ?? phase?.name, `フェーズ${phaseNumber}`),
     purpose: asText(phase?.description ?? phase?.goal ?? phase?.summary, "説明は未設定です。"),
     deadline: asText(phase?.deadline ?? phase?.targetDate ?? phase?.dueDate, ""),
+    kpiPlanningStatus: asText(phase?.kpiPlanningStatus, "draft"),
     phaseNumber
   };
 };
