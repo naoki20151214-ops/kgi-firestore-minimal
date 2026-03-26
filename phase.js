@@ -426,7 +426,9 @@ const saveKpiDocument = async (kpiPayload) => addDoc(collection(db, "kpis"), {
   source: asText(kpiPayload.source, "manual"),
   createdAt: serverTimestamp(),
   updatedAt: serverTimestamp(),
-  status: "active"
+  status: "active",
+  planningStatus: "draft",
+  kpiSetDecision: ""
 });
 
 const createKpi = async () => {

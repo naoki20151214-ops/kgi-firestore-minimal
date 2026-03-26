@@ -26,11 +26,18 @@ const kpiType = document.getElementById("kpiType");
 const kpiTargetValue = document.getElementById("kpiTargetValue");
 const kpiProgress = document.getElementById("kpiProgress");
 const kpiDocStatus = document.getElementById("kpiDocStatus");
+const kpiPlanningStatusSelect = document.getElementById("kpiPlanningStatusSelect");
+const kpiSetDecisionSelect = document.getElementById("kpiSetDecisionSelect");
+const saveKpiPlanningStatusButton = document.getElementById("saveKpiPlanningStatusButton");
+const kpiPlanningStatusMessage = document.getElementById("kpiPlanningStatusMessage");
+const kpiDesignStateBadge = document.getElementById("kpiDesignStateBadge");
+const kpiExecutionStateBadge = document.getElementById("kpiExecutionStateBadge");
 const taskTitleInput = document.getElementById("taskTitleInput");
 const taskDescriptionInput = document.getElementById("taskDescriptionInput");
 const createTaskButton = document.getElementById("createTaskButton");
 const taskCreateStatus = document.getElementById("taskCreateStatus");
 const generateAiTaskButton = document.getElementById("generateAiTaskButton");
+const aiTaskAvailabilityStatus = document.getElementById("aiTaskAvailabilityStatus");
 const aiTaskGenerateStatus = document.getElementById("aiTaskGenerateStatus");
 const aiTaskCandidateList = document.getElementById("aiTaskCandidateList");
 const taskStatus = document.getElementById("taskStatus");
@@ -49,6 +56,8 @@ const tasksDebugState = {
   errorCode: "",
   errorMessage: ""
 };
+const KPI_PLANNING_STATUS_VALUES = new Set(["draft", "review_needed", "finalized"]);
+const BLOCKED_KPI_SET_DECISIONS = new Set(["no_additional_kpis_needed", "cleanup_only"]);
 
 const asText = (value, fallback = "-") => {
   if (typeof value !== "string") {
@@ -77,6 +86,66 @@ const formatTaskStatus = (task) => {
     return "完了";
   }
   return statusValue;
+};
+
+const getKpiPlanningStatus = (kpi) => {
+  const status = asText(kpi?.planningStatus, "draft");
+  return KPI_PLANNING_STATUS_VALUES.has(status) ? status : "draft";
+};
+
+const getKpiSetDecision = (kpi) => {
+  const decision = asText(kpi?.kpiSetDecision, "");
+  return BLOCKED_KPI_SET_DECISIONS.has(decision) ? decision : "";
+};
+
+const getPlanningStatusLabel = (status) => {
+  if (status === "finalized") {
+    return "finalized（確定）";
+  }
+  if (status === "review_needed") {
+    return "review_needed（要見直し）";
+  }
+  return "draft（設計中）";
+};
+
+const getAiTaskGenerationGate = () => {
+  if (!currentKpi) {
+    return { isAllowed: false, reason: "KPIを読み込み中です。" };
+  }
+
+  const planningStatus = getKpiPlanningStatus(currentKpi);
+  if (planningStatus !== "finalized") {
+    if (planningStatus === "review_needed") {
+      return { isAllowed: false, reason: "このフェーズのKPIはまだ整理中です。" };
+    }
+    return { isAllowed: false, reason: "先にKPIを確定してください。" };
+  }
+
+  const decision = getKpiSetDecision(currentKpi);
+  if (decision === "no_additional_kpis_needed") {
+    return { isAllowed: false, reason: "KPIセット判定が「追加不要」のため、タスク生成は停止中です。" };
+  }
+  if (decision === "cleanup_only") {
+    return { isAllowed: false, reason: "KPIセット判定が「整理推奨」のため、タスク生成は停止中です。" };
+  }
+
+  return { isAllowed: true, reason: "KPIが確定済みのため、AIタスク生成を実行できます。" };
+};
+
+const updateAiTaskGenerationUi = () => {
+  const gate = getAiTaskGenerationGate();
+  generateAiTaskButton.disabled = !gate.isAllowed;
+  aiTaskAvailabilityStatus.textContent = gate.reason;
+  aiTaskAvailabilityStatus.classList.toggle("warning", !gate.isAllowed);
+  kpiExecutionStateBadge.textContent = gate.isAllowed ? "実行可能" : "実行保留";
+  kpiExecutionStateBadge.className = `badge ${gate.isAllowed ? "ready" : "design"}`;
+};
+
+const renderKpiPlanningBadges = () => {
+  const planningStatus = getKpiPlanningStatus(currentKpi);
+  const isFinalized = planningStatus === "finalized";
+  kpiDesignStateBadge.textContent = isFinalized ? "設計完了" : "設計中";
+  kpiDesignStateBadge.className = `badge ${isFinalized ? "ready" : "design"}`;
 };
 
 const renderTasks = (tasks) => {
@@ -151,6 +220,12 @@ const loadKpi = async () => {
   const progress = Number.isFinite(progressRaw) ? Math.max(0, Math.min(100, progressRaw)) : 0;
   kpiProgress.textContent = `${Math.round(progress)}%`;
   kpiDocStatus.textContent = asText(data?.status, "active");
+  const planningStatus = getKpiPlanningStatus(currentKpi);
+  const kpiSetDecision = getKpiSetDecision(currentKpi);
+  kpiPlanningStatusSelect.value = planningStatus;
+  kpiSetDecisionSelect.value = kpiSetDecision;
+  renderKpiPlanningBadges();
+  updateAiTaskGenerationUi();
   kpiMeta.hidden = false;
   kpiStatus.textContent = "";
 };
@@ -321,6 +396,12 @@ const generateAiTasks = async () => {
     aiTaskGenerateStatus.textContent = "KPIまたはKGIの読み込みが完了していません。";
     return;
   }
+  const gate = getAiTaskGenerationGate();
+  if (!gate.isAllowed) {
+    aiTaskGenerateStatus.textContent = gate.reason;
+    updateAiTaskGenerationUi();
+    return;
+  }
 
   generateAiTaskButton.disabled = true;
   aiTaskGenerateStatus.textContent = "AIがタスク候補を生成中です...";
@@ -370,7 +451,43 @@ const generateAiTasks = async () => {
     console.error(error);
     aiTaskGenerateStatus.textContent = `AI生成に失敗しました: ${asText(error?.message, "unknown error")}`;
   } finally {
-    generateAiTaskButton.disabled = false;
+    updateAiTaskGenerationUi();
+  }
+};
+
+const saveKpiPlanningStatus = async () => {
+  if (!currentKpi) {
+    return;
+  }
+  const planningStatus = KPI_PLANNING_STATUS_VALUES.has(kpiPlanningStatusSelect.value)
+    ? kpiPlanningStatusSelect.value
+    : "draft";
+  const kpiSetDecision = BLOCKED_KPI_SET_DECISIONS.has(kpiSetDecisionSelect.value)
+    ? kpiSetDecisionSelect.value
+    : "";
+
+  saveKpiPlanningStatusButton.disabled = true;
+  kpiPlanningStatusMessage.textContent = "保存中...";
+
+  try {
+    await updateDoc(doc(db, "kpis", kpiId), {
+      planningStatus,
+      kpiSetDecision,
+      updatedAt: serverTimestamp()
+    });
+    currentKpi = {
+      ...currentKpi,
+      planningStatus,
+      kpiSetDecision
+    };
+    renderKpiPlanningBadges();
+    updateAiTaskGenerationUi();
+    kpiPlanningStatusMessage.textContent = `確定状態を保存しました: ${getPlanningStatusLabel(planningStatus)}`;
+  } catch (error) {
+    console.error(error);
+    kpiPlanningStatusMessage.textContent = "確定状態の保存に失敗しました。";
+  } finally {
+    saveKpiPlanningStatusButton.disabled = false;
   }
 };
 
@@ -468,6 +585,9 @@ createTaskButton.addEventListener("click", () => {
 });
 generateAiTaskButton.addEventListener("click", () => {
   void generateAiTasks();
+});
+saveKpiPlanningStatusButton.addEventListener("click", () => {
+  void saveKpiPlanningStatus();
 });
 
 void init();
