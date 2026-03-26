@@ -96,24 +96,7 @@
             <dd id="kpiDocStatus">-</dd>
           </div>
         </dl>
-        <div class="field">
-          <label for="kpiPlanningStatusSelect">KPI確定状態</label>
-          <select id="kpiPlanningStatusSelect">
-            <option value="draft">draft（設計中）</option>
-            <option value="review_needed">review_needed（要見直し）</option>
-            <option value="finalized">finalized（確定）</option>
-          </select>
-        </div>
-        <div class="field">
-          <label for="kpiSetDecisionSelect">KPIセット判定</label>
-          <select id="kpiSetDecisionSelect">
-            <option value="">通常</option>
-            <option value="no_additional_kpis_needed">追加不要</option>
-            <option value="cleanup_only">整理推奨</option>
-          </select>
-        </div>
-        <button id="saveKpiPlanningStatusButton" class="secondary" type="button">確定状態を保存</button>
-        <p id="kpiPlanningStatusMessage" class="hint"></p>
+        <p id="phasePlanningStatusMessage" class="hint"></p>
         <div class="badge-row">
           <span id="kpiDesignStateBadge" class="badge design">設計中</span>
           <span id="kpiExecutionStateBadge" class="badge design">実行保留</span>

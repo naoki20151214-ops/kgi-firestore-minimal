@@ -1,11 +1,13 @@
 import {
   addDoc,
   collection,
+  deleteDoc,
   doc,
   getDoc,
   getDocs,
   query,
   serverTimestamp,
+  updateDoc,
   where
 } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
 import { getDb } from "./firebase-config.js";
@@ -25,10 +27,17 @@ const kpiCategoryInput = document.getElementById("kpiCategoryInput");
 const createKpiButton = document.getElementById("createKpiButton");
 const generateAiKpiButton = document.getElementById("generateAiKpiButton");
 const aiGenerateStatus = document.getElementById("aiGenerateStatus");
+const aiSectionTitle = document.getElementById("aiSectionTitle");
+const aiSectionDescription = document.getElementById("aiSectionDescription");
+const phasePlanningStatusText = document.getElementById("phasePlanningStatusText");
 const aiCandidateList = document.getElementById("aiCandidateList");
 const aiFocusInput = document.getElementById("aiFocusInput");
 const aiNoAdditionalBox = document.getElementById("aiNoAdditionalBox");
 const aiCleanupBox = document.getElementById("aiCleanupBox");
+const aiCleanupProposalBox = document.getElementById("aiCleanupProposalBox");
+const aiCleanupProposalSummary = document.getElementById("aiCleanupProposalSummary");
+const aiCleanupProposalList = document.getElementById("aiCleanupProposalList");
+const applyAiCleanupButton = document.getElementById("applyAiCleanupButton");
 
 const params = new URLSearchParams(window.location.search);
 const kgiId = params.get("id")?.trim() ?? "";
@@ -44,9 +53,12 @@ let isGeneratingAiKpis = false;
 let hasGeneratedAiCandidates = false;
 let lastAiGenerationAt = null;
 let lastAiDecision = "";
+let currentPhasePlanningStatus = "draft";
+let currentCleanupProposal = null;
 
 const AI_REGENERATE_COOLDOWN_MS = 60 * 1000;
 const KPI_CATEGORIES = ["acquisition", "activation", "retention", "feedback", "monetization", "decision"];
+const PHASE_PLANNING_STATUSES = new Set(["draft", "cleanup_needed", "finalized"]);
 
 const asText = (value, fallback = "-") => {
   if (typeof value !== "string") {
@@ -128,6 +140,9 @@ const normalizePhase = (phase, index = 0) => {
     name: asText(phase?.title ?? phase?.name, `フェーズ${phaseNumber}`),
     purpose: asText(phase?.description ?? phase?.goal ?? phase?.summary, "説明は未設定です。"),
     deadline: asText(phase?.deadline ?? phase?.targetDate ?? phase?.dueDate, "期限未設定"),
+    planningStatus: PHASE_PLANNING_STATUSES.has(asText(phase?.kpiPlanningStatus, "draft"))
+      ? asText(phase?.kpiPlanningStatus, "draft")
+      : "draft",
     phaseNumber
   };
 };
@@ -252,11 +267,41 @@ const updateGenerateAiButtonState = () => {
     return;
   }
 
-  generateAiKpiButton.textContent = hasGeneratedAiCandidates
-    || lastAiDecision === "no_additional_kpis_needed"
-    || lastAiDecision === "cleanup_only"
-    ? "AIでKPIセットを見直す"
-    : "AIでKPIを作成";
+  if (currentPhasePlanningStatus === "cleanup_needed") {
+    generateAiKpiButton.textContent = "AIでKPIを整理する";
+    return;
+  }
+  if (currentPhasePlanningStatus === "finalized") {
+    generateAiKpiButton.textContent = "KPI整理は完了しています";
+    generateAiKpiButton.disabled = true;
+    return;
+  }
+  generateAiKpiButton.textContent = hasGeneratedAiCandidates ? "AIでKPIセットを見直す" : "AIでKPIを作成";
+};
+
+const updatePhasePlanningUi = () => {
+  if (currentPhasePlanningStatus === "cleanup_needed") {
+    aiSectionTitle.textContent = "AIでKPIを整理する";
+    aiSectionDescription.textContent = "このフェーズは整理フェーズです。重複検出・統合提案・不要KPI整理を優先します。";
+    phasePlanningStatusText.textContent = "このフェーズのKPIはまだ整理中です。整理完了後にタスク生成が解放されます。";
+    return;
+  }
+  if (currentPhasePlanningStatus === "finalized") {
+    aiSectionTitle.textContent = "このフェーズのKPI整理は完了しています";
+    aiSectionDescription.textContent = "KPIが確定済みです。必要時のみKPI詳細ページでタスクを作成してください。";
+    phasePlanningStatusText.textContent = "状態: finalized";
+    return;
+  }
+  aiSectionTitle.textContent = "AIでこのフェーズのKPIを作成";
+  aiSectionDescription.textContent = "KGIと全フェーズ情報を使って既存KPIを先に評価し、不足がある場合のみ必要最小限のKPI候補を提案します。";
+  phasePlanningStatusText.textContent = "状態: draft（作成フェーズ）";
+};
+
+const hideCleanupProposal = () => {
+  currentCleanupProposal = null;
+  aiCleanupProposalBox.hidden = true;
+  aiCleanupProposalSummary.textContent = "";
+  aiCleanupProposalList.innerHTML = "";
 };
 
 const renderPhase = (phase) => {
@@ -400,11 +445,46 @@ const loadPhaseAndKpis = async () => {
     ? kgiData.roadmapPhases.findIndex((phase) => asText(phase?.id, "") === phaseId)
     : -1);
   currentPhase = normalizePhase(rawPhase, phaseIndex >= 0 ? phaseIndex : 0);
+  currentPhasePlanningStatus = currentPhase.planningStatus;
   renderPhase(currentPhase);
 
   const kpisSnapshot = await getDocs(query(collection(db, "kpis"), where("kgiId", "==", kgiId), where("phaseId", "==", currentPhase.id)));
   currentKpis = kpisSnapshot.docs.map((kpiDoc) => normalizeKpi(kpiDoc));
   renderKpis(currentKpis);
+  updatePhasePlanningUi();
+  updateGenerateAiButtonState();
+};
+
+const savePhasePlanningStatus = async (nextStatus) => {
+  if (!currentKgi?.id || !currentPhase?.id || !PHASE_PLANNING_STATUSES.has(nextStatus)) {
+    return;
+  }
+
+  const kgiRef = doc(db, "kgis", currentKgi.id);
+  const kgiSnapshot = await getDoc(kgiRef);
+  if (!kgiSnapshot.exists()) {
+    return;
+  }
+  const kgiData = kgiSnapshot.data();
+  const roadmapPhases = Array.isArray(kgiData?.roadmapPhases) ? kgiData.roadmapPhases : [];
+  const updatedRoadmapPhases = roadmapPhases.map((phase, index) => {
+    const normalized = normalizePhase(phase, index);
+    if (normalized.id !== currentPhase.id) {
+      return phase;
+    }
+    return {
+      ...phase,
+      kpiPlanningStatus: nextStatus
+    };
+  });
+  await updateDoc(kgiRef, {
+    roadmapPhases: updatedRoadmapPhases,
+    updatedAt: serverTimestamp()
+  });
+  currentPhasePlanningStatus = nextStatus;
+  currentPhase = { ...currentPhase, planningStatus: nextStatus };
+  updatePhasePlanningUi();
+  updateGenerateAiButtonState();
 };
 
 const saveKpiDocument = async (kpiPayload) => addDoc(collection(db, "kpis"), {
@@ -655,6 +735,9 @@ const generateAiKpis = async () => {
 
     renderAiCandidates();
     updateAiGuidanceBoxes(decision, duplicates);
+    if (decision === "no_additional_kpis_needed" || decision === "cleanup_only") {
+      await savePhasePlanningStatus("cleanup_needed");
+    }
 
     const decisionText = buildAiDecisionStatusText({
       decision,
@@ -683,6 +766,104 @@ const generateAiKpis = async () => {
   } finally {
     isGeneratingAiKpis = false;
     updateGenerateAiButtonState();
+  }
+};
+
+const renderCleanupProposal = (proposal) => {
+  const duplicateItems = Array.isArray(proposal?.duplicateGroups) ? proposal.duplicateGroups : [];
+  const mergeItems = Array.isArray(proposal?.mergeSuggestions) ? proposal.mergeSuggestions : [];
+  const removeItems = Array.isArray(proposal?.removeSuggestions) ? proposal.removeSuggestions : [];
+  const finalItems = Array.isArray(proposal?.finalKpis) ? proposal.finalKpis : [];
+
+  aiCleanupProposalSummary.textContent = asText(proposal?.summary, "整理案を確認し、問題なければ一括適用してください。");
+  aiCleanupProposalList.innerHTML = "";
+  const fragment = document.createDocumentFragment();
+  [...duplicateItems, ...mergeItems, ...removeItems, ...finalItems].forEach((item) => {
+    const li = document.createElement("li");
+    li.className = "candidate-item";
+    li.textContent = asText(item?.label, JSON.stringify(item));
+    fragment.appendChild(li);
+  });
+  aiCleanupProposalList.appendChild(fragment);
+  aiCleanupProposalBox.hidden = false;
+};
+
+const generateAiCleanupProposal = async () => {
+  if (!currentPhase || !currentKgi) {
+    return;
+  }
+  isGeneratingAiKpis = true;
+  updateGenerateAiButtonState();
+  aiGenerateStatus.classList.remove("error");
+  aiGenerateStatus.textContent = "AIがKPI整理案を作成しています...";
+  hideCleanupProposal();
+  try {
+    const response = await fetch("/api/generate-kpi-cleanup", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        kgiName: currentKgi.name,
+        phaseName: currentPhase.name,
+        phasePurpose: currentPhase.purpose,
+        existingKpis: currentKpis.map((kpi) => ({
+          id: kpi.id,
+          name: asText(kpi.name, ""),
+          description: asText(kpi.description, ""),
+          type: asText(kpi.type, "action"),
+          category: normalizeCategory(kpi.category)
+        }))
+      })
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(asText(payload?.error, "AI整理案の生成に失敗しました。"));
+    }
+    currentCleanupProposal = payload;
+    renderCleanupProposal(payload);
+    aiGenerateStatus.textContent = "AI整理案を作成しました。内容を確認して一括適用してください。";
+  } catch (error) {
+    console.error(error);
+    aiGenerateStatus.classList.add("error");
+    aiGenerateStatus.textContent = asText(error?.message, "AI整理案の生成に失敗しました。");
+  } finally {
+    isGeneratingAiKpis = false;
+    updateGenerateAiButtonState();
+  }
+};
+
+const applyAiCleanupProposal = async () => {
+  if (!currentCleanupProposal) {
+    return;
+  }
+  const shouldApply = window.confirm("AI整理案を一括適用します。不要KPIの削除を含みます。続行しますか？");
+  if (!shouldApply) {
+    return;
+  }
+
+  applyAiCleanupButton.disabled = true;
+  aiGenerateStatus.classList.remove("error");
+  aiGenerateStatus.textContent = "整理案を適用中です...";
+  try {
+    const removeSuggestions = Array.isArray(currentCleanupProposal?.removeSuggestions)
+      ? currentCleanupProposal.removeSuggestions
+      : [];
+    for (const item of removeSuggestions) {
+      const targetId = asText(item?.kpiId, "");
+      if (!targetId) {
+        continue;
+      }
+      await deleteDoc(doc(db, "kpis", targetId));
+    }
+    await savePhasePlanningStatus("finalized");
+    await loadPhaseAndKpis();
+    hideCleanupProposal();
+    aiGenerateStatus.textContent = "整理案を適用し、フェーズをfinalizedに更新しました。";
+  } catch (error) {
+    console.error(error);
+    aiGenerateStatus.classList.add("error");
+    aiGenerateStatus.textContent = asText(error?.message, "整理案の適用に失敗しました。");
+  } finally {
+    applyAiCleanupButton.disabled = false;
   }
 };
 
@@ -745,6 +926,7 @@ const init = async () => {
     db = await getDb();
     await loadPhaseAndKpis();
     updateAiGuidanceBoxes("", []);
+    hideCleanupProposal();
     updateGenerateAiButtonState();
   } catch (error) {
     console.error(error);
@@ -759,7 +941,14 @@ createKpiButton.addEventListener("click", () => {
 });
 
 generateAiKpiButton.addEventListener("click", () => {
+  if (currentPhasePlanningStatus === "cleanup_needed") {
+    void generateAiCleanupProposal();
+    return;
+  }
   void generateAiKpis();
+});
+applyAiCleanupButton.addEventListener("click", () => {
+  void applyAiCleanupProposal();
 });
 
 void init();

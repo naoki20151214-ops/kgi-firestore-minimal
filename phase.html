@@ -121,14 +121,15 @@
       </section>
 
       <section class="card">
-        <h2>AIでこのフェーズのKPIを作成</h2>
-        <p class="hint">KGIと全フェーズ情報を使って既存KPIを先に評価し、不足がある場合のみ必要最小限のKPI候補を提案します。</p>
+        <h2 id="aiSectionTitle">AIでこのフェーズのKPIを作成</h2>
+        <p id="aiSectionDescription" class="hint">KGIと全フェーズ情報を使って既存KPIを先に評価し、不足がある場合のみ必要最小限のKPI候補を提案します。</p>
         <div class="field">
           <label for="aiFocusInput">このフェーズで特に重視したいこと / 避けたいこと（任意）</label>
           <textarea id="aiFocusInput" placeholder="例: 初期は商談数より、ヒアリング品質を重視したい。広告運用の最適化は次フェーズに回したい。"></textarea>
         </div>
         <button id="generateAiKpiButton" type="button" class="secondary">AIでこのフェーズのKPIを作成</button>
         <p id="aiGenerateStatus" class="hint"></p>
+        <p id="phasePlanningStatusText" class="hint"></p>
         <div id="aiNoAdditionalBox" class="ai-guidance-box ai-guidance-box--ok" hidden>
           <p class="ai-guidance-box-title">このフェーズのKPIは、これ以上追加しなくて大丈夫です</p>
           <p class="ai-guidance-box-text">必要最小限のKPIセットが揃っています。必要なときは下のボタンからAIで全体の見直しだけ行えます。</p>
@@ -136,6 +137,12 @@
         <div id="aiCleanupBox" class="ai-guidance-box ai-guidance-box--cleanup" hidden>
           <p class="ai-guidance-box-title">追加ではなく整理をおすすめします</p>
           <p class="ai-guidance-box-text">同じ役割のKPIが重なっている可能性があります。新規追加より、統合・名称整理・役割分担の明確化を優先してください。</p>
+        </div>
+        <div id="aiCleanupProposalBox" class="ai-guidance-box ai-guidance-box--cleanup" hidden>
+          <p class="ai-guidance-box-title">AIによるKPI整理案</p>
+          <p id="aiCleanupProposalSummary" class="ai-guidance-box-text"></p>
+          <ul id="aiCleanupProposalList" class="candidate-list"></ul>
+          <button id="applyAiCleanupButton" type="button">この整理案を一括適用</button>
         </div>
         <ul id="aiCandidateList" class="candidate-list" hidden></ul>
       </section>

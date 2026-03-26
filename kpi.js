@@ -26,10 +26,7 @@ const kpiType = document.getElementById("kpiType");
 const kpiTargetValue = document.getElementById("kpiTargetValue");
 const kpiProgress = document.getElementById("kpiProgress");
 const kpiDocStatus = document.getElementById("kpiDocStatus");
-const kpiPlanningStatusSelect = document.getElementById("kpiPlanningStatusSelect");
-const kpiSetDecisionSelect = document.getElementById("kpiSetDecisionSelect");
-const saveKpiPlanningStatusButton = document.getElementById("saveKpiPlanningStatusButton");
-const kpiPlanningStatusMessage = document.getElementById("kpiPlanningStatusMessage");
+const phasePlanningStatusMessage = document.getElementById("phasePlanningStatusMessage");
 const kpiDesignStateBadge = document.getElementById("kpiDesignStateBadge");
 const kpiExecutionStateBadge = document.getElementById("kpiExecutionStateBadge");
 const taskTitleInput = document.getElementById("taskTitleInput");
@@ -48,6 +45,7 @@ let currentKpi = null;
 let currentKgi = null;
 let allKpisForKgi = [];
 let currentTargetPhase = null;
+let currentPhasePlanningStatus = "draft";
 let currentTasksForKpi = [];
 let aiTaskCandidates = [];
 const japaneseTextPattern = /[ぁ-んァ-ヶ一-龠々ー]/;
@@ -56,8 +54,7 @@ const tasksDebugState = {
   errorCode: "",
   errorMessage: ""
 };
-const KPI_PLANNING_STATUS_VALUES = new Set(["draft", "review_needed", "finalized"]);
-const BLOCKED_KPI_SET_DECISIONS = new Set(["no_additional_kpis_needed", "cleanup_only"]);
+const PHASE_PLANNING_STATUS_VALUES = new Set(["draft", "cleanup_needed", "finalized"]);
 
 const asText = (value, fallback = "-") => {
   if (typeof value !== "string") {
@@ -88,45 +85,22 @@ const formatTaskStatus = (task) => {
   return statusValue;
 };
 
-const getKpiPlanningStatus = (kpi) => {
-  const status = asText(kpi?.planningStatus, "draft");
-  return KPI_PLANNING_STATUS_VALUES.has(status) ? status : "draft";
-};
-
-const getKpiSetDecision = (kpi) => {
-  const decision = asText(kpi?.kpiSetDecision, "");
-  return BLOCKED_KPI_SET_DECISIONS.has(decision) ? decision : "";
-};
-
 const getPlanningStatusLabel = (status) => {
   if (status === "finalized") {
     return "finalized（確定）";
   }
-  if (status === "review_needed") {
-    return "review_needed（要見直し）";
+  if (status === "cleanup_needed") {
+    return "cleanup_needed（整理中）";
   }
   return "draft（設計中）";
 };
 
 const getAiTaskGenerationGate = () => {
-  if (!currentKpi) {
-    return { isAllowed: false, reason: "KPIを読み込み中です。" };
-  }
-
-  const planningStatus = getKpiPlanningStatus(currentKpi);
+  const planningStatus = PHASE_PLANNING_STATUS_VALUES.has(currentPhasePlanningStatus)
+    ? currentPhasePlanningStatus
+    : "draft";
   if (planningStatus !== "finalized") {
-    if (planningStatus === "review_needed") {
-      return { isAllowed: false, reason: "このフェーズのKPIはまだ整理中です。" };
-    }
-    return { isAllowed: false, reason: "先にKPIを確定してください。" };
-  }
-
-  const decision = getKpiSetDecision(currentKpi);
-  if (decision === "no_additional_kpis_needed") {
-    return { isAllowed: false, reason: "KPIセット判定が「追加不要」のため、タスク生成は停止中です。" };
-  }
-  if (decision === "cleanup_only") {
-    return { isAllowed: false, reason: "KPIセット判定が「整理推奨」のため、タスク生成は停止中です。" };
+    return { isAllowed: false, reason: "このフェーズのKPIはまだ整理中です。整理完了後にタスク生成できます。" };
   }
 
   return { isAllowed: true, reason: "KPIが確定済みのため、AIタスク生成を実行できます。" };
@@ -135,6 +109,7 @@ const getAiTaskGenerationGate = () => {
 const updateAiTaskGenerationUi = () => {
   const gate = getAiTaskGenerationGate();
   generateAiTaskButton.disabled = !gate.isAllowed;
+  createTaskButton.disabled = !gate.isAllowed;
   aiTaskAvailabilityStatus.textContent = gate.reason;
   aiTaskAvailabilityStatus.classList.toggle("warning", !gate.isAllowed);
   kpiExecutionStateBadge.textContent = gate.isAllowed ? "実行可能" : "実行保留";
@@ -142,10 +117,13 @@ const updateAiTaskGenerationUi = () => {
 };
 
 const renderKpiPlanningBadges = () => {
-  const planningStatus = getKpiPlanningStatus(currentKpi);
+  const planningStatus = PHASE_PLANNING_STATUS_VALUES.has(currentPhasePlanningStatus)
+    ? currentPhasePlanningStatus
+    : "draft";
   const isFinalized = planningStatus === "finalized";
   kpiDesignStateBadge.textContent = isFinalized ? "設計完了" : "設計中";
   kpiDesignStateBadge.className = `badge ${isFinalized ? "ready" : "design"}`;
+  phasePlanningStatusMessage.textContent = `フェーズKPI状態: ${getPlanningStatusLabel(planningStatus)}`;
 };
 
 const renderTasks = (tasks) => {
@@ -220,10 +198,6 @@ const loadKpi = async () => {
   const progress = Number.isFinite(progressRaw) ? Math.max(0, Math.min(100, progressRaw)) : 0;
   kpiProgress.textContent = `${Math.round(progress)}%`;
   kpiDocStatus.textContent = asText(data?.status, "active");
-  const planningStatus = getKpiPlanningStatus(currentKpi);
-  const kpiSetDecision = getKpiSetDecision(currentKpi);
-  kpiPlanningStatusSelect.value = planningStatus;
-  kpiSetDecisionSelect.value = kpiSetDecision;
   renderKpiPlanningBadges();
   updateAiTaskGenerationUi();
   kpiMeta.hidden = false;
@@ -335,6 +309,9 @@ const loadKgiContext = async () => {
   const roadmapPhases = Array.isArray(kgiData?.roadmapPhases) ? kgiData.roadmapPhases : [];
   const normalizedRoadmapPhases = roadmapPhases.map((phase, index) => normalizeRoadmapPhase(phase, index));
   currentTargetPhase = normalizedRoadmapPhases.find((phase) => phase.id === phaseId) ?? null;
+  currentPhasePlanningStatus = PHASE_PLANNING_STATUS_VALUES.has(asText(currentTargetPhase?.kpiPlanningStatus, "draft"))
+    ? asText(currentTargetPhase?.kpiPlanningStatus, "draft")
+    : "draft";
 
   const kpiSnapshot = await getDocs(query(collection(db, "kpis"), where("kgiId", "==", kgiId)));
   allKpisForKgi = kpiSnapshot.docs.map((snapshot) => {
@@ -355,6 +332,8 @@ const loadKgiContext = async () => {
     targetDate: asText(kgiData?.targetDate ?? kgiData?.deadline ?? kgiData?.dueDate, ""),
     roadmapPhases: normalizedRoadmapPhases
   };
+  renderKpiPlanningBadges();
+  updateAiTaskGenerationUi();
 };
 
 const saveAiTaskCandidate = async (index, saveButton) => {
@@ -455,42 +434,6 @@ const generateAiTasks = async () => {
   }
 };
 
-const saveKpiPlanningStatus = async () => {
-  if (!currentKpi) {
-    return;
-  }
-  const planningStatus = KPI_PLANNING_STATUS_VALUES.has(kpiPlanningStatusSelect.value)
-    ? kpiPlanningStatusSelect.value
-    : "draft";
-  const kpiSetDecision = BLOCKED_KPI_SET_DECISIONS.has(kpiSetDecisionSelect.value)
-    ? kpiSetDecisionSelect.value
-    : "";
-
-  saveKpiPlanningStatusButton.disabled = true;
-  kpiPlanningStatusMessage.textContent = "保存中...";
-
-  try {
-    await updateDoc(doc(db, "kpis", kpiId), {
-      planningStatus,
-      kpiSetDecision,
-      updatedAt: serverTimestamp()
-    });
-    currentKpi = {
-      ...currentKpi,
-      planningStatus,
-      kpiSetDecision
-    };
-    renderKpiPlanningBadges();
-    updateAiTaskGenerationUi();
-    kpiPlanningStatusMessage.textContent = `確定状態を保存しました: ${getPlanningStatusLabel(planningStatus)}`;
-  } catch (error) {
-    console.error(error);
-    kpiPlanningStatusMessage.textContent = "確定状態の保存に失敗しました。";
-  } finally {
-    saveKpiPlanningStatusButton.disabled = false;
-  }
-};
-
 const createTask = async () => {
   if (!currentKpi) {
     return;
@@ -498,6 +441,12 @@ const createTask = async () => {
 
   const title = taskTitleInput.value.trim();
   const description = taskDescriptionInput.value.trim();
+  const gate = getAiTaskGenerationGate();
+  if (!gate.isAllowed) {
+    taskCreateStatus.textContent = gate.reason;
+    updateAiTaskGenerationUi();
+    return;
+  }
   if (!title) {
     taskCreateStatus.textContent = "タスク名を入力してください。";
     return;
@@ -585,9 +534,6 @@ createTaskButton.addEventListener("click", () => {
 });
 generateAiTaskButton.addEventListener("click", () => {
   void generateAiTasks();
-});
-saveKpiPlanningStatusButton.addEventListener("click", () => {
-  void saveKpiPlanningStatus();
 });
 
 void init();
