@@ -22,6 +22,76 @@ const getRequestBody = (req) => {
 
 const isNonEmptyString = (value) => typeof value === "string" && value.trim().length > 0;
 
+const extractOutputText = (responseData) => {
+  if (typeof responseData?.output_text === "string" && responseData.output_text.trim()) {
+    return { text: responseData.output_text.trim(), source: "output_text" };
+  }
+
+  if (Array.isArray(responseData?.output)) {
+    for (const outputItem of responseData.output) {
+      if (!Array.isArray(outputItem?.content)) {
+        continue;
+      }
+
+      for (const contentItem of outputItem.content) {
+        if (contentItem?.type === "output_text" && typeof contentItem.text === "string" && contentItem.text.trim()) {
+          return { text: contentItem.text.trim(), source: "output[].content[].text(output_text)" };
+        }
+
+        if (contentItem?.type === "text" && typeof contentItem.text === "string" && contentItem.text.trim()) {
+          return { text: contentItem.text.trim(), source: "output[].content[].text(text)" };
+        }
+
+        if (typeof contentItem?.text === "string" && contentItem.text.trim()) {
+          return { text: contentItem.text.trim(), source: "output[].content[].text(*)" };
+        }
+      }
+    }
+  }
+
+  if (Array.isArray(responseData?.content)) {
+    for (const contentItem of responseData.content) {
+      if (typeof contentItem?.text === "string" && contentItem.text.trim()) {
+        return { text: contentItem.text.trim(), source: "content[].text" };
+      }
+
+      if (Array.isArray(contentItem?.content)) {
+        for (const nestedItem of contentItem.content) {
+          if (typeof nestedItem?.text === "string" && nestedItem.text.trim()) {
+            return { text: nestedItem.text.trim(), source: "content[].content[].text" };
+          }
+        }
+      }
+    }
+  }
+
+  return { text: "", source: "not_found" };
+};
+
+const normalizeCleanupPayload = (value) => {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const summary = isNonEmptyString(value.summary) ? value.summary.trim() : "";
+  const duplicateGroups = Array.isArray(value.duplicateGroups) ? value.duplicateGroups : [];
+  const mergeSuggestions = Array.isArray(value.mergeSuggestions) ? value.mergeSuggestions : [];
+  const removeSuggestions = Array.isArray(value.removeSuggestions) ? value.removeSuggestions : [];
+  const finalKpis = Array.isArray(value.finalKpis) ? value.finalKpis : [];
+
+  if (!summary) {
+    return null;
+  }
+
+  return {
+    summary,
+    duplicateGroups,
+    mergeSuggestions,
+    removeSuggestions,
+    finalKpis
+  };
+};
+
 module.exports = async function handler(req, res) {
   if (req.method !== "POST") {
     res.setHeader("Allow", "POST");
@@ -145,17 +215,60 @@ module.exports = async function handler(req, res) {
     });
 
     const rawText = await openAiResponse.text();
+    console.log("[generate-kpi-cleanup] raw OpenAI response text:", rawText);
+
     if (!openAiResponse.ok) {
       return sendJson(res, openAiResponse.status, { error: "OpenAI API request failed", details: rawText });
     }
 
-    const responseData = JSON.parse(rawText);
-    const outputText = responseData?.output_text?.trim?.() || "";
-    if (!outputText) {
-      return sendJson(res, 502, { error: "No output_text returned from OpenAI API" });
+    let responseData;
+    try {
+      responseData = JSON.parse(rawText);
+    } catch {
+      return sendJson(res, 502, {
+        error: "OpenAIレスポンスのJSON解析に失敗しました",
+        cause: "openai_response_parse_failed"
+      });
     }
-    const parsed = JSON.parse(outputText);
-    return sendJson(res, 200, parsed);
+
+    console.log("[generate-kpi-cleanup] parsed OpenAI response data:", responseData);
+
+    const extraction = extractOutputText(responseData);
+    console.log("[generate-kpi-cleanup] extracted text source:", extraction.source);
+
+    if (!extraction.text) {
+      return sendJson(res, 502, {
+        error: "OpenAIから有効な本文が返りませんでした",
+        cause: "openai_empty_output",
+        details: {
+          hasOutputText: Boolean(responseData?.output_text),
+          hasOutputArray: Array.isArray(responseData?.output),
+          hasContentArray: Array.isArray(responseData?.content)
+        }
+      });
+    }
+
+    let parsed;
+    try {
+      parsed = JSON.parse(extraction.text);
+    } catch {
+      return sendJson(res, 502, {
+        error: "モデル出力のJSON解析に失敗しました",
+        cause: "model_output_json_parse_failed",
+        outputSource: extraction.source
+      });
+    }
+
+    const normalized = normalizeCleanupPayload(parsed);
+    if (!normalized) {
+      return sendJson(res, 502, {
+        error: "モデル出力が期待スキーマを満たしていません",
+        cause: "schema_validation_failed",
+        outputSource: extraction.source
+      });
+    }
+
+    return sendJson(res, 200, normalized);
   } catch (error) {
     return sendJson(res, 500, {
       error: "Failed to generate cleanup proposal",
