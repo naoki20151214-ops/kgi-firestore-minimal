@@ -59,6 +59,26 @@
       }
       .badge.design { background: #fef3c7; color: #92400e; }
       .badge.ready { background: #dcfce7; color: #166534; }
+      .manual-task-details {
+        border: 1px solid #e5e7eb;
+        border-radius: 10px;
+        background: #f9fafb;
+      }
+      .manual-task-summary {
+        cursor: pointer;
+        list-style: none;
+        padding: 12px;
+        font-weight: 700;
+      }
+      .manual-task-summary::-webkit-details-marker { display: none; }
+      .manual-task-summary::before {
+        content: "▶";
+        margin-right: 8px;
+        font-size: 0.82rem;
+        color: #4b5563;
+      }
+      .manual-task-details[open] > .manual-task-summary::before { content: "▼"; }
+      .manual-task-body { padding: 0 12px 12px; }
     </style>
   </head>
   <body>
@@ -113,18 +133,22 @@
       </section>
 
       <section class="card">
-        <h2>タスクを追加</h2>
-        <p class="hint">タスク名は日本語で入力してください（例: 初回ヒアリング項目を10件見直す）。</p>
-        <div class="field">
-          <label for="taskTitleInput">タスク名</label>
-          <input id="taskTitleInput" type="text" placeholder="例: 初回ヒアリング項目を10件見直す" />
-        </div>
-        <div class="field">
-          <label for="taskDescriptionInput">タスク説明（任意）</label>
-          <textarea id="taskDescriptionInput" placeholder="補足があれば入力"></textarea>
-        </div>
-        <button id="createTaskButton" type="button">このKPIにタスクを追加</button>
-        <p id="taskCreateStatus" class="hint"></p>
+        <details class="manual-task-details">
+          <summary class="manual-task-summary">手動でタスクを追加</summary>
+          <div class="manual-task-body">
+            <p class="hint">AI候補で足りない場合のみ追加できます。</p>
+            <div class="field">
+              <label for="taskTitleInput">タスク名</label>
+              <input id="taskTitleInput" type="text" placeholder="例: 初回ヒアリング項目を10件見直す" />
+            </div>
+            <div class="field">
+              <label for="taskDescriptionInput">タスク説明（任意）</label>
+              <textarea id="taskDescriptionInput" placeholder="補足があれば入力"></textarea>
+            </div>
+            <button id="createTaskButton" type="button">このKPIにタスクを追加</button>
+            <p id="taskCreateStatus" class="hint"></p>
+          </div>
+        </details>
       </section>
 
       <section class="card">
