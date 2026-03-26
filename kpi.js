@@ -372,7 +372,7 @@ const saveAiTaskCandidate = async (index, saveButton) => {
     });
     aiTaskCandidates.splice(index, 1);
     renderAiTaskCandidates();
-    aiTaskGenerateStatus.textContent = "AI候補を保存しました。";
+    aiTaskGenerateStatus.textContent = "AI候補を1件採用して保存しました。";
     await loadTasks();
   } catch (error) {
     console.error(error);
@@ -438,7 +438,7 @@ const generateAiTasks = async () => {
     }
     aiTaskCandidates = tasks;
     renderAiTaskCandidates();
-    aiTaskGenerateStatus.textContent = `${tasks.length}件の候補を表示しました（未保存）。必要なものだけ「このタスクを採用」を押してください。`;
+    aiTaskGenerateStatus.textContent = "AI候補を生成しました（未保存の候補3件）。必要なものだけ「このタスクを採用」を押してください。";
   } catch (error) {
     console.error(error);
     aiTaskGenerateStatus.textContent = `AI生成に失敗しました: ${asText(error?.message, "unknown error")}`;
