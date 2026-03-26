@@ -44,10 +44,17 @@
       button.secondary { background: #fff; color: #1d4ed8; border: 1px solid #bfdbfe; }
       .task-list { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 10px; }
       .task-item { border: 1px solid #e5e7eb; border-radius: 10px; padding: 12px; background: #f9fafb; }
+      .task-item.ai-candidate { border-color: #bfdbfe; background: #eff6ff; }
       .task-item h3 { margin: 0; font-size: 1rem; }
       .task-item p { margin: 6px 0 0; color: #4b5563; font-size: 0.92rem; }
       .task-item .task-meta { margin-top: 8px; font-size: 0.82rem; color: #6b7280; }
       .task-item .task-actions { margin-top: 10px; display: flex; gap: 8px; }
+      .candidate-note {
+        margin-top: 8px;
+        font-size: 0.8rem;
+        color: #1d4ed8;
+        font-weight: 700;
+      }
       .badge-row { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
       .badge {
         display: inline-flex;
@@ -124,9 +131,9 @@
       </section>
 
       <section class="card">
-        <h2>AIでこのKPIのタスクを作成</h2>
-        <p class="hint">KGI全体・全KPI・このKPIの既存タスクを文脈にして、候補を3〜5件生成します。</p>
-        <button id="generateAiTaskButton" type="button">AIでこのKPIのタスクを作成</button>
+        <h2>AIでこのKPIの次の一歩を提案</h2>
+        <p class="hint">まず着手しやすい候補を3件表示します。必要なものだけ採用してください。</p>
+        <button id="generateAiTaskButton" type="button">AI候補を生成</button>
         <p id="aiTaskAvailabilityStatus" class="hint warning"></p>
         <p id="aiTaskGenerateStatus" class="hint"></p>
         <ul id="aiTaskCandidateList" class="task-list" hidden></ul>

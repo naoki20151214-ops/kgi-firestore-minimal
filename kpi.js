@@ -48,6 +48,8 @@ let currentTargetPhase = null;
 let currentPhasePlanningStatus = "draft";
 let currentTasksForKpi = [];
 let aiTaskCandidates = [];
+const AI_TASK_CANDIDATE_COUNT = 3;
+const MAX_SAVED_AI_TASKS_PER_KPI = 20;
 const japaneseTextPattern = /[ぁ-んァ-ヶ一-龠々ー]/;
 const tasksDebugState = {
   lastQueryConditions: null,
@@ -275,7 +277,7 @@ const renderAiTaskCandidates = () => {
   const fragment = document.createDocumentFragment();
   aiTaskCandidates.forEach((candidate, index) => {
     const item = document.createElement("li");
-    item.className = "task-item";
+    item.className = "task-item ai-candidate";
     const title = document.createElement("h3");
     title.textContent = asText(candidate?.title, `AIタスク候補 ${index + 1}`);
     const description = document.createElement("p");
@@ -288,12 +290,15 @@ const renderAiTaskCandidates = () => {
     actions.className = "task-actions";
     const saveButton = document.createElement("button");
     saveButton.type = "button";
-    saveButton.textContent = "このタスクを保存";
+    saveButton.textContent = "このタスクを採用";
     saveButton.addEventListener("click", () => {
       void saveAiTaskCandidate(index, saveButton);
     });
     actions.appendChild(saveButton);
-    item.append(title, description, meta, actions);
+    const note = document.createElement("p");
+    note.className = "candidate-note";
+    note.textContent = "※ AI候補（未保存）";
+    item.append(title, description, meta, note, actions);
     fragment.appendChild(item);
   });
 
@@ -342,6 +347,11 @@ const saveAiTaskCandidate = async (index, saveButton) => {
   if (!candidate) {
     return;
   }
+  const savedAiTaskCount = currentTasksForKpi.filter((task) => asText(task?.source, "") === "ai").length;
+  if (savedAiTaskCount >= MAX_SAVED_AI_TASKS_PER_KPI) {
+    aiTaskGenerateStatus.textContent = `保存済みAIタスクは最大${MAX_SAVED_AI_TASKS_PER_KPI}件までです。完了済みタスクの整理後に再度お試しください。`;
+    return;
+  }
   saveButton.disabled = true;
   try {
     await addDoc(collection(db, "tasks"), {
@@ -384,6 +394,8 @@ const generateAiTasks = async () => {
   }
 
   generateAiTaskButton.disabled = true;
+  aiTaskCandidates = [];
+  renderAiTaskCandidates();
   aiTaskGenerateStatus.textContent = "AIがタスク候補を生成中です...";
 
   const payload = {
@@ -417,7 +429,7 @@ const generateAiTasks = async () => {
       throw new Error(asText(data?.error, "AI生成に失敗しました。"));
     }
 
-    const tasks = Array.isArray(data?.tasks) ? data.tasks.slice(0, 5) : [];
+    const tasks = Array.isArray(data?.tasks) ? data.tasks.slice(0, AI_TASK_CANDIDATE_COUNT) : [];
     if (!tasks.length) {
       aiTaskCandidates = [];
       renderAiTaskCandidates();
@@ -426,7 +438,7 @@ const generateAiTasks = async () => {
     }
     aiTaskCandidates = tasks;
     renderAiTaskCandidates();
-    aiTaskGenerateStatus.textContent = `${tasks.length}件の候補を生成しました。保存したいタスクを選んでください。`;
+    aiTaskGenerateStatus.textContent = `${tasks.length}件の候補を表示しました（未保存）。必要なものだけ「このタスクを採用」を押してください。`;
   } catch (error) {
     console.error(error);
     aiTaskGenerateStatus.textContent = `AI生成に失敗しました: ${asText(error?.message, "unknown error")}`;
