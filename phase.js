@@ -399,18 +399,23 @@ const renderAiCandidates = () => {
     meta.className = "candidate-meta";
     meta.textContent = createKpiMetaText(candidate) || "AI候補";
 
-    const actions = document.createElement("div");
-    actions.className = "candidate-actions";
+    const shouldShowSaveButton = !isCleanupOnlyDecision(lastAiDecision, []);
+    item.append(title, description, meta);
 
-    const saveButton = document.createElement("button");
-    saveButton.type = "button";
-    saveButton.textContent = "このKPIを保存";
-    saveButton.addEventListener("click", () => {
-      void saveAiCandidate(index, saveButton);
-    });
+    if (shouldShowSaveButton) {
+      const actions = document.createElement("div");
+      actions.className = "candidate-actions";
 
-    actions.appendChild(saveButton);
-    item.append(title, description, meta, actions);
+      const saveButton = document.createElement("button");
+      saveButton.type = "button";
+      saveButton.textContent = "このKPIを保存";
+      saveButton.addEventListener("click", () => {
+        void saveAiCandidate(index, saveButton);
+      });
+
+      actions.appendChild(saveButton);
+      item.append(actions);
+    }
     fragment.appendChild(item);
   });
 
@@ -580,6 +585,10 @@ const getAiDecisionLabel = (decision) => {
   return "判定なし";
 };
 
+const isCleanupOnlyDecision = (decision, duplicates = []) => (
+  decision === "cleanup_only" || (Array.isArray(duplicates) && duplicates.length > 0)
+);
+
 const buildAiDecisionStatusText = ({ decision, reason, duplicates, missingCategories, proposedCount }) => {
   const chunks = [`判定: ${getAiDecisionLabel(decision)}`];
 
@@ -610,11 +619,13 @@ const buildAiDecisionStatusText = ({ decision, reason, duplicates, missingCatego
 
 const updateAiGuidanceBoxes = (decision, duplicates) => {
   const isNoAdditional = decision === "no_additional_kpis_needed";
-  const hasDuplicateHints = Array.isArray(duplicates) && duplicates.length > 0;
-  const isCleanupOnly = decision === "cleanup_only" || hasDuplicateHints;
+  const isCleanupOnly = isCleanupOnlyDecision(decision, duplicates);
 
   aiNoAdditionalBox.hidden = !isNoAdditional;
   aiCleanupBox.hidden = !isCleanupOnly;
+  if (isCleanupOnly) {
+    aiCleanupBox.querySelector(".ai-guidance-box-title").textContent = "このフェーズは先にKPI整理が必要です";
+  }
 };
 
 const generateAiKpis = async () => {
@@ -691,7 +702,6 @@ const generateAiKpis = async () => {
     }
 
     const decision = asText(payload?.decision, "");
-    lastAiDecision = decision;
     const reason = asText(payload?.reason, "");
     const duplicates = Array.isArray(payload?.duplicates) ? payload.duplicates : [];
     const missingCategories = Array.isArray(payload?.missingCategories) ? payload.missingCategories : [];
@@ -711,6 +721,8 @@ const generateAiKpis = async () => {
       }))
       .filter((item) => item.name && item.category);
 
+    const cleanupOnly = isCleanupOnlyDecision(decision, duplicates);
+    lastAiDecision = cleanupOnly ? "cleanup_only" : decision;
     const filteredCandidates = [];
     normalizedCandidates.forEach((candidate) => {
       const duplicatedWithExisting = isDuplicateKpiNameInPhase(candidate.name, currentKpis);
@@ -729,13 +741,13 @@ const generateAiKpis = async () => {
       }
     });
 
-    aiCandidates = filteredCandidates;
+    aiCandidates = cleanupOnly ? [] : filteredCandidates;
     hasGeneratedAiCandidates = true;
     lastAiGenerationAt = Date.now();
 
     renderAiCandidates();
     updateAiGuidanceBoxes(decision, duplicates);
-    if (decision === "no_additional_kpis_needed" || decision === "cleanup_only") {
+    if (decision === "no_additional_kpis_needed" || cleanupOnly) {
       await savePhasePlanningStatus("cleanup_needed");
     }
 
@@ -746,6 +758,12 @@ const generateAiKpis = async () => {
       missingCategories,
       proposedCount: aiCandidates.length
     });
+
+    if (cleanupOnly) {
+      aiGenerateStatus.classList.remove("error");
+      aiGenerateStatus.textContent = `${decisionText} / このフェーズは先にKPI整理が必要です。`;
+      return;
+    }
 
     if (!aiCandidates.length) {
       aiGenerateStatus.classList.remove("error");
