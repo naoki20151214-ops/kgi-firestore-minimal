@@ -21,11 +21,14 @@ const kpiStatus = document.getElementById("kpiStatus");
 const kpiList = document.getElementById("kpiList");
 const kpiNameInput = document.getElementById("kpiNameInput");
 const kpiDescriptionInput = document.getElementById("kpiDescriptionInput");
+const kpiCategoryInput = document.getElementById("kpiCategoryInput");
 const createKpiButton = document.getElementById("createKpiButton");
 const generateAiKpiButton = document.getElementById("generateAiKpiButton");
 const aiGenerateStatus = document.getElementById("aiGenerateStatus");
 const aiCandidateList = document.getElementById("aiCandidateList");
 const aiFocusInput = document.getElementById("aiFocusInput");
+const aiNoAdditionalBox = document.getElementById("aiNoAdditionalBox");
+const aiCleanupBox = document.getElementById("aiCleanupBox");
 
 const params = new URLSearchParams(window.location.search);
 const kgiId = params.get("id")?.trim() ?? "";
@@ -40,8 +43,10 @@ let aiCandidates = [];
 let isGeneratingAiKpis = false;
 let hasGeneratedAiCandidates = false;
 let lastAiGenerationAt = null;
+let lastAiDecision = "";
 
 const AI_REGENERATE_COOLDOWN_MS = 60 * 1000;
+const KPI_CATEGORIES = ["acquisition", "activation", "retention", "feedback", "monetization", "decision"];
 
 const asText = (value, fallback = "-") => {
   if (typeof value !== "string") {
@@ -129,12 +134,14 @@ const normalizePhase = (phase, index = 0) => {
 
 const normalizeKpi = (kpiDoc) => {
   const data = kpiDoc?.data?.() ?? kpiDoc;
+  const category = asText(data?.category, "").toLowerCase();
 
   return {
     id: asText(kpiDoc?.id, ""),
     name: asText(data?.name, "名称未設定KPI"),
     description: asText(data?.description, "説明は未設定です。"),
     type: asText(data?.type, ""),
+    category: KPI_CATEGORIES.includes(category) ? category : "",
     targetValue: Number.isFinite(Number(data?.targetValue)) ? Number(data.targetValue) : null,
     ...data
   };
@@ -168,6 +175,64 @@ const isDuplicateKpiNameInPhase = (name, kpis) => {
   });
 };
 
+const normalizeKpiRoleSignature = (name, description) => `${asText(name, "")} ${asText(description, "")}`
+  .normalize("NFKC")
+  .toLowerCase()
+  .replace(/[()（）「」『』【】［］\[\]{}｛｝"'`´’‘“”、。・,./\\!?！？:：;；]/g, " ")
+  .replace(/[\s\u3000]+/g, " ")
+  .trim();
+
+const getRoleTokens = (name, description) => {
+  const stopWords = new Set([
+    "する", "した", "して", "こと", "ため", "目標", "指標", "kpi", "です", "ます", "いる", "ある", "及び", "また", "への", "から", "まで"
+  ]);
+  return normalizeKpiRoleSignature(name, description)
+    .split(" ")
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 2 && !stopWords.has(token));
+};
+
+const hasSimilarKpiRoleInPhase = (candidate, kpis) => {
+  const candidateTokens = getRoleTokens(candidate?.name, candidate?.description);
+  if (!candidateTokens.length) {
+    return false;
+  }
+
+  const candidateTokenSet = new Set(candidateTokens);
+
+  return kpis.some((kpi) => {
+    const existingTokens = getRoleTokens(kpi?.name, kpi?.description);
+    if (!existingTokens.length) {
+      return false;
+    }
+
+    const overlapCount = existingTokens.filter((token) => candidateTokenSet.has(token)).length;
+    const maxTokenLength = Math.max(existingTokens.length, candidateTokens.length);
+    const overlapRate = maxTokenLength > 0 ? overlapCount / maxTokenLength : 0;
+    return overlapCount >= 2 && overlapRate >= 0.45;
+  });
+};
+
+const normalizeCategory = (value) => {
+  const category = asText(value, "").toLowerCase();
+  return KPI_CATEGORIES.includes(category) ? category : "";
+};
+
+const hasCategoryDuplicateInPhase = (category, kpis) => {
+  const normalizedCategory = normalizeCategory(category);
+  if (!normalizedCategory) {
+    return false;
+  }
+  return kpis.some((kpi) => normalizeCategory(kpi?.category) === normalizedCategory);
+};
+
+const collectMissingCategories = (kpis) => {
+  const existingCategories = new Set(
+    kpis.map((kpi) => normalizeCategory(kpi?.category)).filter(Boolean)
+  );
+  return KPI_CATEGORIES.filter((category) => !existingCategories.has(category));
+};
+
 const getRemainingRegenerateCooldownMs = () => {
   if (!lastAiGenerationAt) {
     return 0;
@@ -188,8 +253,10 @@ const updateGenerateAiButtonState = () => {
   }
 
   generateAiKpiButton.textContent = hasGeneratedAiCandidates
-    ? "AI候補を再生成する"
-    : "AIでこのフェーズのKPIを作成";
+    || lastAiDecision === "no_additional_kpis_needed"
+    || lastAiDecision === "cleanup_only"
+    ? "AIでKPIセットを見直す"
+    : "AIでKPIを作成";
 };
 
 const renderPhase = (phase) => {
@@ -215,6 +282,10 @@ const createKpiMetaText = (kpi) => {
 
   if (Number.isFinite(Number(kpi.targetValue))) {
     chunks.push(`目標値: ${Math.round(Number(kpi.targetValue))}`);
+  }
+  const category = normalizeCategory(kpi.category);
+  if (category) {
+    chunks.push(`カテゴリ: ${category}`);
   }
 
   return chunks.join(" / ");
@@ -348,6 +419,7 @@ const saveKpiDocument = async (kpiPayload) => addDoc(collection(db, "kpis"), {
   name: kpiPayload.name,
   description: kpiPayload.description,
   type: asText(kpiPayload.type, "action"),
+  category: normalizeCategory(kpiPayload.category),
   targetValue: Number.isFinite(Number(kpiPayload.targetValue)) ? Math.max(1, Math.round(Number(kpiPayload.targetValue))) : 1,
   progress: 0,
   isCompleted: false,
@@ -364,6 +436,7 @@ const createKpi = async () => {
 
   const name = kpiNameInput.value.trim();
   const description = kpiDescriptionInput.value.trim();
+  const category = normalizeCategory(kpiCategoryInput.value);
 
   if (!name) {
     alert("KPI名を入力してください。");
@@ -374,6 +447,18 @@ const createKpi = async () => {
     alert("同じフェーズに重複するKPI名があるため保存できません。名称を変更してください。");
     return;
   }
+  if (hasSimilarKpiRoleInPhase({ name, description }, currentKpis)) {
+    alert("同じフェーズに役割が近いKPIがあるため保存できません。既存KPIの整理を検討してください。");
+    return;
+  }
+  if (!category) {
+    alert("KPIカテゴリを選択してください。");
+    return;
+  }
+  if (hasCategoryDuplicateInPhase(category, currentKpis)) {
+    alert("同じフェーズでは同じカテゴリのKPIを複数保存できません。");
+    return;
+  }
 
   createKpiButton.disabled = true;
 
@@ -381,11 +466,13 @@ const createKpi = async () => {
     await saveKpiDocument({
       name,
       description,
+      category,
       source: "manual"
     });
 
     kpiNameInput.value = "";
     kpiDescriptionInput.value = "";
+    kpiCategoryInput.value = "";
     await loadPhaseAndKpis();
   } catch (error) {
     console.error(error);
@@ -439,6 +526,15 @@ const buildAiDecisionStatusText = ({ decision, reason, duplicates, missingCatego
   return chunks.join(" / ");
 };
 
+const updateAiGuidanceBoxes = (decision, duplicates) => {
+  const isNoAdditional = decision === "no_additional_kpis_needed";
+  const hasDuplicateHints = Array.isArray(duplicates) && duplicates.length > 0;
+  const isCleanupOnly = decision === "cleanup_only" || hasDuplicateHints;
+
+  aiNoAdditionalBox.hidden = !isNoAdditional;
+  aiCleanupBox.hidden = !isCleanupOnly;
+};
+
 const generateAiKpis = async () => {
   if (!currentPhase || !currentKgi) {
     return;
@@ -473,7 +569,8 @@ const generateAiKpis = async () => {
     const existingKpisForPrompt = currentKpis.map((kpi) => ({
       name: asText(kpi.name, ""),
       description: asText(kpi.description, ""),
-      type: asText(kpi.type, "action")
+      type: asText(kpi.type, "action"),
+      category: normalizeCategory(kpi.category)
     })).filter((kpi) => kpi.name);
     const focusOrAvoid = asText(aiFocusInput?.value, "");
     const allPhasesForPrompt = currentRoadmapPhases.map((phase) => ({
@@ -498,7 +595,11 @@ const generateAiKpis = async () => {
         phaseDeadline: currentPhase.deadline,
         existingKpis: existingKpisForPrompt,
         allPhases: allPhasesForPrompt,
-        focusOrAvoid
+        focusOrAvoid,
+        categoryPolicy: {
+          allowedCategories: KPI_CATEGORIES,
+          missingCategories: collectMissingCategories(currentKpis)
+        }
       })
     });
 
@@ -508,6 +609,7 @@ const generateAiKpis = async () => {
     }
 
     const decision = asText(payload?.decision, "");
+    lastAiDecision = decision;
     const reason = asText(payload?.reason, "");
     const duplicates = Array.isArray(payload?.duplicates) ? payload.duplicates : [];
     const missingCategories = Array.isArray(payload?.missingCategories) ? payload.missingCategories : [];
@@ -521,16 +623,26 @@ const generateAiKpis = async () => {
         name: asText(item?.name, ""),
         description: asText(item?.description, ""),
         type: asText(item?.type, "action"),
+        category: normalizeCategory(item?.category),
         targetValue: Number.isFinite(Number(item?.targetValue)) ? Number(item.targetValue) : null,
         source: "ai_phase"
       }))
-      .filter((item) => item.name);
+      .filter((item) => item.name && item.category);
 
     const filteredCandidates = [];
     normalizedCandidates.forEach((candidate) => {
       const duplicatedWithExisting = isDuplicateKpiNameInPhase(candidate.name, currentKpis);
+      const duplicatedByRole = hasSimilarKpiRoleInPhase(candidate, currentKpis);
+      const duplicatedCategoryWithExisting = hasCategoryDuplicateInPhase(candidate.category, currentKpis);
       const duplicatedInCandidates = isDuplicateKpiNameInPhase(candidate.name, filteredCandidates);
-      if (!duplicatedWithExisting && !duplicatedInCandidates) {
+      const duplicatedCategoryInCandidates = hasCategoryDuplicateInPhase(candidate.category, filteredCandidates);
+      if (
+        !duplicatedWithExisting
+        && !duplicatedInCandidates
+        && !duplicatedByRole
+        && !duplicatedCategoryWithExisting
+        && !duplicatedCategoryInCandidates
+      ) {
         filteredCandidates.push(candidate);
       }
     });
@@ -540,6 +652,7 @@ const generateAiKpis = async () => {
     lastAiGenerationAt = Date.now();
 
     renderAiCandidates();
+    updateAiGuidanceBoxes(decision, duplicates);
 
     const decisionText = buildAiDecisionStatusText({
       decision,
@@ -561,6 +674,8 @@ const generateAiKpis = async () => {
     console.error(error);
     aiCandidates = [];
     renderAiCandidates();
+    updateAiGuidanceBoxes("", []);
+    lastAiDecision = "";
     aiGenerateStatus.classList.add("error");
     aiGenerateStatus.textContent = asText(error?.message, "AIでKPI候補の生成に失敗しました。");
   } finally {
@@ -580,6 +695,18 @@ const saveAiCandidate = async (index, saveButton) => {
   try {
     if (isDuplicateKpiNameInPhase(candidate.name, currentKpis)) {
       alert("同じフェーズに重複するKPIがあるため、この候補は保存できません。");
+      aiCandidates.splice(index, 1);
+      renderAiCandidates();
+      return;
+    }
+    if (hasSimilarKpiRoleInPhase(candidate, currentKpis)) {
+      alert("同じフェーズに役割が近いKPIがあるため、この候補は保存できません。");
+      aiCandidates.splice(index, 1);
+      renderAiCandidates();
+      return;
+    }
+    if (hasCategoryDuplicateInPhase(candidate.category, currentKpis)) {
+      alert("同じカテゴリのKPIがすでにあるため、この候補は保存できません。");
       aiCandidates.splice(index, 1);
       renderAiCandidates();
       return;
@@ -615,6 +742,7 @@ const init = async () => {
   try {
     db = await getDb();
     await loadPhaseAndKpis();
+    updateAiGuidanceBoxes("", []);
     updateGenerateAiButtonState();
   } catch (error) {
     console.error(error);
