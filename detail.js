@@ -15,6 +15,11 @@ const detailFieldsElement = document.getElementById("detailFields");
 const goalDescriptionElement = document.getElementById("goalDescription");
 const startDateElement = document.getElementById("startDate");
 const targetDateElement = document.getElementById("targetDate");
+const overviewSectionElement = document.getElementById("overviewSection");
+const overviewSummaryGridElement = document.getElementById("overviewSummaryGrid");
+const overviewNextElement = document.getElementById("overviewNext");
+const overviewNextTextElement = document.getElementById("overviewNextText");
+const overviewPhaseListElement = document.getElementById("overviewPhaseList");
 const roadmapSectionElement = document.getElementById("roadmapSection");
 const roadmapListElement = document.getElementById("roadmapList");
 const roadmapEmptyElement = document.getElementById("roadmapEmpty");
@@ -146,6 +151,181 @@ const createSummaryIntro = (text, maxLength = 46) => {
   }
 
   return `${normalized.slice(0, maxLength)}…`;
+};
+
+const buildPhaseProgressRows = ({ phases = [], kpiCountByPhaseId = new Map() }) => {
+  return phases.map((phase, index) => {
+    const kpiCount = Number(kpiCountByPhaseId.get(phase.id) ?? 0);
+    const status = resolvePhaseKpiStatus({ phase, kpiCount });
+
+    return {
+      phase,
+      index,
+      kpiCount,
+      status,
+      deadline: asDisplayText(phase.deadline, "期限未設定")
+    };
+  });
+};
+
+const createOverviewSummaryItems = (phaseRows = []) => {
+  const counters = {
+    total: phaseRows.length,
+    finalized: 0,
+    draft: 0,
+    no_kpi: 0,
+    cleanup_needed: 0
+  };
+
+  phaseRows.forEach((row) => {
+    const key = row?.status?.key;
+    if (Object.prototype.hasOwnProperty.call(counters, key)) {
+      counters[key] += 1;
+    }
+  });
+
+  return [
+    { label: "全フェーズ", value: `${counters.total}` },
+    { label: "KPI整理済み", value: `${counters.finalized}` },
+    { label: "KPI整理中", value: `${counters.draft}` },
+    { label: "KPI未出力", value: `${counters.no_kpi}` },
+    { label: "KPI整理が必要", value: `${counters.cleanup_needed}` }
+  ];
+};
+
+const pickNextFocusedPhase = (phaseRows = []) => {
+  if (phaseRows.length === 0) {
+    return null;
+  }
+
+  const getFirstByStatus = (statusKey) => phaseRows.find((row) => row?.status?.key === statusKey) ?? null;
+
+  const noKpi = getFirstByStatus("no_kpi");
+  if (noKpi) {
+    return {
+      text: `フェーズ${noKpi.phase.phaseNumber}のKPIが未出力です。まずKPIの作成から進めてください。`,
+      phaseRow: noKpi
+    };
+  }
+
+  const cleanupNeeded = getFirstByStatus("cleanup_needed");
+  if (cleanupNeeded) {
+    return {
+      text: `フェーズ${cleanupNeeded.phase.phaseNumber}のKPI整理が必要です。表現の統一と重複確認を進めましょう。`,
+      phaseRow: cleanupNeeded
+    };
+  }
+
+  const draft = getFirstByStatus("draft");
+  if (draft) {
+    return {
+      text: `フェーズ${draft.phase.phaseNumber}はKPI整理中です。次にこのフェーズのKPI整理を進めてください。`,
+      phaseRow: draft
+    };
+  }
+
+  const lastPhase = phaseRows[phaseRows.length - 1];
+  return {
+    text: "全フェーズのKPI整理が完了しています。次はタスク実行と検証に進めます。",
+    phaseRow: lastPhase
+  };
+};
+
+const renderOverviewPanel = ({ phases = [], kpiCountByPhaseId = new Map() }) => {
+  if (
+    !overviewSectionElement
+    || !overviewSummaryGridElement
+    || !overviewPhaseListElement
+    || !overviewNextElement
+    || !overviewNextTextElement
+  ) {
+    return;
+  }
+
+  overviewSummaryGridElement.innerHTML = "";
+  overviewPhaseListElement.innerHTML = "";
+
+  if (phases.length === 0) {
+    overviewSectionElement.hidden = true;
+    return;
+  }
+
+  const phaseRows = buildPhaseProgressRows({ phases, kpiCountByPhaseId });
+  const summaryItems = createOverviewSummaryItems(phaseRows);
+  const nextFocus = pickNextFocusedPhase(phaseRows);
+
+  const summaryFragment = document.createDocumentFragment();
+  summaryItems.forEach((item) => {
+    const card = document.createElement("div");
+    card.className = "overview-summary-card";
+
+    const label = document.createElement("p");
+    label.className = "overview-summary-label";
+    label.textContent = item.label;
+
+    const value = document.createElement("p");
+    value.className = "overview-summary-value";
+    value.textContent = item.value;
+
+    card.append(label, value);
+    summaryFragment.appendChild(card);
+  });
+  overviewSummaryGridElement.appendChild(summaryFragment);
+
+  if (nextFocus) {
+    overviewNextTextElement.textContent = nextFocus.text;
+    overviewNextElement.hidden = false;
+  } else {
+    overviewNextElement.hidden = true;
+  }
+
+  const phaseFragment = document.createDocumentFragment();
+  phaseRows.forEach((row) => {
+    const item = document.createElement("li");
+    item.className = "overview-phase-item";
+
+    const header = document.createElement("div");
+    header.className = "overview-phase-header";
+
+    const titleWrap = document.createElement("div");
+    titleWrap.className = "overview-phase-title-wrap";
+
+    const phaseNumber = document.createElement("p");
+    phaseNumber.className = "overview-phase-number";
+    phaseNumber.textContent = `フェーズ${row.phase.phaseNumber}`;
+
+    const phaseTitle = document.createElement("p");
+    phaseTitle.className = "overview-phase-title";
+    phaseTitle.textContent = asDisplayText(row.phase.title, `フェーズ${row.index + 1}`);
+
+    titleWrap.append(phaseNumber, phaseTitle);
+
+    const statusBadge = document.createElement("span");
+    statusBadge.className = `roadmap-status-badge ${PHASE_KPI_STATUS_CLASSES[row.status.key] ?? "is-draft"}`;
+    statusBadge.textContent = row.status.label;
+
+    header.append(titleWrap, statusBadge);
+
+    const meta = document.createElement("p");
+    meta.className = "overview-phase-meta";
+
+    const kpiLine = document.createElement("span");
+    kpiLine.textContent = `KPI ${row.kpiCount}件`;
+
+    const deadlineLine = document.createElement("span");
+    deadlineLine.className = `overview-phase-deadline ${row.deadline === "期限未設定" ? "is-muted" : ""}`;
+    deadlineLine.textContent = `期限: ${row.deadline}`;
+
+    const statusLine = document.createElement("span");
+    statusLine.textContent = row.status.label;
+
+    meta.append(kpiLine, deadlineLine, statusLine);
+
+    item.append(header, meta);
+    phaseFragment.appendChild(item);
+  });
+  overviewPhaseListElement.appendChild(phaseFragment);
+  overviewSectionElement.hidden = false;
 };
 
 const renderRoadmap = ({ kgiId, phases = [], kpiCountByPhaseId = new Map() }) => {
@@ -307,6 +487,7 @@ const renderDoc = ({ kgiId, data, kpiCountByPhaseId }) => {
     detailFieldsElement.hidden = false;
   }
 
+  renderOverviewPanel({ phases: roadmapPhases, kpiCountByPhaseId });
   renderRoadmap({ kgiId, phases: roadmapPhases, kpiCountByPhaseId });
   setStatus("");
 };
@@ -317,6 +498,9 @@ const showLoadError = (message) => {
   }
   if (roadmapSectionElement) {
     roadmapSectionElement.hidden = true;
+  }
+  if (overviewSectionElement) {
+    overviewSectionElement.hidden = true;
   }
   if (kpiSummarySectionElement) {
     kpiSummarySectionElement.hidden = true;
