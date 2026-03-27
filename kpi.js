@@ -74,6 +74,41 @@ const toDateText = (timestamp) => {
   return "-";
 };
 
+const createDecomposePrompt = (task) => {
+  const contextLines = [];
+  if (asText(currentKgi?.kgiName, "") !== "") {
+    contextLines.push(`- KGI: ${asText(currentKgi?.kgiName, "")}`);
+  }
+  if (asText(currentTargetPhase?.name, "") !== "") {
+    contextLines.push(`- フェーズ: ${asText(currentTargetPhase?.name, "")}`);
+  }
+  if (asText(currentKpi?.name, "") !== "") {
+    contextLines.push(`- KPI: ${asText(currentKpi?.name, "")}`);
+  }
+  contextLines.push(`- タスク名: ${asText(task?.title, "名称未設定タスク")}`);
+  contextLines.push(`- タスク説明: ${asText(task?.description, "（説明なし）")}`);
+
+  return `以下のタスクを、初心者でも実行できるレベルまでやさしく分解してください。
+
+条件:
+- 専門用語はなるべくやさしく言い換える
+- 5〜10個の具体的な手順に分ける
+- 一番最初にやることを最初に書く
+- 必要なら入力例や完成例も入れる
+- 1ステップごとに「何をするか」が分かるようにする
+- 抽象的な助言ではなく、実行手順として書く
+
+前提情報:
+${contextLines.join("\n")}
+
+出力形式:
+1. 最初にやること
+2. 手順一覧
+3. 完成した状態の例
+4. つまずきやすい点
+5. 次にやるとよいこと`;
+};
+
 const formatTaskStatus = (task) => {
   if (task.isCompleted) {
     return "完了";
@@ -157,6 +192,12 @@ const renderTasks = (tasks) => {
     const actions = document.createElement("div");
     actions.className = "task-actions";
 
+    const decomposeButton = document.createElement("button");
+    decomposeButton.type = "button";
+    decomposeButton.className = "secondary";
+    decomposeButton.textContent = "AIでやさしく分解";
+    actions.appendChild(decomposeButton);
+
     if (!task.isCompleted) {
       const completeButton = document.createElement("button");
       completeButton.type = "button";
@@ -168,7 +209,60 @@ const renderTasks = (tasks) => {
       actions.appendChild(completeButton);
     }
 
-    item.append(title, description, meta, actions);
+    const decomposePanel = document.createElement("div");
+    decomposePanel.className = "task-decompose-panel";
+    decomposePanel.hidden = true;
+
+    const promptLabel = document.createElement("p");
+    promptLabel.className = "task-decompose-label";
+    promptLabel.textContent = "AIに貼る用プロンプト";
+
+    const promptTextarea = document.createElement("textarea");
+    promptTextarea.className = "task-decompose-textarea";
+    promptTextarea.readOnly = true;
+
+    const decomposeActions = document.createElement("div");
+    decomposeActions.className = "task-decompose-actions";
+
+    const copyPromptButton = document.createElement("button");
+    copyPromptButton.type = "button";
+    copyPromptButton.className = "secondary";
+    copyPromptButton.textContent = "コピー";
+
+    const copyStatus = document.createElement("p");
+    copyStatus.className = "task-copy-status";
+    copyStatus.setAttribute("aria-live", "polite");
+
+    decomposeButton.addEventListener("click", () => {
+      const willOpen = decomposePanel.hidden;
+      if (willOpen) {
+        promptTextarea.value = createDecomposePrompt(task);
+      }
+      decomposePanel.hidden = !willOpen;
+      decomposeButton.textContent = willOpen ? "分解プロンプトを閉じる" : "AIでやさしく分解";
+      if (willOpen) {
+        copyStatus.textContent = "";
+      }
+    });
+
+    copyPromptButton.addEventListener("click", async () => {
+      const promptText = promptTextarea.value.trim();
+      if (!promptText) {
+        return;
+      }
+      try {
+        await navigator.clipboard.writeText(promptText);
+        copyStatus.textContent = "プロンプトをコピーしました";
+      } catch (error) {
+        console.error(error);
+        copyStatus.textContent = "コピーに失敗しました。手動でコピーしてください。";
+      }
+    });
+
+    decomposeActions.append(copyPromptButton, copyStatus);
+    decomposePanel.append(promptLabel, promptTextarea, decomposeActions);
+
+    item.append(title, description, meta, actions, decomposePanel);
     fragment.appendChild(item);
   });
 
