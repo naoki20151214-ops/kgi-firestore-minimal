@@ -140,9 +140,97 @@
         line-height: 1.75;
         color: #4b5563;
       }
+      .overview-panel { display: grid; gap: 12px; }
+      .overview-summary-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+      }
+      .overview-summary-card {
+        border: 1px solid #e5e7eb;
+        border-radius: 10px;
+        background: #f9fafb;
+        padding: 10px 12px;
+      }
+      .overview-summary-label {
+        margin: 0;
+        font-size: 0.78rem;
+        color: #6b7280;
+        line-height: 1.4;
+      }
+      .overview-summary-value {
+        margin: 4px 0 0;
+        font-size: 1.05rem;
+        font-weight: 700;
+        color: #111827;
+      }
+      .overview-next {
+        border: 1px solid #bfdbfe;
+        background: #eff6ff;
+        color: #1e3a8a;
+        border-radius: 10px;
+        padding: 10px 12px;
+      }
+      .overview-next-title {
+        margin: 0;
+        font-size: 0.82rem;
+        font-weight: 700;
+      }
+      .overview-next-body {
+        margin: 6px 0 0;
+        font-size: 0.93rem;
+        line-height: 1.6;
+      }
+      .overview-phase-list {
+        margin: 0;
+        padding: 0;
+        list-style: none;
+        display: grid;
+        gap: 10px;
+      }
+      .overview-phase-item {
+        border: 1px solid #e5e7eb;
+        border-radius: 10px;
+        background: #ffffff;
+        padding: 10px 12px;
+        display: grid;
+        gap: 8px;
+      }
+      .overview-phase-header {
+        display: flex;
+        justify-content: space-between;
+        gap: 8px;
+        align-items: center;
+      }
+      .overview-phase-title-wrap {
+        min-width: 0;
+      }
+      .overview-phase-number {
+        margin: 0;
+        font-size: 0.78rem;
+        color: #6b7280;
+      }
+      .overview-phase-title {
+        margin: 2px 0 0;
+        font-size: 0.96rem;
+        font-weight: 700;
+        color: #111827;
+        line-height: 1.45;
+      }
+      .overview-phase-meta {
+        margin: 0;
+        display: grid;
+        gap: 4px;
+        font-size: 0.86rem;
+        color: #4b5563;
+      }
+      .overview-phase-deadline.is-muted { color: #9ca3af; }
       @media (max-width: 640px) {
         body { padding: 14px; }
         .card { padding: 14px; }
+        .overview-summary-grid {
+          grid-template-columns: minmax(0, 1fr);
+        }
       }
     </style>
   </head>
@@ -165,6 +253,18 @@
             <dd id="targetDate">-</dd>
           </div>
         </dl>
+      </section>
+
+      <section class="card" id="overviewSection" hidden>
+        <h2>進捗の全体図</h2>
+        <div class="overview-panel">
+          <div id="overviewSummaryGrid" class="overview-summary-grid"></div>
+          <div id="overviewNext" class="overview-next" hidden>
+            <p class="overview-next-title">今すすめる候補</p>
+            <p id="overviewNextText" class="overview-next-body">-</p>
+          </div>
+          <ul id="overviewPhaseList" class="overview-phase-list"></ul>
+        </div>
       </section>
 
       <section class="card" id="roadmapSection" hidden>
