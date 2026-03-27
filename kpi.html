@@ -49,11 +49,50 @@
       .task-item p { margin: 6px 0 0; color: #4b5563; font-size: 0.92rem; }
       .task-item .task-meta { margin-top: 8px; font-size: 0.82rem; color: #6b7280; }
       .task-item .task-actions { margin-top: 10px; display: flex; gap: 8px; }
+      .task-decompose-panel {
+        margin-top: 10px;
+        padding: 10px;
+        border: 1px solid #dbeafe;
+        border-radius: 8px;
+        background: #eff6ff;
+      }
+      .task-decompose-label {
+        margin: 0;
+        font-size: 0.82rem;
+        color: #1e40af;
+        font-weight: 700;
+      }
+      .task-decompose-textarea {
+        width: 100%;
+        margin-top: 8px;
+        min-height: 180px;
+        line-height: 1.55;
+        font-size: 0.92rem;
+        background: #fff;
+      }
+      .task-decompose-actions {
+        margin-top: 8px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+      .task-copy-status {
+        margin: 0;
+        font-size: 0.85rem;
+        color: #1d4ed8;
+      }
       .candidate-note {
         margin-top: 8px;
         font-size: 0.8rem;
         color: #1d4ed8;
         font-weight: 700;
+      }
+      @media (max-width: 640px) {
+        .task-item .task-actions {
+          flex-direction: column;
+          align-items: stretch;
+        }
       }
       .badge-row { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
       .badge {
