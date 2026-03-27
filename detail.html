@@ -225,11 +225,57 @@
         color: #4b5563;
       }
       .overview-phase-deadline.is-muted { color: #9ca3af; }
+
+      .now-action-card {
+        border: 1px solid #c7d2fe;
+        border-radius: 12px;
+        background: #eef2ff;
+        padding: 12px;
+        display: grid;
+        gap: 10px;
+      }
+      .now-action-title {
+        margin: 0;
+        font-size: 0.95rem;
+        font-weight: 700;
+        color: #1e3a8a;
+      }
+      .now-action-meta {
+        margin: 0;
+        font-size: 0.82rem;
+        color: #475569;
+      }
+      .now-action-body {
+        margin: 0;
+        font-size: 0.94rem;
+        line-height: 1.65;
+        color: #1e293b;
+      }
+      .now-action-button {
+        justify-self: start;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 44px;
+        padding: 10px 14px;
+        border-radius: 10px;
+        text-decoration: none;
+        font-weight: 700;
+        font-size: 0.92rem;
+        color: #ffffff;
+        background: #2563eb;
+      }
+      .now-action-button:hover {
+        background: #1d4ed8;
+      }
       @media (max-width: 640px) {
         body { padding: 14px; }
         .card { padding: 14px; }
         .overview-summary-grid {
           grid-template-columns: minmax(0, 1fr);
+        }
+        .now-action-button {
+          width: 100%;
         }
       }
     </style>
@@ -262,6 +308,12 @@
           <div id="overviewNext" class="overview-next" hidden>
             <p class="overview-next-title">今すすめる候補</p>
             <p id="overviewNextText" class="overview-next-body">-</p>
+          </div>
+          <div id="nowActionCard" class="now-action-card" hidden>
+            <p class="now-action-title">今やること</p>
+            <p id="nowActionMeta" class="now-action-meta">-</p>
+            <p id="nowActionText" class="now-action-body">-</p>
+            <a id="nowActionLink" class="now-action-button" href="#" hidden>今やることへ進む</a>
           </div>
           <ul id="overviewPhaseList" class="overview-phase-list"></ul>
         </div>

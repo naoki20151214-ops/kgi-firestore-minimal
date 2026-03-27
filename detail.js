@@ -19,6 +19,10 @@ const overviewSectionElement = document.getElementById("overviewSection");
 const overviewSummaryGridElement = document.getElementById("overviewSummaryGrid");
 const overviewNextElement = document.getElementById("overviewNext");
 const overviewNextTextElement = document.getElementById("overviewNextText");
+const nowActionCardElement = document.getElementById("nowActionCard");
+const nowActionMetaElement = document.getElementById("nowActionMeta");
+const nowActionTextElement = document.getElementById("nowActionText");
+const nowActionLinkElement = document.getElementById("nowActionLink");
 const overviewPhaseListElement = document.getElementById("overviewPhaseList");
 const roadmapSectionElement = document.getElementById("roadmapSection");
 const roadmapListElement = document.getElementById("roadmapList");
@@ -168,6 +172,20 @@ const buildPhaseProgressRows = ({ phases = [], kpiCountByPhaseId = new Map() }) 
   });
 };
 
+const toTimestampMs = (value) => {
+  if (value && typeof value.toDate === "function") {
+    const date = value.toDate();
+    return date instanceof Date && !Number.isNaN(date.getTime()) ? date.getTime() : Number.POSITIVE_INFINITY;
+  }
+  if (value instanceof Date) {
+    return !Number.isNaN(value.getTime()) ? value.getTime() : Number.POSITIVE_INFINITY;
+  }
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : Number.POSITIVE_INFINITY;
+  }
+  return Number.POSITIVE_INFINITY;
+};
+
 const createOverviewSummaryItems = (phaseRows = []) => {
   const counters = {
     total: phaseRows.length,
@@ -231,7 +249,159 @@ const pickNextFocusedPhase = (phaseRows = []) => {
   };
 };
 
-const renderOverviewPanel = ({ phases = [], kpiCountByPhaseId = new Map() }) => {
+const pickNowAction = ({
+  kgiId,
+  phaseRows = [],
+  phases = [],
+  kpis = [],
+  tasksByKpiId = new Map()
+}) => {
+  if (!kgiId || phaseRows.length === 0) {
+    return null;
+  }
+
+  const getFirstPhaseByStatus = (statusKey) => phaseRows.find((row) => row?.status?.key === statusKey) ?? null;
+
+  const firstNoKpiPhase = getFirstPhaseByStatus("no_kpi");
+  if (firstNoKpiPhase) {
+    return {
+      title: "今やること",
+      meta: `対象フェーズ: ${asDisplayText(firstNoKpiPhase.phase.title, `フェーズ${firstNoKpiPhase.phase.phaseNumber}`)}`,
+      text: `フェーズ${firstNoKpiPhase.phase.phaseNumber}でKPIを出力してください。`,
+      linkText: "このフェーズを開く",
+      href: `./phase.html?id=${encodeURIComponent(kgiId)}&phaseId=${encodeURIComponent(firstNoKpiPhase.phase.id)}`
+    };
+  }
+
+  const firstCleanupPhase = getFirstPhaseByStatus("cleanup_needed");
+  if (firstCleanupPhase) {
+    return {
+      title: "今やること",
+      meta: `対象フェーズ: ${asDisplayText(firstCleanupPhase.phase.title, `フェーズ${firstCleanupPhase.phase.phaseNumber}`)}`,
+      text: `フェーズ${firstCleanupPhase.phase.phaseNumber}のKPI整理を進めてください。`,
+      linkText: "このフェーズを開く",
+      href: `./phase.html?id=${encodeURIComponent(kgiId)}&phaseId=${encodeURIComponent(firstCleanupPhase.phase.id)}`
+    };
+  }
+
+  const firstDraftPhase = getFirstPhaseByStatus("draft");
+  if (firstDraftPhase) {
+    return {
+      title: "今やること",
+      meta: `対象フェーズ: ${asDisplayText(firstDraftPhase.phase.title, `フェーズ${firstDraftPhase.phase.phaseNumber}`)}`,
+      text: `フェーズ${firstDraftPhase.phase.phaseNumber}のKPI整理を仕上げてください。`,
+      linkText: "このフェーズを開く",
+      href: `./phase.html?id=${encodeURIComponent(kgiId)}&phaseId=${encodeURIComponent(firstDraftPhase.phase.id)}`
+    };
+  }
+
+  const phaseOrderById = new Map(phases.map((phase, index) => [phase.id, index]));
+  const sortedKpis = [...kpis]
+    .sort((a, b) => {
+      const phaseA = Number(phaseOrderById.get(a.phaseId) ?? Number.POSITIVE_INFINITY);
+      const phaseB = Number(phaseOrderById.get(b.phaseId) ?? Number.POSITIVE_INFINITY);
+      if (phaseA !== phaseB) {
+        return phaseA - phaseB;
+      }
+
+      const createdDiff = toTimestampMs(a.createdAt) - toTimestampMs(b.createdAt);
+      if (createdDiff !== 0) {
+        return createdDiff;
+      }
+
+      return asDisplayText(a.name, "").localeCompare(asDisplayText(b.name, ""), "ja");
+    });
+
+  const toKpiHref = (kpi) => `./kpi.html?id=${encodeURIComponent(kgiId)}&phaseId=${encodeURIComponent(asDisplayText(kpi.phaseId, ""))}&kpiId=${encodeURIComponent(kpi.id)}`;
+
+  const firstTasklessKpi = sortedKpis.find((kpi) => (tasksByKpiId.get(kpi.id) ?? []).length === 0);
+  if (firstTasklessKpi) {
+    return {
+      title: "今やること",
+      meta: `対象KPI: ${asDisplayText(firstTasklessKpi.name, "名称未設定KPI")}`,
+      text: `次は実行フェーズです。KPI「${asDisplayText(firstTasklessKpi.name, "名称未設定KPI")}」の最初のタスクを作ってください。`,
+      linkText: "このKPIを開く",
+      href: toKpiHref(firstTasklessKpi)
+    };
+  }
+
+  const hasInProgressTask = (task) => {
+    if (!task || task.isCompleted === true) {
+      return false;
+    }
+    return asDisplayText(task.status, "active") === "active";
+  };
+
+  const hasIncompleteTask = (task) => {
+    if (!task) {
+      return false;
+    }
+    if (task.isCompleted === true) {
+      return false;
+    }
+    return asDisplayText(task.status, "active") !== "completed";
+  };
+
+  const firstInProgressKpi = sortedKpis.find((kpi) => (tasksByKpiId.get(kpi.id) ?? []).some(hasInProgressTask));
+  if (firstInProgressKpi) {
+    return {
+      title: "今やること",
+      meta: `対象KPI: ${asDisplayText(firstInProgressKpi.name, "名称未設定KPI")}`,
+      text: `次は実行フェーズです。KPI「${asDisplayText(firstInProgressKpi.name, "名称未設定KPI")}」の進行中タスクを進めてください。`,
+      linkText: "このKPIを開く",
+      href: toKpiHref(firstInProgressKpi)
+    };
+  }
+
+  const firstIncompleteKpi = sortedKpis.find((kpi) => (tasksByKpiId.get(kpi.id) ?? []).some(hasIncompleteTask));
+  if (firstIncompleteKpi) {
+    return {
+      title: "今やること",
+      meta: `対象KPI: ${asDisplayText(firstIncompleteKpi.name, "名称未設定KPI")}`,
+      text: `次は実行フェーズです。KPI「${asDisplayText(firstIncompleteKpi.name, "名称未設定KPI")}」の未完了タスクを進めてください。`,
+      linkText: "このKPIを開く",
+      href: toKpiHref(firstIncompleteKpi)
+    };
+  }
+
+  return {
+    title: "次に進めること",
+    meta: "対象: このKGI全体",
+    text: "このKGIは一通り実行済みです。次は検証と見直しに進んでください。",
+    linkText: "",
+    href: ""
+  };
+};
+
+const renderNowActionCard = (action) => {
+  if (!nowActionCardElement || !nowActionMetaElement || !nowActionTextElement || !nowActionLinkElement || !action) {
+    if (nowActionCardElement) {
+      nowActionCardElement.hidden = true;
+    }
+    return;
+  }
+
+  nowActionCardElement.hidden = false;
+  nowActionMetaElement.textContent = asDisplayText(action.meta, "対象: -");
+  nowActionTextElement.textContent = asDisplayText(action.text, "次にやることを確認してください。");
+  nowActionLinkElement.textContent = asDisplayText(action.linkText, "今やることへ進む");
+
+  if (asDisplayText(action.href, "") !== "") {
+    nowActionLinkElement.href = action.href;
+    nowActionLinkElement.hidden = false;
+  } else {
+    nowActionLinkElement.hidden = true;
+    nowActionLinkElement.removeAttribute("href");
+  }
+};
+
+const renderOverviewPanel = ({
+  kgiId,
+  phases = [],
+  kpis = [],
+  tasksByKpiId = new Map(),
+  kpiCountByPhaseId = new Map()
+}) => {
   if (
     !overviewSectionElement
     || !overviewSummaryGridElement
@@ -253,6 +423,7 @@ const renderOverviewPanel = ({ phases = [], kpiCountByPhaseId = new Map() }) => 
   const phaseRows = buildPhaseProgressRows({ phases, kpiCountByPhaseId });
   const summaryItems = createOverviewSummaryItems(phaseRows);
   const nextFocus = pickNextFocusedPhase(phaseRows);
+  const nowAction = pickNowAction({ kgiId, phaseRows, phases, kpis, tasksByKpiId });
 
   const summaryFragment = document.createDocumentFragment();
   summaryItems.forEach((item) => {
@@ -278,6 +449,7 @@ const renderOverviewPanel = ({ phases = [], kpiCountByPhaseId = new Map() }) => 
   } else {
     overviewNextElement.hidden = true;
   }
+  renderNowActionCard(nowAction);
 
   const phaseFragment = document.createDocumentFragment();
   phaseRows.forEach((row) => {
@@ -316,10 +488,7 @@ const renderOverviewPanel = ({ phases = [], kpiCountByPhaseId = new Map() }) => 
     deadlineLine.className = `overview-phase-deadline ${row.deadline === "期限未設定" ? "is-muted" : ""}`;
     deadlineLine.textContent = `期限: ${row.deadline}`;
 
-    const statusLine = document.createElement("span");
-    statusLine.textContent = row.status.label;
-
-    meta.append(kpiLine, deadlineLine, statusLine);
+    meta.append(kpiLine, deadlineLine);
 
     item.append(header, meta);
     phaseFragment.appendChild(item);
@@ -422,12 +591,19 @@ const loadKpiSummary = async (db, kgiId) => {
   try {
     const kpiSnapshot = await getDocs(query(collection(db, "kpis"), where("kgiId", "==", kgiId)));
     const kpiCountByPhaseId = new Map();
+    const kpis = [];
     let total = 0;
     let completed = 0;
 
     kpiSnapshot.forEach((kpiDoc) => {
       total += 1;
       const data = kpiDoc.data();
+      kpis.push({
+        id: kpiDoc.id,
+        phaseId: asDisplayText(data?.phaseId, ""),
+        name: asDisplayText(data?.name, "名称未設定KPI"),
+        createdAt: data?.createdAt
+      });
 
       if (data?.isCompleted === true) {
         completed += 1;
@@ -444,18 +620,43 @@ const loadKpiSummary = async (db, kgiId) => {
       total,
       completed
     });
-    return kpiCountByPhaseId;
+    const tasksByKpiId = new Map();
+    const taskSnapshot = await getDocs(query(collection(db, "tasks"), where("kgiId", "==", kgiId)));
+    taskSnapshot.forEach((taskDoc) => {
+      const task = taskDoc.data();
+      const kpiId = asDisplayText(task?.kpiId, "");
+      if (!kpiId) {
+        return;
+      }
+      const items = tasksByKpiId.get(kpiId) ?? [];
+      items.push({
+        id: taskDoc.id,
+        status: asDisplayText(task?.status, "active"),
+        isCompleted: task?.isCompleted === true
+      });
+      tasksByKpiId.set(kpiId, items);
+    });
+
+    return {
+      kpiCountByPhaseId,
+      kpis,
+      tasksByKpiId
+    };
   } catch (error) {
     console.warn("Failed to load KPI summary. Continue without summary.", {
       kgiId,
       error
     });
     kpiSummarySectionElement.hidden = true;
-    return new Map();
+    return {
+      kpiCountByPhaseId: new Map(),
+      kpis: [],
+      tasksByKpiId: new Map()
+    };
   }
 };
 
-const renderDoc = ({ kgiId, data, kpiCountByPhaseId }) => {
+const renderDoc = ({ kgiId, data, kpiContext }) => {
   const titleCandidates = ["title", "name", "kgiName"];
   const goalCandidates = ["goalDescription", "goal", "description", "goalText"];
   const startDateCandidates = ["startDate", "createdDate", "createdAt"];
@@ -487,7 +688,11 @@ const renderDoc = ({ kgiId, data, kpiCountByPhaseId }) => {
     detailFieldsElement.hidden = false;
   }
 
-  renderOverviewPanel({ phases: roadmapPhases, kpiCountByPhaseId });
+  const kpiCountByPhaseId = kpiContext?.kpiCountByPhaseId ?? new Map();
+  const kpis = Array.isArray(kpiContext?.kpis) ? kpiContext.kpis : [];
+  const tasksByKpiId = kpiContext?.tasksByKpiId instanceof Map ? kpiContext.tasksByKpiId : new Map();
+
+  renderOverviewPanel({ kgiId, phases: roadmapPhases, kpiCountByPhaseId, kpis, tasksByKpiId });
   renderRoadmap({ kgiId, phases: roadmapPhases, kpiCountByPhaseId });
   setStatus("");
 };
@@ -501,6 +706,9 @@ const showLoadError = (message) => {
   }
   if (overviewSectionElement) {
     overviewSectionElement.hidden = true;
+  }
+  if (nowActionCardElement) {
+    nowActionCardElement.hidden = true;
   }
   if (kpiSummarySectionElement) {
     kpiSummarySectionElement.hidden = true;
@@ -527,8 +735,8 @@ const init = async () => {
       return;
     }
 
-    const kpiCountByPhaseId = await loadKpiSummary(db, kgiId);
-    renderDoc({ kgiId, data: kgiSnapshot.data(), kpiCountByPhaseId });
+    const kpiContext = await loadKpiSummary(db, kgiId);
+    renderDoc({ kgiId, data: kgiSnapshot.data(), kpiContext });
   } catch (error) {
     console.error("Failed to load detail document", {
       kgiId,
