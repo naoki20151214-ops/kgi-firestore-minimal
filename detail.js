@@ -23,7 +23,6 @@ const nowActionCardElement = document.getElementById("nowActionCard");
 const nowActionMetaElement = document.getElementById("nowActionMeta");
 const nowActionTextElement = document.getElementById("nowActionText");
 const nowActionLinkElement = document.getElementById("nowActionLink");
-const overviewPhaseListElement = document.getElementById("overviewPhaseList");
 const roadmapSectionElement = document.getElementById("roadmapSection");
 const roadmapListElement = document.getElementById("roadmapList");
 const roadmapEmptyElement = document.getElementById("roadmapEmpty");
@@ -433,7 +432,6 @@ const renderOverviewPanel = ({
   if (
     !overviewSectionElement
     || !overviewSummaryGridElement
-    || !overviewPhaseListElement
     || !overviewNextElement
     || !overviewNextTextElement
   ) {
@@ -441,7 +439,6 @@ const renderOverviewPanel = ({
   }
 
   overviewSummaryGridElement.innerHTML = "";
-  overviewPhaseListElement.innerHTML = "";
 
   if (phases.length === 0) {
     overviewSectionElement.hidden = true;
@@ -478,50 +475,6 @@ const renderOverviewPanel = ({
     overviewNextElement.hidden = true;
   }
   renderNowActionCard(nowAction);
-
-  const phaseFragment = document.createDocumentFragment();
-  phaseRows.forEach((row) => {
-    const item = document.createElement("li");
-    item.className = "overview-phase-item";
-
-    const header = document.createElement("div");
-    header.className = "overview-phase-header";
-
-    const titleWrap = document.createElement("div");
-    titleWrap.className = "overview-phase-title-wrap";
-
-    const phaseNumber = document.createElement("p");
-    phaseNumber.className = "overview-phase-number";
-    phaseNumber.textContent = `フェーズ${row.phase.phaseNumber}`;
-
-    const phaseTitle = document.createElement("p");
-    phaseTitle.className = "overview-phase-title";
-    phaseTitle.textContent = asDisplayText(row.phase.title, `フェーズ${row.index + 1}`);
-
-    titleWrap.append(phaseNumber, phaseTitle);
-
-    const statusBadge = document.createElement("span");
-    statusBadge.className = `roadmap-status-badge ${PHASE_KPI_STATUS_CLASSES[row.status.key] ?? "is-draft"}`;
-    statusBadge.textContent = row.status.label;
-
-    header.append(titleWrap, statusBadge);
-
-    const meta = document.createElement("p");
-    meta.className = "overview-phase-meta";
-
-    const kpiLine = document.createElement("span");
-    kpiLine.textContent = `KPI ${row.kpiCount}件`;
-
-    const deadlineLine = document.createElement("span");
-    deadlineLine.className = `overview-phase-deadline ${row.deadline === "期限未設定" ? "is-muted" : ""}`;
-    deadlineLine.textContent = `期限: ${row.deadline}`;
-
-    meta.append(kpiLine, deadlineLine);
-
-    item.append(header, meta);
-    phaseFragment.appendChild(item);
-  });
-  overviewPhaseListElement.appendChild(phaseFragment);
   overviewSectionElement.hidden = false;
 };
 
