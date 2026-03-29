@@ -94,6 +94,34 @@ const pickFirstDisplayValue = (data, keys, fallback = "-") => {
   return fallback;
 };
 
+const toJapaneseDateLabel = (yearText, monthText, dayText) => {
+  const year = Number.parseInt(yearText, 10);
+  const month = Number.parseInt(monthText, 10);
+  const day = Number.parseInt(dayText, 10);
+
+  if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) {
+    return `${yearText}-${monthText}-${dayText}`;
+  }
+
+  return `${year}年${month}月${day}日`;
+};
+
+const normalizeGoalDescription = (text) => {
+  const raw = asDisplayText(text, "");
+  if (!raw) {
+    return "-";
+  }
+
+  return raw
+    .replace(/\r\n?/g, "\n")
+    .replace(/(\d{4})\s*[./・\-年]\s*(\d{1,2})\s*[./・\-月]\s*(\d{1,2})\s*日?\s*までに/g, (match, year, month, day) =>
+      `${toJapaneseDateLabel(year, month, day)}までに`
+    )
+    .replace(/\s*([①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳])\s*/g, "\n$1 ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+};
+
 const normalizeRoadmapPhases = (phases) => {
   if (!Array.isArray(phases)) {
     return [];
@@ -663,7 +691,7 @@ const renderDoc = ({ kgiId, data, kpiContext }) => {
   const targetDateCandidates = ["targetDate", "deadline", "dueDate", "targetDeadline"];
 
   const name = pickFirstDisplayValue(data, titleCandidates, "KGI詳細");
-  const description = pickFirstDisplayValue(data, goalCandidates);
+  const description = normalizeGoalDescription(pickFirstDisplayValue(data, goalCandidates));
   const startDate = pickFirstDisplayValue(data, startDateCandidates);
   const targetDate = pickFirstDisplayValue(data, targetDateCandidates);
   const roadmapPhases = normalizeRoadmapPhases(data?.roadmapPhases);
@@ -674,7 +702,9 @@ const renderDoc = ({ kgiId, data, kpiContext }) => {
   if (goalDescriptionElement) {
     goalDescriptionElement.textContent = description;
     enhanceReadableText(goalDescriptionElement, {
-      lines: Number(goalDescriptionElement.dataset.lines) || 3
+      lines: Number(goalDescriptionElement.dataset.lines) || 3,
+      formatAsBulletSections: true,
+      fallbackCharacterThreshold: 140
     });
   }
   if (startDateElement) {
