@@ -120,7 +120,9 @@ const applyParagraphBreaks = (text) => {
     .replace(/。\s*/g, "。\n")
     .replace(/\s*(?=\d+\))/g, " ")
     .replace(/(^|[^\n])\s*(\d+\))/g, (match, prefix, marker) => `${prefix}\n${marker}`)
-    .replace(/(^|[^\n])\s*[-・●◦]\s*/g, (match, prefix) => `${prefix}\n・ `)
+    .replace(/(^|[^\n])\s*[-●◦]\s*/g, (match, prefix) => `${prefix}\n・ `)
+    .replace(/(^|[\s\n])・\s+/g, (match, prefix) => `${prefix}\n・ `)
+    .replace(/\s*([①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳])/g, "\n$1 ")
     .replace(/\s*(?=(条件|成功条件|前提|達成条件|評価条件|判断基準)\s*[：:])/g, "\n")
     .replace(/\s*(?=(かつ|または|もしくは|および)\s*[^\n]{8,})/g, "\n")
     .replace(/\n{3,}/g, "\n\n");
@@ -138,7 +140,34 @@ const SECTION_TITLES = [
   "チェック項目"
 ];
 
-const toBulletItem = (line) => line.replace(/^[-・●◦*]\s*/, "").replace(/^\d+[.)]\s*/, "").trim();
+const CIRCLED_NUMBER_MAP = {
+  "①": 1,
+  "②": 2,
+  "③": 3,
+  "④": 4,
+  "⑤": 5,
+  "⑥": 6,
+  "⑦": 7,
+  "⑧": 8,
+  "⑨": 9,
+  "⑩": 10,
+  "⑪": 11,
+  "⑫": 12,
+  "⑬": 13,
+  "⑭": 14,
+  "⑮": 15,
+  "⑯": 16,
+  "⑰": 17,
+  "⑱": 18,
+  "⑲": 19,
+  "⑳": 20
+};
+
+const toBulletItem = (line) => line
+  .replace(/^[-・●◦*]\s*/, "")
+  .replace(/^\d+[.)]\s*/, "")
+  .replace(/^([①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳])\s*/, "")
+  .trim();
 const SENTENCE_BOUNDARY_PATTERN = /(?<=[。！？!?])\s*/g;
 
 const parseStructuredLines = (text) => {
@@ -165,21 +194,49 @@ const buildStructuredContent = (element, text) => {
   element.textContent = "";
   const fragment = document.createDocumentFragment();
   let activeSection = null;
+  let activeList = null;
+  let activeListType = null;
+  const skipDefaultSectionTitle = element.dataset.skipDefaultSectionTitle === "true";
 
-  const appendSection = (titleText) => {
+  const appendSection = (titleText, listType = "ul") => {
     const section = document.createElement("section");
     section.className = "readable-section";
 
-    const title = document.createElement("p");
-    title.className = "readable-section-title";
-    title.textContent = titleText;
+    const hasTitle = Boolean(titleText);
+    if (hasTitle) {
+      const title = document.createElement("p");
+      title.className = "readable-section-title";
+      title.textContent = titleText;
+      section.appendChild(title);
+    } else {
+      section.classList.add("readable-section--untitled");
+    }
 
-    const list = document.createElement("ul");
+    const list = document.createElement(listType);
     list.className = "readable-section-list";
+    if (listType === "ol") {
+      list.classList.add("readable-section-list--ordered");
+    }
 
-    section.append(title, list);
+    section.appendChild(list);
     fragment.appendChild(section);
     activeSection = list;
+    activeList = list;
+    activeListType = listType;
+  };
+
+  const detectListType = (line) => {
+    if (/^\d+[.)]\s+/.test(line)) {
+      return "ol";
+    }
+    const circled = line.match(/^([①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳])\s+/);
+    if (circled) {
+      return "ol";
+    }
+    if (/^[-・●◦*]\s+/.test(line)) {
+      return "ul";
+    }
+    return null;
   };
 
   lines.forEach((line) => {
@@ -189,7 +246,7 @@ const buildStructuredContent = (element, text) => {
       const body = headingMatch[2].trim();
 
       if (SECTION_TITLES.includes(maybeTitle)) {
-        appendSection(maybeTitle);
+        appendSection(maybeTitle, "ul");
         if (body) {
           const item = document.createElement("li");
           item.textContent = toBulletItem(body);
@@ -199,14 +256,25 @@ const buildStructuredContent = (element, text) => {
       }
     }
 
-    const isBulletLine = /^[-・●◦*]\s+/.test(line) || /^\d+[.)]\s+/.test(line);
+    const listType = detectListType(line);
+    const isBulletLine = Boolean(listType);
 
     if (isBulletLine) {
-      if (!activeSection) {
-        appendSection("やること");
+      if (!activeSection || activeListType !== listType) {
+        const defaultTitle = skipDefaultSectionTitle ? "" : "やること";
+        appendSection(defaultTitle, listType);
       }
       const item = document.createElement("li");
       item.textContent = toBulletItem(line);
+      if (listType === "ol") {
+        const circled = line.match(/^([①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳])\s+/);
+        if (circled) {
+          const start = CIRCLED_NUMBER_MAP[circled[1]];
+          if (Number.isFinite(start) && activeList instanceof HTMLOListElement && activeList.children.length === 0) {
+            activeList.start = start;
+          }
+        }
+      }
       activeSection?.appendChild(item);
       return;
     }
@@ -215,6 +283,8 @@ const buildStructuredContent = (element, text) => {
     paragraph.textContent = line;
     fragment.appendChild(paragraph);
     activeSection = null;
+    activeList = null;
+    activeListType = null;
   });
 
   element.appendChild(fragment);
