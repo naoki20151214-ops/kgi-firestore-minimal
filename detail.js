@@ -17,8 +17,8 @@ const startDateElement = document.getElementById("startDate");
 const targetDateElement = document.getElementById("targetDate");
 const overviewSectionElement = document.getElementById("overviewSection");
 const overviewSummaryGridElement = document.getElementById("overviewSummaryGrid");
-const overviewNextElement = document.getElementById("overviewNext");
-const overviewNextTextElement = document.getElementById("overviewNextText");
+const overviewDesignReasonElement = document.getElementById("overviewDesignReason");
+const overviewDesignReasonListElement = document.getElementById("overviewDesignReasonList");
 const nowActionCardElement = document.getElementById("nowActionCard");
 const nowActionMetaElement = document.getElementById("nowActionMeta");
 const nowActionTextElement = document.getElementById("nowActionText");
@@ -238,42 +238,54 @@ const createOverviewSummaryItems = (phaseRows = []) => {
   ];
 };
 
-const pickNextFocusedPhase = (phaseRows = []) => {
-  if (phaseRows.length === 0) {
-    return null;
+const createDesignReasonItems = (phaseRows = []) => {
+  const hasEarlyPhaseInProgress = phaseRows.some((row) => row?.status?.key !== "finalized");
+  const orderReason = hasEarlyPhaseInProgress
+    ? "「考える → 作る → 公開する → 結果を見る」の順にすると、いま何を優先するかが見えやすく、迷いを減らせるからです。"
+    : "「考える → 作る → 公開する → 結果を見る」の順にすると、各ステップの意味がつながり、振り返りもしやすくなるからです。";
+
+  return [
+    {
+      title: "なぜこのフェーズ順なのか",
+      body: orderReason
+    },
+    {
+      title: "なぜこのフェーズにこのKPIを置くのか",
+      body: "フェーズごとに見る数字を分けることで、設計では仮説の整理、公開では登録や継続利用のように、その時点で本当に必要な確認に集中できるからです。"
+    },
+    {
+      title: "なぜKPI整理を先にやるのか",
+      body: "KPIが曖昧なままタスクを増やすと、あとでやり直しが増えます。先にKPIをそろえると、無駄な作業を減らして前に進みやすくなるからです。"
+    }
+  ];
+};
+
+const renderDesignReasonBlock = (phaseRows = []) => {
+  if (!overviewDesignReasonElement || !overviewDesignReasonListElement) {
+    return;
   }
 
-  const getFirstByStatus = (statusKey) => phaseRows.find((row) => row?.status?.key === statusKey) ?? null;
+  overviewDesignReasonListElement.innerHTML = "";
+  const items = createDesignReasonItems(phaseRows);
 
-  const noKpi = getFirstByStatus("no_kpi");
-  if (noKpi) {
-    return {
-      text: `フェーズ${noKpi.phase.phaseNumber}のKPIが未出力です。まずKPIの作成から進めてください。`,
-      phaseRow: noKpi
-    };
-  }
+  const fragment = document.createDocumentFragment();
+  items.forEach((item) => {
+    const listItem = document.createElement("li");
 
-  const cleanupNeeded = getFirstByStatus("cleanup_needed");
-  if (cleanupNeeded) {
-    return {
-      text: `フェーズ${cleanupNeeded.phase.phaseNumber}のKPI整理が必要です。表現の統一と重複確認を進めましょう。`,
-      phaseRow: cleanupNeeded
-    };
-  }
+    const title = document.createElement("p");
+    title.className = "overview-design-item-title";
+    title.textContent = asDisplayText(item.title, "この設計にした理由");
 
-  const draft = getFirstByStatus("draft");
-  if (draft) {
-    return {
-      text: `フェーズ${draft.phase.phaseNumber}はKPI整理中です。次にこのフェーズのKPI整理を進めてください。`,
-      phaseRow: draft
-    };
-  }
+    const body = document.createElement("p");
+    body.className = "overview-design-item-body";
+    body.textContent = asDisplayText(item.body, "");
 
-  const lastPhase = phaseRows[phaseRows.length - 1];
-  return {
-    text: "全フェーズのKPI整理が完了しています。次はタスク実行と検証に進めます。",
-    phaseRow: lastPhase
-  };
+    listItem.append(title, body);
+    fragment.appendChild(listItem);
+  });
+
+  overviewDesignReasonListElement.appendChild(fragment);
+  overviewDesignReasonElement.hidden = items.length === 0;
 };
 
 const pickNowAction = ({
@@ -432,8 +444,6 @@ const renderOverviewPanel = ({
   if (
     !overviewSectionElement
     || !overviewSummaryGridElement
-    || !overviewNextElement
-    || !overviewNextTextElement
   ) {
     return;
   }
@@ -447,7 +457,6 @@ const renderOverviewPanel = ({
 
   const phaseRows = buildPhaseProgressRows({ phases, kpiCountByPhaseId });
   const summaryItems = createOverviewSummaryItems(phaseRows);
-  const nextFocus = pickNextFocusedPhase(phaseRows);
   const nowAction = pickNowAction({ kgiId, phaseRows, phases, kpis, tasksByKpiId });
 
   const summaryFragment = document.createDocumentFragment();
@@ -468,12 +477,7 @@ const renderOverviewPanel = ({
   });
   overviewSummaryGridElement.appendChild(summaryFragment);
 
-  if (nextFocus) {
-    overviewNextTextElement.textContent = nextFocus.text;
-    overviewNextElement.hidden = false;
-  } else {
-    overviewNextElement.hidden = true;
-  }
+  renderDesignReasonBlock(phaseRows);
   renderNowActionCard(nowAction);
   overviewSectionElement.hidden = false;
 };

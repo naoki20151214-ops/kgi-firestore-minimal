@@ -171,6 +171,37 @@
         border-radius: 10px;
         padding: 10px 12px;
       }
+      .overview-design-reason {
+        border: 1px solid #dbeafe;
+        background: #f8fbff;
+        border-radius: 10px;
+        padding: 12px;
+      }
+      .overview-design-title {
+        margin: 0;
+        font-size: 0.92rem;
+        font-weight: 700;
+        color: #1e3a8a;
+      }
+      .overview-design-list {
+        margin: 10px 0 0;
+        padding-left: 18px;
+        display: grid;
+        gap: 10px;
+      }
+      .overview-design-item-title {
+        margin: 0;
+        font-size: 0.9rem;
+        font-weight: 700;
+        color: #1e3a8a;
+        line-height: 1.5;
+      }
+      .overview-design-item-body {
+        margin: 3px 0 0;
+        font-size: 0.93rem;
+        line-height: 1.75;
+        color: #1f2937;
+      }
       .overview-next-title {
         margin: 0;
         font-size: 0.82rem;
@@ -260,9 +291,9 @@
         <h2>進捗の全体図</h2>
         <div class="overview-panel">
           <div id="overviewSummaryGrid" class="overview-summary-grid"></div>
-          <div id="overviewNext" class="overview-next" hidden>
-            <p class="overview-next-title">今すすめる候補</p>
-            <p id="overviewNextText" class="overview-next-body">-</p>
+          <div id="overviewDesignReason" class="overview-design-reason" hidden>
+            <p class="overview-design-title">この設計にした理由</p>
+            <ul id="overviewDesignReasonList" class="overview-design-list"></ul>
           </div>
           <div id="nowActionCard" class="now-action-card" hidden>
             <p class="now-action-title">今やること</p>
