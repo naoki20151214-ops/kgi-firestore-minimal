@@ -19,6 +19,8 @@ const phaseStatus = document.getElementById("phaseStatus");
 const phaseMeta = document.getElementById("phaseMeta");
 const phasePurpose = document.getElementById("phasePurpose");
 const phaseDeadline = document.getElementById("phaseDeadline");
+const phaseMeaningBlock = document.getElementById("phaseMeaningBlock");
+const phaseMeaningList = document.getElementById("phaseMeaningList");
 const kpiStatus = document.getElementById("kpiStatus");
 const kpiList = document.getElementById("kpiList");
 const kpiNameInput = document.getElementById("kpiNameInput");
@@ -304,6 +306,176 @@ const hideCleanupProposal = () => {
   aiCleanupProposalList.innerHTML = "";
 };
 
+const createPhaseMeaningItems = (phase) => {
+  const phaseNumber = Number.isFinite(Number(phase?.phaseNumber)) ? Number(phase.phaseNumber) : 0;
+  const phaseNameText = asText(phase?.name, "");
+
+  if (phaseNumber === 1) {
+    return [
+      {
+        title: "このフェーズの役割",
+        body: "このフェーズでは、何を作るかと何を見るかを整理します。実装の前に土台を固めて、手戻りを減らすためです。"
+      },
+      {
+        title: "前の流れとのつながり",
+        body: "最初のフェーズなので、ここで決めた内容が後ろのフェーズすべての出発点になります。"
+      },
+      {
+        title: "次に進める目安",
+        body: "KPIが整理できて、やることの優先順が見えたら、次の実装フェーズに進みやすくなります。"
+      }
+    ];
+  }
+
+  if (phaseNumber === 2) {
+    return [
+      {
+        title: "このフェーズの役割",
+        body: "このフェーズでは、前で決めた設計を実際に作って形にします。公開前に内部で動きを確かめる段階です。"
+      },
+      {
+        title: "前の流れとのつながり",
+        body: "前のフェーズで整理したKPIや要件を、そのまま実装の判断基準として使います。"
+      },
+      {
+        title: "次に進める目安",
+        body: "必要な実装がそろい、基本の動作確認ができたら、公開フェーズに進みやすくなります。"
+      }
+    ];
+  }
+
+  if (phaseNumber === 3) {
+    return [
+      {
+        title: "このフェーズの役割",
+        body: "このフェーズでは、作ったものを実際に公開して使ってもらいます。本当に使われるかを確かめる段階です。"
+      },
+      {
+        title: "前の流れとのつながり",
+        body: "前で作って確認した機能を、ここでユーザーに届けて反応を見ます。"
+      },
+      {
+        title: "次に進める目安",
+        body: "登録や継続利用などのデータが集まり、傾向が見えてきたら次の判断フェーズに進みます。"
+      }
+    ];
+  }
+
+  if (phaseNumber === 4) {
+    return [
+      {
+        title: "このフェーズの役割",
+        body: "このフェーズでは、公開後に集まった結果を見て判断します。続けるか、直すか、収益化できそうかを考える段階です。"
+      },
+      {
+        title: "前の流れとのつながり",
+        body: "前のフェーズで集めた利用データを使って、良かった点と改善点を整理します。"
+      },
+      {
+        title: "次に進める目安",
+        body: "次に何を伸ばし、何を直すかが決まったら、次の改善サイクルへ進みやすくなります。"
+      }
+    ];
+  }
+
+  const inferredStartPhase = phaseNameText.includes("設計") || phaseNameText.includes("整理");
+  const inferredReleasePhase = phaseNameText.includes("公開") || phaseNameText.includes("リリース");
+  const inferredReviewPhase = phaseNameText.includes("分析") || phaseNameText.includes("改善");
+
+  if (inferredStartPhase) {
+    return [
+      {
+        title: "このフェーズの役割",
+        body: "このフェーズでは、まず必要なことを整理して土台を作ります。"
+      },
+      {
+        title: "前の流れとのつながり",
+        body: "ここで決めた内容が、次の実装や公開の基準になります。"
+      },
+      {
+        title: "次に進める目安",
+        body: "何を作るかと何を見るかがはっきりしたら、次に進めます。"
+      }
+    ];
+  }
+
+  if (inferredReleasePhase) {
+    return [
+      {
+        title: "このフェーズの役割",
+        body: "このフェーズでは、作ったものを公開して実際の反応を見ます。"
+      },
+      {
+        title: "前の流れとのつながり",
+        body: "前で準備した機能や導線を、ここでユーザーに届けます。"
+      },
+      {
+        title: "次に進める目安",
+        body: "使われ方のデータが集まり、次に直すポイントが見えたら進めます。"
+      }
+    ];
+  }
+
+  if (inferredReviewPhase) {
+    return [
+      {
+        title: "このフェーズの役割",
+        body: "このフェーズでは、集まった結果を見て次の方針を決めます。"
+      },
+      {
+        title: "前の流れとのつながり",
+        body: "前で得たデータを振り返り、続けることと直すことを分けます。"
+      },
+      {
+        title: "次に進める目安",
+        body: "改善の優先順が決まったら、次の実行フェーズに進めます。"
+      }
+    ];
+  }
+
+  return [
+    {
+      title: "このフェーズの役割",
+      body: "このフェーズでは、いま必要な作業を進めて次につなげます。"
+    },
+    {
+      title: "前の流れとのつながり",
+      body: "前で決めた内容や作ったものを、このフェーズで一歩進めます。"
+    },
+    {
+      title: "次に進める目安",
+      body: "このフェーズの目的に沿った結果がそろったら、次へ進みやすくなります。"
+    }
+  ];
+};
+
+const renderPhaseMeaning = (phase) => {
+  if (!phaseMeaningBlock || !phaseMeaningList) {
+    return;
+  }
+  const items = createPhaseMeaningItems(phase);
+  phaseMeaningList.innerHTML = "";
+
+  const fragment = document.createDocumentFragment();
+  items.forEach((item) => {
+    const listItem = document.createElement("li");
+
+    const title = document.createElement("p");
+    title.className = "phase-meaning-item-title";
+    title.textContent = asText(item?.title, "このフェーズの役割");
+
+    const body = document.createElement("p");
+    body.className = "phase-meaning-item-body";
+    body.textContent = asText(item?.body, "");
+
+    listItem.append(title, body);
+    fragment.appendChild(listItem);
+  });
+
+  phaseMeaningList.appendChild(fragment);
+  phaseMeaningBlock.hidden = items.length === 0;
+};
+
 const renderPhase = (phase) => {
   phaseName.textContent = `フェーズ${phase.phaseNumber}: ${phase.name}`;
   phasePurpose.textContent = phase.purpose;
@@ -314,6 +486,7 @@ const renderPhase = (phase) => {
   });
   phaseDeadline.textContent = phase.deadline;
   phaseMeta.hidden = false;
+  renderPhaseMeaning(phase);
   phaseStatus.textContent = "";
 };
 
