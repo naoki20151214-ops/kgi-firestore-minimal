@@ -3,241 +3,185 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>KGI設計・保存アプリ</title>
+    <title>KGI作成ウィザード</title>
     <style>
-      :root {
-        color-scheme: light;
-      }
-
+      :root { color-scheme: light; }
+      * { box-sizing: border-box; }
       body {
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
         margin: 0;
-        min-height: 100vh;
         padding: 12px;
-        background: #f5f7fb;
-        color: #1f2937;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        background: #f3f4f6;
+        color: #111827;
       }
-
       .card {
         width: 100%;
         background: #fff;
-        border-radius: 14px;
+        border-radius: 16px;
         box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
-        padding: 24px;
+        padding: 18px;
       }
-
-      h1 {
-        font-size: 1.25rem;
-        margin: 0 0 16px;
-      }
-
-      .subtitle {
-        margin: -8px 0 16px;
-        font-size: 0.9rem;
-        color: #4b5563;
-      }
-
-      .field {
+      h1 { margin: 0 0 8px; font-size: 1.25rem; }
+      .subtitle { margin: 0 0 16px; color: #4b5563; font-size: 0.9rem; }
+      .stepper {
         display: grid;
+        grid-template-columns: repeat(4, 1fr);
         gap: 6px;
-        margin-bottom: 14px;
+        margin-bottom: 16px;
       }
-
-      label {
-        font-weight: 600;
-        font-size: 0.92rem;
-      }
-
-      input,
-      textarea,
-      select,
-      button {
-        font-size: 1rem;
-        padding: 10px 12px;
-        border-radius: 10px;
-        border: 1px solid #d1d5db;
-      }
-
-      textarea {
-        min-height: 96px;
-        resize: vertical;
-      }
-
-      button {
-        width: 100%;
-        border: none;
-        background: #2563eb;
-        color: #fff;
-        font-weight: 600;
-        cursor: pointer;
-      }
-
-      .secondary {
-        background: #1d4ed8;
-      }
-
-      .mode-switch {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 8px;
-        margin-bottom: 18px;
-      }
-
-      .mode-button {
+      .step {
+        text-align: center;
+        border-radius: 999px;
         background: #e5e7eb;
-        color: #111827;
+        color: #374151;
+        font-size: 0.78rem;
+        padding: 7px 4px;
       }
-
-      .mode-button.active {
-        background: #2563eb;
-        color: #fff;
-      }
-
+      .step.active { background: #2563eb; color: #fff; font-weight: 700; }
       .section {
         border: 1px solid #e5e7eb;
-        border-radius: 12px;
+        border-radius: 14px;
         padding: 14px;
         margin-bottom: 14px;
       }
-
-      .section h2 {
-        margin: 0 0 12px;
+      .section h2 { margin: 0 0 8px; font-size: 1rem; }
+      .helper { margin: 0 0 12px; color: #6b7280; font-size: 0.85rem; }
+      .field { display: grid; gap: 6px; margin-bottom: 12px; }
+      label { font-size: 0.92rem; font-weight: 600; }
+      input, textarea, select, button {
+        width: 100%;
+        border-radius: 10px;
+        border: 1px solid #d1d5db;
+        padding: 10px 12px;
         font-size: 1rem;
       }
-
-      .helper {
-        margin: 0 0 10px;
-        font-size: 0.84rem;
-        color: #6b7280;
+      textarea { min-height: 92px; resize: vertical; }
+      button {
+        border: none;
+        background: #2563eb;
+        color: #fff;
+        font-weight: 700;
       }
-
-      .hidden {
-        display: none;
+      button.secondary { background: #e5e7eb; color: #111827; }
+      button:disabled { opacity: 0.55; }
+      .q-badge {
+        font-size: 0.82rem;
+        font-weight: 700;
+        color: #1d4ed8;
+        margin-bottom: 8px;
       }
-
-      @media (min-width: 641px) {
-        body {
-          display: grid;
-          place-items: center;
-          padding: 24px;
-        }
-
-        .card {
-          max-width: 640px;
-        }
+      .question-box {
+        border: 1px solid #dbeafe;
+        background: #eff6ff;
+        border-radius: 10px;
+        padding: 10px;
+        margin-bottom: 10px;
+        line-height: 1.5;
       }
-
-      button:disabled {
-        opacity: 0.6;
-        cursor: not-allowed;
+      .row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+      .proposal-list { display: grid; gap: 10px; }
+      .proposal-card {
+        border: 1px solid #d1d5db;
+        border-radius: 12px;
+        padding: 12px;
       }
-
-      .hint {
-        margin-top: 10px;
-        font-size: 0.84rem;
-        color: #6b7280;
+      .proposal-card.selected {
+        border-color: #2563eb;
+        box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.2);
       }
-
-      .hint.error {
-        color: #b91c1c;
+      .proposal-card h3 { margin: 0 0 8px; font-size: 1rem; }
+      .proposal-meta { margin: 4px 0; font-size: 0.88rem; color: #374151; }
+      .hidden { display: none; }
+      .hint { margin: 0; font-size: 0.85rem; color: #4b5563; }
+      .hint.error { color: #b91c1c; }
+      @media (min-width: 700px) {
+        body { display: grid; place-items: center; padding: 24px; }
+        .card { max-width: 700px; padding: 22px; }
       }
     </style>
   </head>
   <body>
     <main class="card">
-      <h1>KGI設計の入口ページ</h1>
-      <p class="subtitle">「かんたん作成」と「AIで深掘りして作成」から選べます。</p>
+      <h1>KGI作成ウィザード</h1>
+      <p class="subtitle">質問に答えるだけで、アプリ内でKGI案の作成から保存まで完了します。</p>
 
-      <div class="mode-switch">
-        <button id="simpleModeButton" class="mode-button active" type="button">かんたん作成</button>
-        <button id="aiModeButton" class="mode-button" type="button">AIで深掘りして作成</button>
+      <div class="stepper">
+        <div id="step1Label" class="step active">1. 入力</div>
+        <div id="step2Label" class="step">2. 質問</div>
+        <div id="step3Label" class="step">3. 候補</div>
+        <div id="step4Label" class="step">4. 保存</div>
       </div>
 
-      <section id="aiModeSection" class="hidden">
-        <div class="section">
-          <h2>1. ざっくり入力</h2>
-          <p class="helper">今のままだと目標が薄くなりやすいため、先に質問で考えを掘ります。</p>
-          <div class="field">
-            <label for="roughGoalInput">やりたいこと</label>
-            <textarea id="roughGoalInput" placeholder="例: 自社ECの月商を伸ばしたい"></textarea>
-          </div>
-          <div class="field">
-            <label for="roughReasonInput">なぜやりたいか</label>
-            <textarea id="roughReasonInput" placeholder="例: 広告費回収率が悪化しており、利益体質にしたい"></textarea>
-          </div>
-          <div class="field">
-            <label for="roughDeadlineInput">期限（任意）</label>
-            <input id="roughDeadlineInput" type="date" />
-          </div>
-          <div class="field">
-            <label for="roughCurrentStateInput">今の状況（任意）</label>
-            <textarea id="roughCurrentStateInput" placeholder="例: 現在月商70万円、CVR1.2%、既存顧客比率が高い"></textarea>
-          </div>
-          <button id="generatePromptButton" type="button">AIに相談するためのプロンプトを作る</button>
+      <section id="roughSection" class="section">
+        <h2>1. ざっくり入力</h2>
+        <p class="helper">まずは大枠だけでOKです。ここから質問であなた向けに整えます。</p>
+        <div class="field">
+          <label for="roughGoalInput">やりたいこと</label>
+          <textarea id="roughGoalInput" placeholder="例: 6か月でSNS経由の売上を安定させたい"></textarea>
         </div>
-
-        <div class="section">
-          <h2>2. 外部AIで深掘り質問を受ける</h2>
-          <p class="helper">まずは外部AIに深掘り質問を返してもらいます。すぐにKGIを決めず、先に考えを整理するためです。</p>
-          <div class="field">
-            <label for="questionPromptOutput">質問を返してもらうための外部AI用プロンプト</label>
-            <textarea id="questionPromptOutput" readonly></textarea>
-          </div>
-          <button id="copyQuestionPromptButton" class="secondary" type="button">プロンプトをコピー</button>
-          <div class="field">
-            <label for="questionReplyInput">外部AIから返ってきた質問を貼る</label>
-            <textarea id="questionReplyInput" placeholder="例: 1. 誰に届けたいですか？ 2. 週に使える時間は？ など"></textarea>
-          </div>
-          <button id="proceedToProposalButton" class="secondary" type="button">質問回答フェーズへ進む</button>
+        <div class="field">
+          <label for="roughReasonInput">なぜやりたいか</label>
+          <textarea id="roughReasonInput" placeholder="例: 本業だけに頼らない収入の柱を作りたい"></textarea>
         </div>
+        <div class="field">
+          <label for="roughDeadlineInput">期限（任意）</label>
+          <input id="roughDeadlineInput" type="date" />
+        </div>
+        <div class="field">
+          <label for="roughCurrentStateInput">今の状況（任意）</label>
+          <textarea id="roughCurrentStateInput" placeholder="例: 投稿は不定期、商品は1つ、フォロワーは300人"></textarea>
+        </div>
+        <button id="startDeepDiveButton" type="button">質問に進む</button>
+      </section>
 
-        <div id="kgiProposalSection" class="section hidden">
-          <h2>3. 回答を踏まえてKGI案を作る</h2>
-          <p class="helper">質問への回答を踏まえて、より自分に合ったKGI案を作ります。最後に保存用JSONを貼り戻してください。</p>
-          <div class="field">
-            <label for="proposalPromptOutput">KGI提案・保存用JSON生成の外部AI用プロンプト</label>
-            <textarea id="proposalPromptOutput" readonly></textarea>
-          </div>
-          <button id="copyProposalPromptButton" class="secondary" type="button">プロンプトをコピー</button>
-          <div class="field">
-            <label for="refinedKgiInput">最終回答の貼り戻し欄（JSON推奨）</label>
-            <textarea id="refinedKgiInput" placeholder='例: {"name":"月商120万円達成","goalText":"2026-09-30までに月商120万円を達成する","deadline":"2026-09-30","level":"normal"}'></textarea>
-          </div>
-          <button id="applyRefinedKgiButton" class="secondary" type="button">保存フォームへ反映</button>
+      <section id="questionSection" class="section hidden">
+        <h2>2. AI深掘り質問</h2>
+        <p class="helper">この質問に答えると、より自分に合ったKGIになりやすいです。</p>
+        <div id="questionProgress" class="q-badge"></div>
+        <div id="questionText" class="question-box"></div>
+        <div class="field">
+          <label for="questionAnswerInput">あなたの回答</label>
+          <textarea id="questionAnswerInput" placeholder="短くても大丈夫です"></textarea>
+        </div>
+        <div class="row">
+          <button id="prevQuestionButton" class="secondary" type="button">前の質問</button>
+          <button id="nextQuestionButton" type="button">次へ</button>
         </div>
       </section>
 
-      <section class="section">
-        <h2>既存のシンプル保存フォーム</h2>
-        <div class="field">
-          <label for="kgiName">KGI名</label>
-          <input id="kgiName" type="text" placeholder="例: 月間売上" required />
-        </div>
+      <section id="proposalSection" class="section hidden">
+        <h2>3. KGI候補</h2>
+        <p class="helper">2〜3案から選び、必要なら軽く編集して保存できます。</p>
+        <div id="proposalList" class="proposal-list"></div>
 
-        <div class="field">
-          <label for="kgiGoalText">ゴール説明</label>
-          <textarea id="kgiGoalText" placeholder="例: 月末までに月間売上100万円を達成する"></textarea>
+        <div id="editSection" class="hidden">
+          <h2>選んだ案を編集</h2>
+          <div class="field">
+            <label for="kgiName">KGI名</label>
+            <input id="kgiName" type="text" />
+          </div>
+          <div class="field">
+            <label for="kgiGoalText">ゴール説明</label>
+            <textarea id="kgiGoalText"></textarea>
+          </div>
+          <div class="field">
+            <label for="kgiDeadline">目標期限日</label>
+            <input id="kgiDeadline" type="date" />
+          </div>
+          <div class="field">
+            <label for="kgiLevel">説明レベル</label>
+            <select id="kgiLevel">
+              <option value="easy">やさしく</option>
+              <option value="normal" selected>ふつう</option>
+              <option value="detailed">くわしく</option>
+            </select>
+          </div>
+          <button id="saveButton" type="button">この内容で保存</button>
         </div>
-
-        <div class="field">
-          <label for="kgiDeadline">目標期限日</label>
-          <input id="kgiDeadline" type="date" />
-        </div>
-
-        <div class="field">
-          <label for="kgiLevel">説明レベル</label>
-          <select id="kgiLevel">
-            <option value="easy">やさしく</option>
-            <option value="normal" selected>ふつう</option>
-            <option value="detailed">くわしく</option>
-          </select>
-        </div>
-
-        <button id="saveButton" type="button">保存</button>
       </section>
+
       <p id="statusText" class="hint"></p>
     </main>
-
     <script type="module" src="./app.js"></script>
   </body>
 </html>

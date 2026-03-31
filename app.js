@@ -1,32 +1,58 @@
 import { collection, addDoc, doc, serverTimestamp, updateDoc } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
 import { getDb } from "./firebase-config.js";
 
+const roughGoalInput = document.getElementById("roughGoalInput");
+const roughReasonInput = document.getElementById("roughReasonInput");
+const roughDeadlineInput = document.getElementById("roughDeadlineInput");
+const roughCurrentStateInput = document.getElementById("roughCurrentStateInput");
+const startDeepDiveButton = document.getElementById("startDeepDiveButton");
+
+const questionSection = document.getElementById("questionSection");
+const questionProgress = document.getElementById("questionProgress");
+const questionText = document.getElementById("questionText");
+const questionAnswerInput = document.getElementById("questionAnswerInput");
+const prevQuestionButton = document.getElementById("prevQuestionButton");
+const nextQuestionButton = document.getElementById("nextQuestionButton");
+
+const proposalSection = document.getElementById("proposalSection");
+const proposalList = document.getElementById("proposalList");
+const editSection = document.getElementById("editSection");
 const nameInput = document.getElementById("kgiName");
 const goalTextInput = document.getElementById("kgiGoalText");
 const deadlineInput = document.getElementById("kgiDeadline");
 const levelInput = document.getElementById("kgiLevel");
 const saveButton = document.getElementById("saveButton");
-const statusText = document.getElementById("statusText");
-const simpleModeButton = document.getElementById("simpleModeButton");
-const aiModeButton = document.getElementById("aiModeButton");
-const aiModeSection = document.getElementById("aiModeSection");
-const roughGoalInput = document.getElementById("roughGoalInput");
-const roughReasonInput = document.getElementById("roughReasonInput");
-const roughDeadlineInput = document.getElementById("roughDeadlineInput");
-const roughCurrentStateInput = document.getElementById("roughCurrentStateInput");
-const generatePromptButton = document.getElementById("generatePromptButton");
-const questionPromptOutput = document.getElementById("questionPromptOutput");
-const copyQuestionPromptButton = document.getElementById("copyQuestionPromptButton");
-const questionReplyInput = document.getElementById("questionReplyInput");
-const proceedToProposalButton = document.getElementById("proceedToProposalButton");
-const kgiProposalSection = document.getElementById("kgiProposalSection");
-const proposalPromptOutput = document.getElementById("proposalPromptOutput");
-const copyProposalPromptButton = document.getElementById("copyProposalPromptButton");
-const refinedKgiInput = document.getElementById("refinedKgiInput");
-const applyRefinedKgiButton = document.getElementById("applyRefinedKgiButton");
-const buildInitialDetailEntryStorageKey = (kgiId) => `kgi-detail-entry:${kgiId}`;
 
+const step1Label = document.getElementById("step1Label");
+const step2Label = document.getElementById("step2Label");
+const step3Label = document.getElementById("step3Label");
+const step4Label = document.getElementById("step4Label");
+const statusText = document.getElementById("statusText");
+
+const buildInitialDetailEntryStorageKey = (kgiId) => `kgi-detail-entry:${kgiId}`;
 const DEFAULT_KGI_DURATION_DAYS = 100;
+
+const DEEP_DIVE_QUESTIONS = [
+  { id: "targetAudience", text: "どんな人に届けたいですか？（例: 忙しい会社員、子育て中の人）" },
+  { id: "channel", text: "主にどこで発信・活動したいですか？（例: X、Instagram、ブログ、YouTube）" },
+  { id: "monetizationType", text: "どんな形で収益化したいですか？（例: 商品販売、広告、サブスク、案件）" },
+  { id: "availableTime", text: "1週間にどれくらい時間を使えますか？" },
+  { id: "faceOrVoiceStyle", text: "顔出し・声出し・文章中心の希望はありますか？" }
+];
+
+let db;
+const wizardState = {
+  step: 1,
+  sessionId: null,
+  roughInput: null,
+  questions: DEEP_DIVE_QUESTIONS.map((question, index) => ({ ...question, order: index + 1 })),
+  currentQuestionIndex: 0,
+  answers: {},
+  proposals: [],
+  selectedProposalIndex: -1,
+  selectedDraft: null,
+  tags: {}
+};
 
 const formatDateInputValue = (date) => {
   const year = date.getFullYear();
@@ -41,17 +67,23 @@ const addDays = (date, days) => {
   return next;
 };
 
-let db;
-let currentMode = "simple";
-let latestRoughInput = null;
-let latestQuestionPrompt = "";
+const setStatus = (message, isError = false) => {
+  statusText.textContent = message;
+  statusText.classList.toggle("error", isError);
+};
+
+const setStep = (step) => {
+  wizardState.step = step;
+  step1Label.classList.toggle("active", step === 1);
+  step2Label.classList.toggle("active", step === 2);
+  step3Label.classList.toggle("active", step === 3);
+  step4Label.classList.toggle("active", step === 4);
+};
 
 const generateRoadmap = async (kgiData) => {
   const response = await fetch("/api/generate-roadmap", {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       name: kgiData.name ?? "",
       goalText: kgiData.goalText ?? "",
@@ -62,7 +94,6 @@ const generateRoadmap = async (kgiData) => {
 
   const responseText = await response.text();
   const data = responseText ? JSON.parse(responseText) : null;
-
   if (!response.ok || !Array.isArray(data?.roadmapPhases)) {
     throw new Error(data?.error || "ロードマップの生成に失敗しました");
   }
@@ -73,147 +104,238 @@ const generateRoadmap = async (kgiData) => {
   };
 };
 
-const setStatus = (message, isError = false) => {
-  statusText.textContent = message;
-  statusText.classList.toggle("error", isError);
+const saveAnswerFromField = () => {
+  const currentQuestion = wizardState.questions[wizardState.currentQuestionIndex];
+  wizardState.answers[currentQuestion.id] = (questionAnswerInput.value || "").trim();
 };
 
-const setMode = (mode) => {
-  currentMode = mode === "ai" ? "ai" : "simple";
-  const isAiMode = currentMode === "ai";
-  aiModeSection?.classList.toggle("hidden", !isAiMode);
-  simpleModeButton?.classList.toggle("active", !isAiMode);
-  aiModeButton?.classList.toggle("active", isAiMode);
+const renderQuestion = () => {
+  const currentQuestion = wizardState.questions[wizardState.currentQuestionIndex];
+  const total = wizardState.questions.length;
+  questionProgress.textContent = `質問 ${wizardState.currentQuestionIndex + 1} / ${total}`;
+  questionText.textContent = currentQuestion.text;
+  questionAnswerInput.value = wizardState.answers[currentQuestion.id] || "";
+  prevQuestionButton.disabled = wizardState.currentQuestionIndex === 0;
+  nextQuestionButton.textContent = wizardState.currentQuestionIndex === total - 1 ? "KGI案を作成" : "次へ";
 };
 
-const buildQuestionPhasePrompt = ({ roughGoal, reason, deadline, currentState }) => {
-  const targetDeadline = deadline || "未設定";
+const parseAvailableTimeTag = (text) => {
+  if (!text) return "unknown";
+  if (/1.?2.?時間|90分|2時間未満/.test(text)) return "low";
+  if (/3.?5.?時間|毎日1時間|平日/.test(text)) return "medium";
+  if (/6.?時間|毎日2時間|フルタイム/.test(text)) return "high";
+  return "medium";
+};
+
+const parseMotivationTag = (reasonText) => {
+  if (!reasonText) return "other";
+  if (/収入|売上|お金|副業|生活/.test(reasonText)) return "income";
+  if (/成長|挑戦|スキル|実績/.test(reasonText)) return "growth";
+  if (/貢献|役立つ|喜ん/.test(reasonText)) return "contribution";
+  return "other";
+};
+
+const extractTags = () => {
+  const targetAudience = wizardState.answers.targetAudience || "";
+  const channel = wizardState.answers.channel || "";
+  const monetizationType = wizardState.answers.monetizationType || "";
+  const availableTime = parseAvailableTimeTag(wizardState.answers.availableTime || "");
+  const faceOrVoiceStyle = wizardState.answers.faceOrVoiceStyle || "";
+  const motivationType = parseMotivationTag(wizardState.roughInput?.reason || "");
+
+  return {
+    targetAudience,
+    channel,
+    monetizationType,
+    availableTime,
+    faceOrVoiceStyle,
+    motivationType
+  };
+};
+
+const generateProposals = () => {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const deadline = wizardState.roughInput.deadline || formatDateInputValue(addDays(today, DEFAULT_KGI_DURATION_DAYS));
+  const roughGoal = wizardState.roughInput.roughGoal || "継続できる目標を作る";
+  const channel = wizardState.tags.channel || "発信チャネル";
+  const audience = wizardState.tags.targetAudience || "届けたい相手";
+  const monetization = wizardState.tags.monetizationType || "収益化方法";
 
   return [
-    "あなたはKGI設計の伴走者です。",
-    "いきなりKGIを確定せず、まず深掘り質問だけを返してください。",
-    "質問は初心者でも答えやすい短文で、3〜5個に絞ってください。",
-    "抽象的な自己分析ではなく、意思決定に必要な質問にしてください。",
-    "本音、対象、制約、現実性（時間・継続しやすさ）を拾ってください。",
-    "",
-    "【入力情報】",
-    `- やりたいこと: ${roughGoal || "未入力"}`,
-    `- なぜやりたいか: ${reason || "未入力"}`,
-    `- 期限: ${targetDeadline}`,
-    `- 今の状況: ${currentState || "未入力"}`,
-    "",
-    "【質問の観点（必要なものだけ使う）】",
-    "- 誰向けにやるのか",
-    "- どの発信媒体が近いのか",
-    "- 何で収益化したいのか",
-    "- なぜそのテーマを選ぶのか",
-    "- どれくらい時間を使えるのか",
-    "- 続けやすい形は何か",
-    "- 顔出し/声出し/文章中心などの制約",
-    "",
-    "【出力ルール】",
-    "1. 出力は質問のみ。KGI案・結論・JSONは出さない。",
-    "2. 3〜5個の番号付き質問にする。",
-    "3. 1問は短く、初心者向けのやさしい日本語にする。"
-  ].join("\n");
+    {
+      name: `認知拡大型: ${channel}で土台を作る`,
+      goalText: `${deadline}までに「${audience}」向けに${channel}で発信を継続し、${roughGoal}につながる見込み顧客の導線を安定化する。`,
+      deadline,
+      level: "easy",
+      reason: "まずは届ける相手と発信導線を固める案です。初心者でも取り組みやすく、改善の手がかりが得やすいです。",
+      concerns: "短期の売上は出にくい可能性があります。"
+    },
+    {
+      name: `収益化優先型: ${monetization}を早く検証`,
+      goalText: `${deadline}までに${monetization}を主軸にしたオファーを作り、${channel}経由で初回販売まで到達する。`,
+      deadline,
+      level: "normal",
+      reason: "売上に直結する検証を先に進める案です。限られた時間でも成果判定がしやすい構成です。",
+      concerns: "設計が甘いと提案色が強くなり、継続率が下がる恐れがあります。"
+    },
+    {
+      name: "継続重視型: 無理なく積み上げる",
+      goalText: `${deadline}までに週次で継続できる運用リズムを作り、${roughGoal}の達成に必要な行動を習慣化する。`,
+      deadline,
+      level: "detailed",
+      reason: "継続のしやすさを最優先にした案です。途中離脱を防ぎ、長期的な成果に繋げやすくなります。",
+      concerns: "成果が見えるまで時間がかかることがあります。"
+    }
+  ];
 };
 
-const buildProposalPhasePrompt = ({ roughInput, questionText }) => {
-  const targetDeadline = roughInput?.deadline || "未設定";
+const renderProposals = () => {
+  proposalList.innerHTML = "";
+  wizardState.proposals.forEach((proposal, index) => {
+    const card = document.createElement("article");
+    card.className = `proposal-card${wizardState.selectedProposalIndex === index ? " selected" : ""}`;
+    card.innerHTML = `
+      <h3>${proposal.name}</h3>
+      <p class="proposal-meta"><strong>ゴール説明:</strong> ${proposal.goalText}</p>
+      <p class="proposal-meta"><strong>期限:</strong> ${proposal.deadline}</p>
+      <p class="proposal-meta"><strong>説明レベル:</strong> ${proposal.level}</p>
+      <p class="proposal-meta"><strong>おすすめ理由:</strong> ${proposal.reason}</p>
+      <p class="proposal-meta"><strong>気になる点:</strong> ${proposal.concerns}</p>
+      <button type="button" class="secondary" data-proposal-index="${index}">この案を使う</button>
+    `;
+    proposalList.appendChild(card);
+  });
 
-  return [
-    "あなたはKGI設計の専門家です。",
-    "以下の初期情報と深掘り質問・回答を踏まえて、現実的で腹落ちするKGIを提案してください。",
-    "",
-    "【最初の入力】",
-    `- やりたいこと: ${roughInput?.roughGoal || "未入力"}`,
-    `- なぜやりたいか: ${roughInput?.reason || "未入力"}`,
-    `- 期限: ${targetDeadline}`,
-    `- 今の状況: ${roughInput?.currentState || "未入力"}`,
-    "",
-    "【深掘り質問と回答】",
-    questionText || "未入力",
-    "",
-    "【返してほしい内容】",
-    "1. おすすめKGI案（1つ）",
-    "2. そのKGIをすすめる理由",
-    "3. 現時点の懸念点",
-    "4. 保存用JSON",
-    "",
-    "【保存用JSONの仕様（厳守）】",
-    "- キー名は name, goalText, deadline, level の4つのみ",
-    "- level は easy / normal / detailed のいずれか",
-    "- deadline は YYYY-MM-DD 形式",
-    "- 半角ダブルクォーテーションのみを使う",
-    "- コードブロックにしない",
-    "",
-    "必要に応じて説明文を先に書いたあと、最後に保存用JSONを1つだけ出力してください。"
-  ].join("\n");
+  proposalList.querySelectorAll("button[data-proposal-index]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const index = Number(button.dataset.proposalIndex);
+      wizardState.selectedProposalIndex = index;
+      wizardState.selectedDraft = { ...wizardState.proposals[index] };
+      nameInput.value = wizardState.selectedDraft.name;
+      goalTextInput.value = wizardState.selectedDraft.goalText;
+      deadlineInput.value = wizardState.selectedDraft.deadline;
+      levelInput.value = wizardState.selectedDraft.level;
+      editSection.classList.remove("hidden");
+      setStep(4);
+      renderProposals();
+      setStatus("候補を選択しました。必要なら編集して保存してください。", false);
+    });
+  });
 };
 
-const sanitizeRefinedKgiJsonText = (rawText) => {
-  let normalized = String(rawText ?? "").trim();
-  normalized = normalized.replace(/^\s*```json\s*/i, "").replace(/^\s*```\s*/i, "").replace(/\s*```\s*$/i, "");
-  normalized = normalized.trim();
-  normalized = normalized
-    .replace(/[“”]/g, "\"")
-    .replace(/[‘’]/g, "\"")
-    .replace(/[「」]/g, "\"");
-
-  const firstBraceIndex = normalized.indexOf("{");
-  const lastBraceIndex = normalized.lastIndexOf("}");
-  if (firstBraceIndex >= 0 && lastBraceIndex > firstBraceIndex) {
-    normalized = normalized.slice(firstBraceIndex, lastBraceIndex + 1);
-  }
-
-  return normalized;
-};
-
-const getJsonParseErrorMessageJa = (error, text) => {
-  const message = typeof error?.message === "string" ? error.message : "";
-  const positionMatch = message.match(/position\s+(\d+)/i);
-  if (positionMatch) {
-    return `JSONの解析に失敗しました。${positionMatch[1]}文字目付近の構文が不正です。キー名と文字列は半角ダブルクォーテーション \" で囲み、余分な説明文がないか確認してください。`;
-  }
-
-  if (!text.startsWith("{") || !text.endsWith("}")) {
-    return "JSONの解析に失敗しました。先頭が {、末尾が } の純粋なJSONオブジェクトのみ貼り付けてください。";
-  }
-
-  return "JSONの解析に失敗しました。説明文やMarkdownを除去し、キー名と文字列を半角ダブルクォーテーション \" で囲んだ有効なJSONにしてください。";
-};
-
-const applyRefinedKgiToForm = (rawText) => {
-  if (!rawText.trim()) {
-    alert("貼り戻し欄に内容を入力してください。");
-    return false;
-  }
-
+const updateCreationSession = async (payload) => {
+  if (!db || !wizardState.sessionId) return;
   try {
-    const normalizedText = sanitizeRefinedKgiJsonText(rawText);
-    const parsed = JSON.parse(normalizedText);
-    if (typeof parsed?.name === "string") {
-      nameInput.value = parsed.name.trim();
-    }
-    if (typeof parsed?.goalText === "string") {
-      goalTextInput.value = parsed.goalText.trim();
-    }
-    if (typeof parsed?.deadline === "string") {
-      deadlineInput.value = parsed.deadline.trim();
-    }
-    if (typeof parsed?.level === "string" && ["easy", "normal", "detailed"].includes(parsed.level)) {
-      levelInput.value = parsed.level;
-    }
-    setStatus("貼り戻したKGIを保存フォームに反映しました。", false);
-    return true;
+    await updateDoc(doc(db, "kgiCreationSessions", wizardState.sessionId), {
+      ...payload,
+      updatedAt: serverTimestamp()
+    });
   } catch (error) {
-    const normalizedText = sanitizeRefinedKgiJsonText(rawText);
-    alert(getJsonParseErrorMessageJa(error, normalizedText));
-    return false;
+    console.error("Failed to update creation session", error);
   }
 };
 
-setMode("simple");
+const ensureCreationSession = async () => {
+  if (!db) {
+    alert("Firebase接続を初期化中です。数秒後に再試行してください。");
+    return false;
+  }
+  if (wizardState.sessionId) return true;
+
+  const sessionData = {
+    flowVersion: "in-app-ai-wizard-v1",
+    status: "questioning",
+    roughInput: wizardState.roughInput,
+    questionPlan: wizardState.questions,
+    answers: {},
+    proposalCandidates: [],
+    selectedProposalIndex: null,
+    editedFields: [],
+    finalKgiDraft: null,
+    tags: {},
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp()
+  };
+
+  const ref = await addDoc(collection(db, "kgiCreationSessions"), sessionData);
+  wizardState.sessionId = ref.id;
+  return true;
+};
+
+startDeepDiveButton.addEventListener("click", async () => {
+  const roughGoal = (roughGoalInput.value || "").trim();
+  const reason = (roughReasonInput.value || "").trim();
+  if (!roughGoal || !reason) {
+    alert("「やりたいこと」と「なぜやりたいか」は入力してください。");
+    return;
+  }
+
+  wizardState.roughInput = {
+    roughGoal,
+    reason,
+    deadline: roughDeadlineInput.value || "",
+    currentState: (roughCurrentStateInput.value || "").trim()
+  };
+
+  const ready = await ensureCreationSession();
+  if (!ready) return;
+
+  questionSection.classList.remove("hidden");
+  setStep(2);
+  renderQuestion();
+  setStatus("深掘り質問を開始しました。", false);
+});
+
+prevQuestionButton.addEventListener("click", () => {
+  saveAnswerFromField();
+  if (wizardState.currentQuestionIndex > 0) {
+    wizardState.currentQuestionIndex -= 1;
+    renderQuestion();
+  }
+});
+
+nextQuestionButton.addEventListener("click", async () => {
+  saveAnswerFromField();
+  const currentQuestion = wizardState.questions[wizardState.currentQuestionIndex];
+  const currentAnswer = wizardState.answers[currentQuestion.id] || "";
+  if (!currentAnswer) {
+    alert("この質問に回答してから次へ進んでください。");
+    return;
+  }
+
+  await updateCreationSession({
+    answers: wizardState.answers,
+    deepDiveResponses: wizardState.questions.map((question) => ({
+      questionId: question.id,
+      questionText: question.text,
+      order: question.order,
+      answer: wizardState.answers[question.id] || "",
+      createdAt: new Date().toISOString()
+    }))
+  });
+
+  const isLast = wizardState.currentQuestionIndex === wizardState.questions.length - 1;
+  if (!isLast) {
+    wizardState.currentQuestionIndex += 1;
+    renderQuestion();
+    return;
+  }
+
+  wizardState.tags = extractTags();
+  wizardState.proposals = generateProposals();
+  proposalSection.classList.remove("hidden");
+  setStep(3);
+  renderProposals();
+
+  await updateCreationSession({
+    status: "proposal_ready",
+    tags: wizardState.tags,
+    proposalCandidates: wizardState.proposals
+  });
+
+  setStatus("KGI候補を作成しました。使いたい案を選んでください。", false);
+});
 
 saveButton.disabled = true;
 setStatus("Firebase接続を初期化しています...");
@@ -222,92 +344,12 @@ setStatus("Firebase接続を初期化しています...");
   try {
     db = await getDb();
     saveButton.disabled = false;
-    setStatus("Firebase接続が完了しました。保存できます。");
+    setStatus("Firebase接続が完了しました。", false);
   } catch (error) {
     console.error(error);
     setStatus("Firebase接続に失敗しました。設定を確認してください。", true);
   }
 })();
-
-simpleModeButton?.addEventListener("click", () => {
-  setMode("simple");
-});
-
-aiModeButton?.addEventListener("click", () => {
-  setMode("ai");
-});
-
-generatePromptButton?.addEventListener("click", () => {
-  latestRoughInput = {
-    roughGoal: roughGoalInput?.value.trim() || "",
-    reason: roughReasonInput?.value.trim() || "",
-    deadline: roughDeadlineInput?.value || "",
-    currentState: roughCurrentStateInput?.value.trim() || ""
-  };
-
-  latestQuestionPrompt = buildQuestionPhasePrompt(latestRoughInput);
-  questionPromptOutput.value = latestQuestionPrompt;
-  proposalPromptOutput.value = "";
-  kgiProposalSection?.classList.add("hidden");
-  setStatus("深掘り質問フェーズ用のプロンプトを生成しました。", false);
-});
-
-copyQuestionPromptButton?.addEventListener("click", async () => {
-  const promptText = questionPromptOutput?.value.trim() || "";
-  if (!promptText) {
-    alert("先にプロンプトを生成してください。");
-    return;
-  }
-
-  try {
-    await navigator.clipboard.writeText(promptText);
-    setStatus("深掘り質問フェーズ用プロンプトをコピーしました。", false);
-  } catch (error) {
-    alert("コピーに失敗しました。手動でコピーしてください。");
-  }
-});
-
-proceedToProposalButton?.addEventListener("click", () => {
-  if (!latestQuestionPrompt || !latestRoughInput) {
-    alert("先に「AIに相談するためのプロンプトを作る」を押してください。");
-    return;
-  }
-
-  const questionText = questionReplyInput?.value.trim() || "";
-  if (!questionText) {
-    alert("深掘り質問と回答を貼り付けてから次へ進んでください。");
-    return;
-  }
-
-  proposalPromptOutput.value = buildProposalPhasePrompt({
-    roughInput: latestRoughInput,
-    questionText
-  });
-  kgiProposalSection?.classList.remove("hidden");
-  setStatus("KGI提案フェーズ用のプロンプトを生成しました。", false);
-});
-
-copyProposalPromptButton?.addEventListener("click", async () => {
-  const promptText = proposalPromptOutput?.value.trim() || "";
-  if (!promptText) {
-    alert("先に「質問回答フェーズへ進む」を押してプロンプトを生成してください。");
-    return;
-  }
-
-  try {
-    await navigator.clipboard.writeText(promptText);
-    setStatus("KGI提案フェーズ用プロンプトをコピーしました。", false);
-  } catch (error) {
-    alert("コピーに失敗しました。手動でコピーしてください。");
-  }
-});
-
-applyRefinedKgiButton?.addEventListener("click", () => {
-  const applied = applyRefinedKgiToForm(refinedKgiInput?.value || "");
-  if (applied) {
-    setMode("simple");
-  }
-});
 
 saveButton.addEventListener("click", async () => {
   if (!db) {
@@ -315,13 +357,18 @@ saveButton.addEventListener("click", async () => {
     return;
   }
 
-  const name = nameInput.value.trim();
-  const goalText = goalTextInput.value.trim();
+  if (wizardState.selectedProposalIndex < 0) {
+    alert("先にKGI候補を1つ選んでください。");
+    return;
+  }
+
+  const name = (nameInput.value || "").trim();
+  const goalText = (goalTextInput.value || "").trim();
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const startDate = formatDateInputValue(today);
   const deadline = deadlineInput.value || formatDateInputValue(addDays(today, DEFAULT_KGI_DURATION_DAYS));
-  const level = levelInput?.value || "normal";
+  const level = levelInput.value || "normal";
 
   if (!name) {
     alert("KGI名を入力してください。");
@@ -329,6 +376,10 @@ saveButton.addEventListener("click", async () => {
   }
 
   saveButton.disabled = true;
+
+  const selectedOriginal = wizardState.proposals[wizardState.selectedProposalIndex];
+  const finalDraft = { name, goalText, deadline, level };
+  const editedFields = Object.keys(finalDraft).filter((key) => finalDraft[key] !== selectedOriginal[key]);
 
   try {
     const createdKgi = {
@@ -343,14 +394,39 @@ saveButton.addEventListener("click", async () => {
       nextActionText: "",
       nextActionReason: "",
       roadmapPhases: [],
-      explanationLevel: level
+      explanationLevel: level,
+      kgiCreationSessionId: wizardState.sessionId,
+      kgiCreationData: {
+        flowVersion: "in-app-ai-wizard-v1",
+        roughInput: wizardState.roughInput,
+        deepDiveResponses: wizardState.questions.map((question) => ({
+          questionId: question.id,
+          questionText: question.text,
+          order: question.order,
+          answer: wizardState.answers[question.id] || "",
+          createdAt: new Date().toISOString()
+        })),
+        tags: wizardState.tags,
+        proposalCandidates: wizardState.proposals,
+        selectedProposalIndex: wizardState.selectedProposalIndex,
+        editedFields,
+        finalKgi: finalDraft
+      }
     };
 
     const kgiDocRef = await addDoc(collection(db, "kgis"), createdKgi);
 
+    await updateCreationSession({
+      status: "completed",
+      selectedProposalIndex: wizardState.selectedProposalIndex,
+      editedFields,
+      finalKgiDraft: finalDraft,
+      finalKgiId: kgiDocRef.id,
+      completedAt: serverTimestamp()
+    });
+
     try {
       const generated = await generateRoadmap({ name, goalText, deadline, level });
-
       if (Array.isArray(generated.roadmapPhases) && generated.roadmapPhases.length > 0) {
         await updateDoc(doc(db, "kgis", kgiDocRef.id), {
           roadmapPhases: generated.roadmapPhases,
