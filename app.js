@@ -45,6 +45,15 @@ const FEASIBILITY_LEVEL = {
   HARD: "今の条件だとかなり厳しい"
 };
 
+const BUSINESS_GOAL_TYPE = {
+  AUDIENCE_GROWTH: "audience_growth",
+  MONETIZATION_VALIDATION: "monetization_validation",
+  OFFER_BUILDING: "offer_building",
+  MEDIA_PLATFORM_BUILDING: "media_platform_building",
+  PRODUCT_SERVICE_LAUNCH: "product_service_launch",
+  BUSINESS_OPERATION_IMPROVEMENT: "business_operation_improvement"
+};
+
 const AI_ASSIST_MODE = "rules-plus-writing";
 
 let db;
@@ -54,6 +63,10 @@ const wizardState = {
   roughInput: null,
   normalizedIntent: null,
   inferredGoal: "",
+  businessGoalType: "",
+  businessGoalTypeReason: "",
+  questionTemplateType: "",
+  candidateTemplateType: "",
   uncertaintyFields: [],
   feasibility: null,
   questions: [],
@@ -180,7 +193,58 @@ const daysUntilDeadline = (deadline) => {
   return Math.ceil(diffMs / (1000 * 60 * 60 * 24));
 };
 
-const assessFeasibility = (normalized) => {
+const inferBusinessGoalType = (normalized) => {
+  const text = `${normalized.goal} ${normalized.reason} ${normalized.currentState}`.toLowerCase();
+
+  if (/(fx|トレード|取引|検証|勝率|再現性|運用改善|改善|安定収益|ボトルネック)/i.test(text)) {
+    return {
+      businessGoalType: BUSINESS_GOAL_TYPE.BUSINESS_OPERATION_IMPROVEMENT,
+      businessGoalTypeReason: "既存の実行（例: FX取引・運用）の精度や再現性改善を主目的とする語が多いため。"
+    };
+  }
+
+  if (/(webアプリ|saas|サービス|プロダクト|リリース|公開|β版|ベータ|mvp|初期ユーザー)/i.test(text)) {
+    return {
+      businessGoalType: BUSINESS_GOAL_TYPE.PRODUCT_SERVICE_LAUNCH,
+      businessGoalTypeReason: "新規サービス/プロダクトの公開と初期ユーザー獲得を示す語が中心なため。"
+    };
+  }
+
+  if (/(初回売上|最初の売上|収益化|マネタイズ|売上を作|成果を確認|3か月以内|検証したい|小さくても収益)/i.test(text)) {
+    return {
+      businessGoalType: BUSINESS_GOAL_TYPE.MONETIZATION_VALIDATION,
+      businessGoalTypeReason: "短期で売上発生の可否を確かめる意図が明確なため。"
+    };
+  }
+
+  if (/(商品|オファー|note|教材|相談|代行|サポート内容|何を売る|サービス内容|メニュー)/i.test(text)) {
+    return {
+      businessGoalType: BUSINESS_GOAL_TYPE.OFFER_BUILDING,
+      businessGoalTypeReason: "販売する提供価値（商品/オファー）の定義を主目的としているため。"
+    };
+  }
+
+  if (/(情報サイト|独自ドメイン|メディア|プラットフォーム|土台|発信基盤|オウンドメディア)/i.test(text)) {
+    return {
+      businessGoalType: BUSINESS_GOAL_TYPE.MEDIA_PLATFORM_BUILDING,
+      businessGoalTypeReason: "メディアや発信基盤の構築を優先する意図が読み取れるため。"
+    };
+  }
+
+  if (/(集客|認知|フォロワー|sns発信|ブログ|xで|youtubeで|見込み客との接点|リーチ)/i.test(text)) {
+    return {
+      businessGoalType: BUSINESS_GOAL_TYPE.AUDIENCE_GROWTH,
+      businessGoalTypeReason: "認知拡大・接点増加を主目的とする語が中心なため。"
+    };
+  }
+
+  return {
+    businessGoalType: BUSINESS_GOAL_TYPE.BUSINESS_OPERATION_IMPROVEMENT,
+    businessGoalTypeReason: "明確な型が特定しづらいため、改善指標を置きやすい運用改善型として初期判定。"
+  };
+};
+
+const assessFeasibility = (normalized, businessGoalType) => {
   const reasons = [];
   const constraints = [];
   let score = 0;
@@ -214,10 +278,73 @@ const assessFeasibility = (normalized) => {
     constraints.push("使える時間");
   }
 
-  if (!/人|向け|対象|誰/.test(normalized.goal)) {
-    score += 1;
-    reasons.push("誰向けに届けるかが曖昧で、行動の優先順位が決めにくい状態です。");
-    constraints.push("目標の粒度");
+  const textBundle = `${normalized.goal} ${normalized.currentState}`;
+  if (businessGoalType === BUSINESS_GOAL_TYPE.AUDIENCE_GROWTH) {
+    if (!/人|向け|対象|誰/.test(textBundle)) {
+      score += 1;
+      reasons.push("誰向けに届けるかが曖昧で、発信軸がぶれやすいです。");
+      constraints.push("対象の明確さ");
+    }
+    if (!/X|Instagram|YouTube|TikTok|ブログ|メルマガ/.test(textBundle)) {
+      score += 1;
+      reasons.push("主媒体が未確定で、検証設計が立てにくいです。");
+      constraints.push("媒体選定");
+    }
+  } else if (businessGoalType === BUSINESS_GOAL_TYPE.MONETIZATION_VALIDATION) {
+    if (!/売上|収益|販売|案件|広告|サブスク|単価/.test(textBundle)) {
+      score += 1;
+      reasons.push("最初の売上を何で作るかが未定です。");
+      constraints.push("収益手段");
+    }
+    if (!/導線|LP|オファー|提案|販売/.test(textBundle)) {
+      score += 1;
+      reasons.push("売る導線の情報が不足しており、期限内検証の確度が読みづらいです。");
+      constraints.push("売る導線");
+    }
+  } else if (businessGoalType === BUSINESS_GOAL_TYPE.OFFER_BUILDING) {
+    if (!/商品|オファー|教材|相談|代行|サポート/.test(textBundle)) {
+      score += 1;
+      reasons.push("何を売るかの定義がまだ曖昧です。");
+      constraints.push("提供内容");
+    }
+    if (!/向け|対象|誰/.test(textBundle)) {
+      score += 1;
+      reasons.push("誰に売るかの解像度が不足しています。");
+      constraints.push("ターゲット");
+    }
+  } else if (businessGoalType === BUSINESS_GOAL_TYPE.MEDIA_PLATFORM_BUILDING) {
+    if (!/サイト|ブログ|メディア|プラットフォーム/.test(textBundle)) {
+      score += 1;
+      reasons.push("媒体の形（サイト/メディア等）がまだ具体化できていません。");
+      constraints.push("媒体定義");
+    }
+    if (!/導線|集客|検索|SNS|メルマガ/.test(textBundle)) {
+      score += 1;
+      reasons.push("集客導線の想定が不足しています。");
+      constraints.push("導線設計");
+    }
+  } else if (businessGoalType === BUSINESS_GOAL_TYPE.PRODUCT_SERVICE_LAUNCH) {
+    if (!/mvp|最小|初期|機能|範囲/.test(textBundle)) {
+      score += 1;
+      reasons.push("MVPの範囲が未定で、実装過多になるリスクがあります。");
+      constraints.push("MVP範囲");
+    }
+    if (!/初期ユーザー|利用者|ユーザー|顧客/.test(textBundle)) {
+      score += 1;
+      reasons.push("最初に使ってもらう相手が曖昧です。");
+      constraints.push("初期ユーザー");
+    }
+  } else {
+    if (!/改善|再現|検証|勝率|CVR|歩留まり|効率|運用/.test(textBundle)) {
+      score += 1;
+      reasons.push("何を改善するかの指標が不明確です。");
+      constraints.push("改善指標");
+    }
+    if (!/詰まり|課題|ボトルネック|弱い/.test(textBundle)) {
+      score += 1;
+      reasons.push("現在のボトルネックが定義されていません。");
+      constraints.push("現状課題");
+    }
   }
 
   let level = FEASIBILITY_LEVEL.REALISTIC;
@@ -242,28 +369,50 @@ const assessFeasibility = (normalized) => {
 };
 
 const buildDynamicQuestions = (analysis) => {
-  const candidates = [];
-  if (analysis.uncertaintyFields.includes("targetAudience")) {
-    candidates.push({ id: "targetAudience", text: "まず、誰向けの目標にしたいですか？（例: 忙しい会社員、学生など）" });
-  }
-  if (analysis.uncertaintyFields.includes("monetizationType")) {
-    candidates.push({ id: "monetizationType", text: "成果は何で作りますか？（例: 商品販売、広告、案件、サブスク）" });
-  }
-  if (analysis.uncertaintyFields.includes("availableTime")) {
-    candidates.push({ id: "availableTime", text: "1週間で使える時間はどれくらいですか？（例: 週5時間）" });
-  }
-  if (analysis.uncertaintyFields.includes("channel")) {
-    candidates.push({ id: "channel", text: "主にどのチャネルで進めますか？（例: X、Instagram、YouTube）" });
-  }
-  if (analysis.feasibility.mainConstraints.includes("期限")) {
-    candidates.push({ id: "priorityScope", text: "期限内で最優先したい成果は何ですか？（1つだけ）" });
-  }
-  if (candidates.length < 2) {
-    candidates.push({ id: "availableTime", text: "実行ペースを決めるため、1週間で使える時間を教えてください。" });
-    candidates.push({ id: "targetAudience", text: "誰に価値を届ける目標か、ひとことで教えてください。" });
-  }
+  return buildQuestionsByBusinessGoalType(analysis.businessGoalType).map((question, index) => ({ ...question, order: index + 1 }));
+};
 
-  return candidates.slice(0, 3).map((question, index) => ({ ...question, order: index + 1 }));
+const buildQuestionsByBusinessGoalType = (businessGoalType) => {
+  if (businessGoalType === BUSINESS_GOAL_TYPE.AUDIENCE_GROWTH) {
+    return [
+      { id: "targetAudience", text: "誰に届けたいですか？" },
+      { id: "channel", text: "どの媒体を主軸にしますか？" },
+      { id: "availableTime", text: "どれくらいの頻度で発信できますか？" }
+    ];
+  }
+  if (businessGoalType === BUSINESS_GOAL_TYPE.MONETIZATION_VALIDATION) {
+    return [
+      { id: "monetizationType", text: "最初の収益は何で作りたいですか？" },
+      { id: "firstRevenueTarget", text: "いくらの成果をまず確認したいですか？" },
+      { id: "trialCount", text: "期限までに何回試せますか？" }
+    ];
+  }
+  if (businessGoalType === BUSINESS_GOAL_TYPE.OFFER_BUILDING) {
+    return [
+      { id: "offerType", text: "何を売る予定ですか？" },
+      { id: "targetAudience", text: "誰が買う想定ですか？" },
+      { id: "offerValue", text: "その価値を一言で言うと何ですか？" }
+    ];
+  }
+  if (businessGoalType === BUSINESS_GOAL_TYPE.MEDIA_PLATFORM_BUILDING) {
+    return [
+      { id: "mediaTheme", text: "どんな情報を届けるサイトですか？" },
+      { id: "acquisitionRoute", text: "主な導線は何ですか？" },
+      { id: "monetizationType", text: "収益化の方法は何を想定していますか？" }
+    ];
+  }
+  if (businessGoalType === BUSINESS_GOAL_TYPE.PRODUCT_SERVICE_LAUNCH) {
+    return [
+      { id: "productOutline", text: "何を作りたいですか？" },
+      { id: "earlyUser", text: "最初の利用者は誰ですか？" },
+      { id: "launchDoneDefinition", text: "何をもって公開できたとしますか？" }
+    ];
+  }
+  return [
+    { id: "currentBottleneck", text: "今いちばん詰まっているのは何ですか？" },
+    { id: "improvementMetric", text: "何を改善できたら前進と言えますか？" },
+    { id: "weakestPoint", text: "今の数字や状態で一番弱い所はどこですか？" }
+  ];
 };
 
 const analyzeRoughInput = (rawInput) => {
@@ -280,11 +429,14 @@ const analyzeRoughInput = (rawInput) => {
   if (!/X|Instagram|YouTube|TikTok|ブログ|メルマガ/.test(normalized.goal + normalized.currentState)) uncertaintyFields.push("channel");
   if (!/週|時間|平日|土日|毎日/.test(normalized.currentState)) uncertaintyFields.push("availableTime");
 
+  const { businessGoalType, businessGoalTypeReason } = inferBusinessGoalType(normalized);
   const inferredGoal = summarizeGoal(normalized.goal);
-  const feasibility = assessFeasibility(normalized);
+  const feasibility = assessFeasibility(normalized, businessGoalType);
 
   return {
     normalizedIntent: normalized,
+    businessGoalType,
+    businessGoalTypeReason,
     inferredGoal,
     uncertaintyFields,
     feasibility
@@ -323,9 +475,9 @@ const parseMotivationTag = (reasonText) => {
 };
 
 const extractTags = () => {
-  const targetAudience = wizardState.answers.targetAudience || "";
-  const channel = wizardState.answers.channel || "";
-  const monetizationType = wizardState.answers.monetizationType || "";
+  const targetAudience = wizardState.answers.targetAudience || wizardState.answers.earlyUser || "";
+  const channel = wizardState.answers.channel || wizardState.answers.acquisitionRoute || wizardState.answers.mediaTheme || "";
+  const monetizationType = wizardState.answers.monetizationType || wizardState.answers.offerType || wizardState.answers.improvementMetric || "";
   const availableTime = parseAvailableTimeTag(wizardState.answers.availableTime || wizardState.normalizedIntent?.currentState || "");
   const motivationType = parseMotivationTag(wizardState.roughInput?.reason || "");
 
@@ -349,68 +501,85 @@ const generateProposals = () => {
   const feasibilityLevel = wizardState.feasibility?.feasibilityLevel || FEASIBILITY_LEVEL.STRETCH;
 
   const scopePrefix = feasibilityLevel === FEASIBILITY_LEVEL.HARD ? "まずは検証完了を重視し、" : "";
-  const concreteNameBase = `${audience}向け${channel}発信と${monetization}導線`;
+  const concreteNameBase = `${audience}向け${channel}と${monetization}`;
+  const levels = ["easy", "normal", "detailed"];
+  const directionBases = wizardState.candidateDirections.length > 0
+    ? wizardState.candidateDirections
+    : buildCandidateDirectionsByBusinessGoalType(wizardState.businessGoalType, feasibilityLevel);
 
-  return [
-    {
-      candidateType: "awareness",
-      directionLabel: "認知拡大型",
-      name: `${concreteNameBase}の初期検証基盤づくり`,
-      goalText: `${deadline}までに${audience}向けに届ける内容を明確化し、${channel}で発信検証を回して、${scopePrefix}${monetization}につながる初回成果を1件作る。`,
-      deadline,
-      level: "easy",
-      reason: "最小の成果を先に作って実現可能性を上げる案です。厳しめの条件でも前進実感を得やすいです。",
-      concerns: "大きな売上目標は次段階に回す必要があります。"
-    },
-    {
-      candidateType: "monetize",
-      directionLabel: "収益化優先型",
-      name: `${concreteNameBase}の収益化立ち上げ`,
-      goalText: `${deadline}までに「${inferredGoal}」を土台に、${audience}向けの提供内容を${channel}で届け、${monetization}のオファー実装まで完了する。`,
-      deadline,
-      level: "normal",
-      reason: "成果に近い行動を優先しつつ、期限内で必要な要素をバランスよく進める案です。",
-      concerns: "運用時間が少ないと実行密度が不足しやすいです。"
-    },
-    {
-      candidateType: "consistency",
-      directionLabel: "継続重視型",
-      name: `${concreteNameBase}の継続運用体制づくり`,
-      goalText: `${deadline}までに${audience}向けの${channel}運用を週次で継続できる形に整え、${monetization}検証につながる行動を再現可能にする。`,
-      deadline,
-      level: "detailed",
-      reason: "忙しい状況でも継続しやすく、途中離脱を防ぎながら長期成果につなげる案です。",
-      concerns: "短期の数値成果が見えるまで時間がかかることがあります。"
-    }
-  ];
+  return directionBases.slice(0, 3).map((direction, index) => ({
+    candidateType: direction.id,
+    directionLabel: direction.title,
+    name: `${concreteNameBase}の${direction.title}`,
+    goalText: `${deadline}までに「${inferredGoal}」を前提に、${scopePrefix}${audience}向けの取り組みを${channel}で実行し、${monetization}につながる状態を作る（方向: ${direction.direction}）。`,
+    deadline,
+    level: levels[index] || "normal",
+    reason: direction.reason,
+    concerns: direction.concern
+  }));
 };
 
-const buildCandidateDirections = (feasibilityLevel) => {
+const buildCandidateDirectionsByBusinessGoalType = (businessGoalType, feasibilityLevel) => {
   const scopePrefix = feasibilityLevel === FEASIBILITY_LEVEL.HARD ? "短期検証を優先しつつ" : "";
+  if (businessGoalType === BUSINESS_GOAL_TYPE.AUDIENCE_GROWTH) {
+    return [
+      { id: "touchpoint_growth", title: "接点拡大型", direction: "接点拡大", baseGoalText: `${scopePrefix}届けたい相手への接点を増やす`, reason: "まず認知と接点を作りたい人向け", concern: "売上への接続設計が必要" },
+      { id: "consistent_publishing", title: "継続発信型", direction: "継続発信", baseGoalText: `${scopePrefix}無理なく継続できる発信体制を作る`, reason: "発信習慣を安定させたい人向け", concern: "短期成果は出にくい" },
+      { id: "funnel_preparation", title: "導線整備型", direction: "導線整備", baseGoalText: `${scopePrefix}集客から次アクションへの導線を整える`, reason: "反応を行動に変換したい人向け", concern: "設計作業が増える" }
+    ];
+  }
+  if (businessGoalType === BUSINESS_GOAL_TYPE.MONETIZATION_VALIDATION) {
+    return [
+      { id: "first_sale_validation", title: "初回売上検証型", direction: "初回売上検証", baseGoalText: `${scopePrefix}最初の売上1件を作り検証完了する`, reason: "収益化の可否を早く確認したい人向け", concern: "短期で試行回数が必要" },
+      { id: "small_amount_confirmation", title: "小額成果確認型", direction: "小額成果確認", baseGoalText: `${scopePrefix}小さな金額でも収益発生を確認する`, reason: "低リスクで検証したい人向け", concern: "規模拡大は別設計が必要" },
+      { id: "offer_response_validation", title: "オファー反応検証型", direction: "反応検証", baseGoalText: `${scopePrefix}オファー提示への反応率を測る`, reason: "売れる切り口を見極めたい人向け", concern: "反応が低い時の改善前提" }
+    ];
+  }
+  if (businessGoalType === BUSINESS_GOAL_TYPE.OFFER_BUILDING) {
+    return [
+      { id: "offer_definition", title: "商品明確化型", direction: "商品明確化", baseGoalText: `${scopePrefix}販売する商品内容を定義する`, reason: "提供内容を固めたい人向け", concern: "販売検証は次段階" },
+      { id: "target_fit", title: "ターゲット適合型", direction: "ターゲット適合", baseGoalText: `${scopePrefix}誰向けの商品かを明確にする`, reason: "刺さる顧客像を合わせたい人向け", concern: "提供物の磨き込みが必要" },
+      { id: "first_proposal", title: "初回提案作成型", direction: "初回提案作成", baseGoalText: `${scopePrefix}初回提案用オファーを作成する`, reason: "すぐ提案可能な形を作りたい人向け", concern: "検証行動が必須" }
+    ];
+  }
+  if (businessGoalType === BUSINESS_GOAL_TYPE.MEDIA_PLATFORM_BUILDING) {
+    return [
+      { id: "media_foundation", title: "情報基盤構築型", direction: "基盤構築", baseGoalText: `${scopePrefix}媒体の土台と主要コンテンツを整備する`, reason: "中長期の発信土台を作りたい人向け", concern: "初速が遅くなりやすい" },
+      { id: "acquisition_route", title: "集客導線整備型", direction: "導線整備", baseGoalText: `${scopePrefix}流入導線を設計して運用を開始する`, reason: "集客経路を先に固めたい人向け", concern: "導線ごとの計測設計が必要" },
+      { id: "update_consistency", title: "更新継続型", direction: "更新継続", baseGoalText: `${scopePrefix}更新を継続できる運用を定着させる`, reason: "運用の継続性を重視したい人向け", concern: "短期成果は見えづらい" }
+    ];
+  }
+  if (businessGoalType === BUSINESS_GOAL_TYPE.PRODUCT_SERVICE_LAUNCH) {
+    return [
+      { id: "mvp_launch", title: "MVP公開型", direction: "MVP公開", baseGoalText: `${scopePrefix}最小機能で公開し利用可能状態にする`, reason: "早く公開して学習したい人向け", concern: "品質期待値の調整が必要" },
+      { id: "early_user_validation", title: "初期ユーザー検証型", direction: "初期ユーザー検証", baseGoalText: `${scopePrefix}初期ユーザー利用を獲得して検証する`, reason: "利用実績を先に作りたい人向け", concern: "集客動線が別途必要" },
+      { id: "release_readiness", title: "公開準備完了型", direction: "公開準備", baseGoalText: `${scopePrefix}公開条件を満たす準備を完了する`, reason: "リスクを抑えて公開したい人向け", concern: "公開時期が遅れる可能性" }
+    ];
+  }
   return [
     {
-      id: "awareness",
-      title: "認知拡大型",
-      direction: "認知拡大",
-      baseGoalText: `${scopePrefix}届けたい相手への接点を増やし、反応データを集める`,
-      reason: "市場の反応を早く集めたい人向け",
-      concern: "短期売上は見えにくい"
+      id: "bottleneck_improvement",
+      title: "ボトルネック改善型",
+      direction: "ボトルネック改善",
+      baseGoalText: `${scopePrefix}詰まりポイントを特定し改善する`,
+      reason: "課題箇所を明確にして進めたい人向け",
+      concern: "現状把握の精度が必要"
     },
     {
-      id: "monetize",
-      title: "収益化優先型",
-      direction: "収益化優先",
-      baseGoalText: `${scopePrefix}見込み顧客導線とオファーを整え、成果発生を狙う`,
-      reason: "期限内の成果を重視したい人向け",
-      concern: "準備項目が多く、時間不足だと詰まりやすい"
+      id: "reproducibility",
+      title: "再現性向上型",
+      direction: "再現性向上",
+      baseGoalText: `${scopePrefix}成果が出る手順を再現可能にする`,
+      reason: "安定的な成果を目指す人向け",
+      concern: "検証記録が不可欠"
     },
     {
-      id: "consistency",
-      title: "継続重視型",
-      direction: "継続重視",
-      baseGoalText: `${scopePrefix}週次運用の習慣化を先に作り、再現性を高める`,
-      reason: "忙しい中でも続ける土台を作りたい人向け",
-      concern: "即効性は低め"
+      id: "validation_habit",
+      title: "検証習慣化型",
+      direction: "検証習慣化",
+      baseGoalText: `${scopePrefix}改善サイクルを週次で回せる状態を作る`,
+      reason: "運用改善を習慣化したい人向け",
+      concern: "短期で大きな変化は出にくい"
     }
   ];
 };
@@ -572,6 +741,10 @@ const ensureCreationSession = async () => {
     status: "rough_input_received",
     rawInput: wizardState.roughInput,
     normalizedIntent: wizardState.normalizedIntent,
+    businessGoalType: wizardState.businessGoalType,
+    businessGoalTypeReason: wizardState.businessGoalTypeReason,
+    questionTemplateType: wizardState.questionTemplateType,
+    candidateTemplateType: wizardState.candidateTemplateType,
     inferredGoal: wizardState.inferredGoal,
     uncertaintyFields: wizardState.uncertaintyFields,
     feasibilityLevel: wizardState.feasibility?.feasibilityLevel || "",
@@ -618,12 +791,19 @@ startDeepDiveButton.addEventListener("click", async () => {
 
     const analysis = analyzeRoughInput(wizardState.roughInput);
     wizardState.normalizedIntent = analysis.normalizedIntent;
+    wizardState.businessGoalType = analysis.businessGoalType;
+    wizardState.businessGoalTypeReason = analysis.businessGoalTypeReason;
+    wizardState.questionTemplateType = analysis.businessGoalType;
+    wizardState.candidateTemplateType = analysis.businessGoalType;
     wizardState.inferredGoal = analysis.inferredGoal;
     wizardState.uncertaintyFields = analysis.uncertaintyFields;
     wizardState.feasibility = analysis.feasibility;
     wizardState.questions = buildDynamicQuestions(analysis);
     wizardState.dynamicQuestionsBase = wizardState.questions.map((question) => ({ ...question }));
-    wizardState.candidateDirections = buildCandidateDirections(analysis.feasibility.feasibilityLevel);
+    wizardState.candidateDirections = buildCandidateDirectionsByBusinessGoalType(
+      analysis.businessGoalType,
+      analysis.feasibility.feasibilityLevel
+    );
     wizardState.askedQuestions = wizardState.questions;
     wizardState.currentQuestionIndex = 0;
     wizardState.answers = {};
@@ -631,46 +811,50 @@ startDeepDiveButton.addEventListener("click", async () => {
     const ready = await ensureCreationSession();
     if (!ready) return;
 
-  const fallbackWriting = fallbackAiWritingResult({
-    normalizedIntent: wizardState.normalizedIntent,
-    feasibility: wizardState.feasibility,
-    questions: wizardState.questions,
-    proposals: []
-  });
-  wizardState.aiWriting = { ...wizardState.aiWriting, ...fallbackWriting };
-  try {
-    const aiResult = await callAiWritingPolish({
-      payload: {
-        rawInput: wizardState.roughInput,
-        normalizedIntent: wizardState.normalizedIntent,
-        inferredGoal: wizardState.inferredGoal,
-        uncertaintyFields: wizardState.uncertaintyFields,
-        feasibilityLevel: wizardState.feasibility.feasibilityLevel,
-        feasibilityReasons: wizardState.feasibility.feasibilityReasons,
-        mainConstraints: wizardState.feasibility.mainConstraints,
-        recommendedScopeChange: wizardState.feasibility.recommendedScopeChange,
-        dynamicQuestions: wizardState.dynamicQuestionsBase,
-        candidateDirections: wizardState.candidateDirections
-      }
+    const fallbackWriting = fallbackAiWritingResult({
+      normalizedIntent: wizardState.normalizedIntent,
+      feasibility: wizardState.feasibility,
+      questions: wizardState.questions,
+      proposals: []
     });
-    wizardState.aiWriting = { ...wizardState.aiWriting, ...aiResult };
-  } catch (error) {
-    console.warn("AI文章化に失敗したためフォールバック文面を使用します", error);
-  }
+    wizardState.aiWriting = { ...wizardState.aiWriting, ...fallbackWriting };
+    try {
+      const aiResult = await callAiWritingPolish({
+        payload: {
+          rawInput: wizardState.roughInput,
+          normalizedIntent: wizardState.normalizedIntent,
+          businessGoalType: wizardState.businessGoalType,
+          businessGoalTypeReason: wizardState.businessGoalTypeReason,
+          questionTemplateType: wizardState.questionTemplateType,
+          candidateTemplateType: wizardState.candidateTemplateType,
+          inferredGoal: wizardState.inferredGoal,
+          uncertaintyFields: wizardState.uncertaintyFields,
+          feasibilityLevel: wizardState.feasibility.feasibilityLevel,
+          feasibilityReasons: wizardState.feasibility.feasibilityReasons,
+          mainConstraints: wizardState.feasibility.mainConstraints,
+          recommendedScopeChange: wizardState.feasibility.recommendedScopeChange,
+          dynamicQuestions: wizardState.dynamicQuestionsBase,
+          candidateDirections: wizardState.candidateDirections
+        }
+      });
+      wizardState.aiWriting = { ...wizardState.aiWriting, ...aiResult };
+    } catch (error) {
+      console.warn("AI文章化に失敗したためフォールバック文面を使用します", error);
+    }
 
-  wizardState.questionTextsById = Object.fromEntries(
-    (wizardState.aiWriting.questionTexts || []).map((question) => [question.id, question.text])
-  );
-  wizardState.questions = wizardState.questions.map((question) => ({
-    ...question,
-    text: wizardState.questionTextsById[question.id] || question.text
-  }));
+    wizardState.questionTextsById = Object.fromEntries(
+      (wizardState.aiWriting.questionTexts || []).map((question) => [question.id, question.text])
+    );
+    wizardState.questions = wizardState.questions.map((question) => ({
+      ...question,
+      text: wizardState.questionTextsById[question.id] || question.text
+    }));
 
-  await updateCreationSession({
-    aiWritingResult: wizardState.aiWriting,
-    dynamicQuestionsBase: wizardState.dynamicQuestionsBase,
-    candidateDirections: wizardState.candidateDirections
-  });
+    await updateCreationSession({
+      aiWritingResult: wizardState.aiWriting,
+      dynamicQuestionsBase: wizardState.dynamicQuestionsBase,
+      candidateDirections: wizardState.candidateDirections
+    });
 
     if (!isLatestToken("startDeepDive", actionToken)) return;
     renderFeasibilityBlock();
@@ -769,6 +953,10 @@ nextQuestionButton.addEventListener("click", async () => {
           feasibilityReasons: wizardState.feasibility.feasibilityReasons,
           mainConstraints: wizardState.feasibility.mainConstraints,
           recommendedScopeChange: wizardState.feasibility.recommendedScopeChange,
+          businessGoalType: wizardState.businessGoalType,
+          businessGoalTypeReason: wizardState.businessGoalTypeReason,
+          questionTemplateType: wizardState.questionTemplateType,
+          candidateTemplateType: wizardState.candidateTemplateType,
           dynamicQuestions: wizardState.dynamicQuestionsBase,
           candidateDirections: wizardState.candidateDirections,
           candidateBases: wizardState.proposals.map((proposal, index) => ({
@@ -903,6 +1091,10 @@ saveButton.addEventListener("click", async () => {
         aiAssistMode: AI_ASSIST_MODE,
         rawInput: wizardState.roughInput,
         normalizedIntent: wizardState.normalizedIntent,
+        businessGoalType: wizardState.businessGoalType,
+        businessGoalTypeReason: wizardState.businessGoalTypeReason,
+        questionTemplateType: wizardState.questionTemplateType,
+        candidateTemplateType: wizardState.candidateTemplateType,
         inferredGoal: wizardState.inferredGoal,
         uncertaintyFields: wizardState.uncertaintyFields,
         feasibilityLevel: wizardState.feasibility?.feasibilityLevel || "",
@@ -947,6 +1139,7 @@ saveButton.addEventListener("click", async () => {
         context: {
           rawInput: wizardState.roughInput,
           normalizedIntent: wizardState.normalizedIntent,
+          businessGoalType: wizardState.businessGoalType,
           targetAudience: wizardState.tags.targetAudience || "",
           channel: wizardState.tags.channel || "",
           monetizationType: wizardState.tags.monetizationType || "",
