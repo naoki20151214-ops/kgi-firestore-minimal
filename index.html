@@ -4,6 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>KGI作成ウィザード</title>
+    <link rel="stylesheet" href="./location-nav.css" />
     <style>
       :root { color-scheme: light; }
       * { box-sizing: border-box; }
@@ -140,6 +141,16 @@
   </head>
   <body>
     <main class="card">
+      <nav class="flow-nav" aria-label="現在地ナビ">
+        <p class="flow-nav-caption">現在地: 今はKGIを定義する段階です。</p>
+        <ol class="flow-nav-list">
+          <li class="flow-nav-item is-current">KGI作成</li>
+          <li class="flow-nav-item is-upcoming">フェーズ設計</li>
+          <li class="flow-nav-item is-upcoming">KPI設計</li>
+          <li class="flow-nav-item is-upcoming">タスク設計・実行</li>
+        </ol>
+      </nav>
+
       <h1>KGI作成ウィザード</h1>
       <p class="subtitle">質問に答えるだけで、アプリ内でKGI案の作成から保存まで完了します。</p>
 

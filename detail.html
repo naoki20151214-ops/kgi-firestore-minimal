@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>KGI詳細（俯瞰）</title>
     <link rel="stylesheet" href="./readable-text.css" />
+    <link rel="stylesheet" href="./location-nav.css" />
     <style>
       :root { color-scheme: light; }
       body {
@@ -268,6 +269,16 @@
   </head>
   <body>
     <main class="container">
+      <nav class="flow-nav" aria-label="現在地ナビ">
+        <p class="flow-nav-caption">現在地: 今はロードマップのフェーズを設計する段階です。</p>
+        <ol class="flow-nav-list">
+          <li class="flow-nav-item is-completed">KGI作成</li>
+          <li class="flow-nav-item is-current">フェーズ設計</li>
+          <li class="flow-nav-item is-upcoming">KPI設計</li>
+          <li class="flow-nav-item is-upcoming">タスク設計・実行</li>
+        </ol>
+      </nav>
+
       <section class="card">
         <h1 id="kgiName">KGI詳細</h1>
         <p id="statusText" class="status">読み込み中...</p>
