@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>KPI詳細</title>
     <link rel="stylesheet" href="./location-nav.css" />
+    <link rel="stylesheet" href="./stage-tone.css" />
     <style>
       :root { color-scheme: light; }
       body {
@@ -128,8 +129,8 @@
       .manual-task-body { padding: 0 12px 12px; }
     </style>
   </head>
-  <body>
-    <main class="container">
+  <body class="page-stage-task">
+    <main class="container stage-shell">
       <nav class="flow-nav" aria-label="現在地ナビ">
         <p class="flow-nav-caption">現在地: 今はタスクを作って実行に進める段階です。</p>
         <ol class="flow-nav-list">
@@ -145,7 +146,7 @@
       </div>
 
       <section class="card">
-        <h1 id="kpiTitle">KPI詳細</h1>
+        <h1 id="kpiTitle" class="stage-main-title">KPI詳細</h1>
         <p id="kpiStatus" class="hint">読み込み中...</p>
         <dl id="kpiMeta" hidden>
           <div>
@@ -180,7 +181,7 @@
         </div>
       </section>
 
-      <section class="card">
+      <section class="card stage-focus-card">
         <h2>AIでこのKPIの次の一歩を提案</h2>
         <p class="hint">まず着手しやすい候補を3件表示します。必要なものだけ採用してください。</p>
         <button id="generateAiTaskButton" type="button">AI候補を生成</button>

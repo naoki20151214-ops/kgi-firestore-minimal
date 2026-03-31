@@ -53,9 +53,9 @@
 }
 
 .flow-nav-item.is-current {
-  border-color: #93c5fd;
-  background: #dbeafe;
-  color: #1d4ed8;
+  border-color: var(--stage-current-border, #93c5fd);
+  background: var(--stage-current-bg, #dbeafe);
+  color: var(--stage-current-text, #1d4ed8);
   font-weight: 700;
 }
 

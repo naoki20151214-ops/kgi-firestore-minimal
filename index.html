@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>KGI作成ウィザード</title>
     <link rel="stylesheet" href="./location-nav.css" />
+    <link rel="stylesheet" href="./stage-tone.css" />
     <style>
       :root { color-scheme: light; }
       * { box-sizing: border-box; }
@@ -139,8 +140,8 @@
       }
     </style>
   </head>
-  <body>
-    <main class="card">
+  <body class="page-stage-kgi">
+    <main class="card stage-shell">
       <nav class="flow-nav" aria-label="現在地ナビ">
         <p class="flow-nav-caption">現在地: 今はKGIを定義する段階です。</p>
         <ol class="flow-nav-list">
@@ -151,7 +152,7 @@
         </ol>
       </nav>
 
-      <h1>KGI作成ウィザード</h1>
+      <h1 class="stage-main-title">KGI作成ウィザード</h1>
       <p class="subtitle">質問に答えるだけで、アプリ内でKGI案の作成から保存まで完了します。</p>
 
       <div class="stepper">
@@ -161,7 +162,7 @@
         <div id="step4Label" class="step">4. 保存</div>
       </div>
 
-      <section id="roughSection" class="section">
+      <section id="roughSection" class="section stage-focus-card">
         <h2>1. ざっくり入力</h2>
         <p class="helper">まずは大枠だけでOKです。ここから質問であなた向けに整えます。</p>
         <div class="field">

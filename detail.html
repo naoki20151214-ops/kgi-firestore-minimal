@@ -6,6 +6,7 @@
     <title>KGI詳細（俯瞰）</title>
     <link rel="stylesheet" href="./readable-text.css" />
     <link rel="stylesheet" href="./location-nav.css" />
+    <link rel="stylesheet" href="./stage-tone.css" />
     <style>
       :root { color-scheme: light; }
       body {
@@ -326,8 +327,8 @@
       }
     </style>
   </head>
-  <body>
-    <main class="container">
+  <body class="page-stage-phase">
+    <main class="container stage-shell">
       <nav class="flow-nav" aria-label="現在地ナビ">
         <p class="flow-nav-caption">現在地: 今はロードマップのフェーズを設計する段階です。</p>
         <ol class="flow-nav-list">
@@ -339,7 +340,7 @@
       </nav>
 
       <section class="card">
-        <h1 id="kgiName">KGI詳細</h1>
+        <h1 id="kgiName" class="stage-main-title">KGI詳細</h1>
         <p id="statusText" class="status">読み込み中...</p>
         <dl id="detailFields" hidden>
           <div>
@@ -365,7 +366,7 @@
             <p class="overview-design-title">この設計にした理由</p>
             <ul id="overviewDesignReasonList" class="overview-design-list"></ul>
           </div>
-          <div id="nowActionCard" class="now-action-card" hidden>
+          <div id="nowActionCard" class="now-action-card stage-focus-card" hidden>
             <div class="now-action-header">
               <p class="now-action-title">今やること</p>
               <span id="nowActionTypeBadge" class="action-type-badge">-</span>
@@ -387,7 +388,7 @@
               <p class="now-action-label">次にやること</p>
               <p id="nowActionText" class="now-action-body">-</p>
             </div>
-            <a id="nowActionLink" class="now-action-button" href="#" hidden>今やることへ進む</a>
+            <a id="nowActionLink" class="now-action-button stage-primary-link" href="#" hidden>今やることへ進む</a>
           </div>
         </div>
       </section>
