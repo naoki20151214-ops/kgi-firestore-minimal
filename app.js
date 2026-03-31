@@ -15,8 +15,13 @@ const roughReasonInput = document.getElementById("roughReasonInput");
 const roughDeadlineInput = document.getElementById("roughDeadlineInput");
 const roughCurrentStateInput = document.getElementById("roughCurrentStateInput");
 const generatePromptButton = document.getElementById("generatePromptButton");
-const externalPromptOutput = document.getElementById("externalPromptOutput");
-const copyPromptButton = document.getElementById("copyPromptButton");
+const questionPromptOutput = document.getElementById("questionPromptOutput");
+const copyQuestionPromptButton = document.getElementById("copyQuestionPromptButton");
+const questionReplyInput = document.getElementById("questionReplyInput");
+const proceedToProposalButton = document.getElementById("proceedToProposalButton");
+const kgiProposalSection = document.getElementById("kgiProposalSection");
+const proposalPromptOutput = document.getElementById("proposalPromptOutput");
+const copyProposalPromptButton = document.getElementById("copyProposalPromptButton");
 const refinedKgiInput = document.getElementById("refinedKgiInput");
 const applyRefinedKgiButton = document.getElementById("applyRefinedKgiButton");
 const buildInitialDetailEntryStorageKey = (kgiId) => `kgi-detail-entry:${kgiId}`;
@@ -38,6 +43,8 @@ const addDays = (date, days) => {
 
 let db;
 let currentMode = "simple";
+let latestRoughInput = null;
+let latestQuestionPrompt = "";
 
 const generateRoadmap = async (kgiData) => {
   const response = await fetch("/api/generate-roadmap", {
@@ -66,7 +73,6 @@ const generateRoadmap = async (kgiData) => {
   };
 };
 
-
 const setStatus = (message, isError = false) => {
   statusText.textContent = message;
   statusText.classList.toggle("error", isError);
@@ -80,12 +86,15 @@ const setMode = (mode) => {
   aiModeButton?.classList.toggle("active", isAiMode);
 };
 
-const buildExternalAiPrompt = ({ roughGoal, reason, deadline, currentState }) => {
+const buildQuestionPhasePrompt = ({ roughGoal, reason, deadline, currentState }) => {
   const targetDeadline = deadline || "未設定";
 
   return [
-    "あなたは事業KGI設計の専門家です。",
-    "以下の情報をもとに、実行可能で測定可能なKGIを1つに整えてください。",
+    "あなたはKGI設計の伴走者です。",
+    "いきなりKGIを確定せず、まず深掘り質問だけを返してください。",
+    "質問は初心者でも答えやすい短文で、3〜5個に絞ってください。",
+    "抽象的な自己分析ではなく、意思決定に必要な質問にしてください。",
+    "本音、対象、制約、現実性（時間・継続しやすさ）を拾ってください。",
     "",
     "【入力情報】",
     `- やりたいこと: ${roughGoal || "未入力"}`,
@@ -93,19 +102,52 @@ const buildExternalAiPrompt = ({ roughGoal, reason, deadline, currentState }) =>
     `- 期限: ${targetDeadline}`,
     `- 今の状況: ${currentState || "未入力"}`,
     "",
-    "【出力要件（厳守）】",
-    "1. 返答は純粋なJSONオブジェクト1つのみ。",
-    "2. 説明文、見出し、箇条書き、Markdown、コードブロックを一切含めない。",
-    "3. 必ず半角ダブルクォーテーション \" を使う。全角引用符（“ ” 「 」）は禁止。",
-    "4. キー名は必ず次の4つに固定し、スペルを変更しない: name, goalText, deadline, level",
-    "5. level は easy / normal / detailed のいずれか。",
-    "6. deadline は YYYY-MM-DD 形式。",
-    "7. 上記以外のキーを追加しない。",
+    "【質問の観点（必要なものだけ使う）】",
+    "- 誰向けにやるのか",
+    "- どの発信媒体が近いのか",
+    "- 何で収益化したいのか",
+    "- なぜそのテーマを選ぶのか",
+    "- どれくらい時間を使えるのか",
+    "- 続けやすい形は何か",
+    "- 顔出し/声出し/文章中心などの制約",
     "",
-    "【JSON返答例】",
-    "{\"name\":\"月商120万円達成\",\"goalText\":\"2026-09-30までに月商120万円を達成する\",\"deadline\":\"2026-09-30\",\"level\":\"normal\"}",
+    "【出力ルール】",
+    "1. 出力は質問のみ。KGI案・結論・JSONは出さない。",
+    "2. 3〜5個の番号付き質問にする。",
+    "3. 1問は短く、初心者向けのやさしい日本語にする。"
+  ].join("\n");
+};
+
+const buildProposalPhasePrompt = ({ roughInput, questionText }) => {
+  const targetDeadline = roughInput?.deadline || "未設定";
+
+  return [
+    "あなたはKGI設計の専門家です。",
+    "以下の初期情報と深掘り質問・回答を踏まえて、現実的で腹落ちするKGIを提案してください。",
     "",
-    "この例と同じ形式のJSONだけを返してください。"
+    "【最初の入力】",
+    `- やりたいこと: ${roughInput?.roughGoal || "未入力"}`,
+    `- なぜやりたいか: ${roughInput?.reason || "未入力"}`,
+    `- 期限: ${targetDeadline}`,
+    `- 今の状況: ${roughInput?.currentState || "未入力"}`,
+    "",
+    "【深掘り質問と回答】",
+    questionText || "未入力",
+    "",
+    "【返してほしい内容】",
+    "1. おすすめKGI案（1つ）",
+    "2. そのKGIをすすめる理由",
+    "3. 現時点の懸念点",
+    "4. 保存用JSON",
+    "",
+    "【保存用JSONの仕様（厳守）】",
+    "- キー名は name, goalText, deadline, level の4つのみ",
+    "- level は easy / normal / detailed のいずれか",
+    "- deadline は YYYY-MM-DD 形式",
+    "- 半角ダブルクォーテーションのみを使う",
+    "- コードブロックにしない",
+    "",
+    "必要に応じて説明文を先に書いたあと、最後に保存用JSONを1つだけ出力してください。"
   ].join("\n");
 };
 
@@ -117,6 +159,13 @@ const sanitizeRefinedKgiJsonText = (rawText) => {
     .replace(/[“”]/g, "\"")
     .replace(/[‘’]/g, "\"")
     .replace(/[「」]/g, "\"");
+
+  const firstBraceIndex = normalized.indexOf("{");
+  const lastBraceIndex = normalized.lastIndexOf("}");
+  if (firstBraceIndex >= 0 && lastBraceIndex > firstBraceIndex) {
+    normalized = normalized.slice(firstBraceIndex, lastBraceIndex + 1);
+  }
+
   return normalized;
 };
 
@@ -155,7 +204,7 @@ const applyRefinedKgiToForm = (rawText) => {
     if (typeof parsed?.level === "string" && ["easy", "normal", "detailed"].includes(parsed.level)) {
       levelInput.value = parsed.level;
     }
-    setStatus("貼り戻したKGIを保存フォームに反映しました。");
+    setStatus("貼り戻したKGIを保存フォームに反映しました。", false);
     return true;
   } catch (error) {
     const normalizedText = sanitizeRefinedKgiJsonText(rawText);
@@ -189,19 +238,22 @@ aiModeButton?.addEventListener("click", () => {
 });
 
 generatePromptButton?.addEventListener("click", () => {
-  const promptText = buildExternalAiPrompt({
+  latestRoughInput = {
     roughGoal: roughGoalInput?.value.trim() || "",
     reason: roughReasonInput?.value.trim() || "",
     deadline: roughDeadlineInput?.value || "",
     currentState: roughCurrentStateInput?.value.trim() || ""
-  });
+  };
 
-  externalPromptOutput.value = promptText;
-  setStatus("外部AI向けプロンプトを生成しました。");
+  latestQuestionPrompt = buildQuestionPhasePrompt(latestRoughInput);
+  questionPromptOutput.value = latestQuestionPrompt;
+  proposalPromptOutput.value = "";
+  kgiProposalSection?.classList.add("hidden");
+  setStatus("深掘り質問フェーズ用のプロンプトを生成しました。", false);
 });
 
-copyPromptButton?.addEventListener("click", async () => {
-  const promptText = externalPromptOutput?.value.trim() || "";
+copyQuestionPromptButton?.addEventListener("click", async () => {
+  const promptText = questionPromptOutput?.value.trim() || "";
   if (!promptText) {
     alert("先にプロンプトを生成してください。");
     return;
@@ -209,7 +261,42 @@ copyPromptButton?.addEventListener("click", async () => {
 
   try {
     await navigator.clipboard.writeText(promptText);
-    setStatus("プロンプトをコピーしました。");
+    setStatus("深掘り質問フェーズ用プロンプトをコピーしました。", false);
+  } catch (error) {
+    alert("コピーに失敗しました。手動でコピーしてください。");
+  }
+});
+
+proceedToProposalButton?.addEventListener("click", () => {
+  if (!latestQuestionPrompt || !latestRoughInput) {
+    alert("先に「AIに相談するためのプロンプトを作る」を押してください。");
+    return;
+  }
+
+  const questionText = questionReplyInput?.value.trim() || "";
+  if (!questionText) {
+    alert("深掘り質問と回答を貼り付けてから次へ進んでください。");
+    return;
+  }
+
+  proposalPromptOutput.value = buildProposalPhasePrompt({
+    roughInput: latestRoughInput,
+    questionText
+  });
+  kgiProposalSection?.classList.remove("hidden");
+  setStatus("KGI提案フェーズ用のプロンプトを生成しました。", false);
+});
+
+copyProposalPromptButton?.addEventListener("click", async () => {
+  const promptText = proposalPromptOutput?.value.trim() || "";
+  if (!promptText) {
+    alert("先に「質問回答フェーズへ進む」を押してプロンプトを生成してください。");
+    return;
+  }
+
+  try {
+    await navigator.clipboard.writeText(promptText);
+    setStatus("KGI提案フェーズ用プロンプトをコピーしました。", false);
   } catch (error) {
     alert("コピーに失敗しました。手動でコピーしてください。");
   }
