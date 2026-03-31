@@ -7,6 +7,13 @@ const roughDeadlineInput = document.getElementById("roughDeadlineInput");
 const roughCurrentStateInput = document.getElementById("roughCurrentStateInput");
 const startDeepDiveButton = document.getElementById("startDeepDiveButton");
 
+const feasibilitySection = document.getElementById("feasibilitySection");
+const normalizedSummary = document.getElementById("normalizedSummary");
+const feasibilityLevelText = document.getElementById("feasibilityLevelText");
+const feasibilityReasons = document.getElementById("feasibilityReasons");
+const feasibilityAltRoute = document.getElementById("feasibilityAltRoute");
+const toQuestionsButton = document.getElementById("toQuestionsButton");
+
 const questionSection = document.getElementById("questionSection");
 const questionProgress = document.getElementById("questionProgress");
 const questionText = document.getElementById("questionText");
@@ -32,22 +39,25 @@ const statusText = document.getElementById("statusText");
 const buildInitialDetailEntryStorageKey = (kgiId) => `kgi-detail-entry:${kgiId}`;
 const DEFAULT_KGI_DURATION_DAYS = 100;
 
-const DEEP_DIVE_QUESTIONS = [
-  { id: "targetAudience", text: "どんな人に届けたいですか？（例: 忙しい会社員、子育て中の人）" },
-  { id: "channel", text: "主にどこで発信・活動したいですか？（例: X、Instagram、ブログ、YouTube）" },
-  { id: "monetizationType", text: "どんな形で収益化したいですか？（例: 商品販売、広告、サブスク、案件）" },
-  { id: "availableTime", text: "1週間にどれくらい時間を使えますか？" },
-  { id: "faceOrVoiceStyle", text: "顔出し・声出し・文章中心の希望はありますか？" }
-];
+const FEASIBILITY_LEVEL = {
+  REALISTIC: "現実的",
+  STRETCH: "背伸びすれば狙える",
+  HARD: "今の条件だとかなり厳しい"
+};
 
 let db;
 const wizardState = {
   step: 1,
   sessionId: null,
   roughInput: null,
-  questions: DEEP_DIVE_QUESTIONS.map((question, index) => ({ ...question, order: index + 1 })),
+  normalizedIntent: null,
+  inferredGoal: "",
+  uncertaintyFields: [],
+  feasibility: null,
+  questions: [],
   currentQuestionIndex: 0,
   answers: {},
+  askedQuestions: [],
   proposals: [],
   selectedProposalIndex: -1,
   selectedDraft: null,
@@ -104,6 +114,147 @@ const generateRoadmap = async (kgiData) => {
   };
 };
 
+const normalizeText = (text) => {
+  if (!text) return "";
+  return text
+    .replace(/[\u3000]/g, " ")
+    .replace(/\s+/g, " ")
+    .replace(/エックス/gi, "X")
+    .replace(/ゆーちゅーぶ|ユーチューブ/gi, "YouTube")
+    .replace(/いんすた|インスタグラム/gi, "Instagram")
+    .replace(/てぃっくとっく|ティックトック/gi, "TikTok")
+    .replace(/えーあい|ＡＩ/gi, "AI")
+    .replace(/([。！!？?])\1+/g, "$1")
+    .trim();
+};
+
+const summarizeGoal = (goalText) => {
+  if (!goalText) return "目標の方向性をもう少し具体化する";
+  if (goalText.length <= 40) return goalText;
+  return `${goalText.slice(0, 40)}…`;
+};
+
+const daysUntilDeadline = (deadline) => {
+  if (!deadline) return null;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const target = new Date(deadline);
+  target.setHours(0, 0, 0, 0);
+  const diffMs = target.getTime() - today.getTime();
+  return Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+};
+
+const assessFeasibility = (normalized) => {
+  const reasons = [];
+  const constraints = [];
+  let score = 0;
+
+  const deadlineDays = daysUntilDeadline(normalized.deadline);
+  if (typeof deadlineDays === "number") {
+    if (deadlineDays <= 30) {
+      score += 2;
+      reasons.push("期限に対してやることが多く、準備期間がかなり短いです。");
+      constraints.push("期限");
+    } else if (deadlineDays <= 90) {
+      score += 1;
+      reasons.push("期限が近めなので、優先順位を絞る必要があります。");
+      constraints.push("期限");
+    }
+  }
+
+  if (!normalized.currentState) {
+    score += 1;
+    reasons.push("今の経験・実績が読み取りにくいため、安全側の設計が必要です。");
+    constraints.push("経験・能力");
+  } else if (/未経験|初心者|これから|実績なし/.test(normalized.currentState)) {
+    score += 1;
+    reasons.push("今の経験だと、いきなり大きな形にするより段階化したほうが進めやすいです。");
+    constraints.push("経験・能力");
+  }
+
+  if (!/週|時間|平日|土日|毎日/.test(normalized.currentState)) {
+    score += 1;
+    reasons.push("使える時間の情報が少ないため、実行ペースの見積もりが難しいです。");
+    constraints.push("使える時間");
+  }
+
+  if (!/人|向け|対象|誰/.test(normalized.goal)) {
+    score += 1;
+    reasons.push("誰向けに届けるかが曖昧で、行動の優先順位が決めにくい状態です。");
+    constraints.push("目標の粒度");
+  }
+
+  let level = FEASIBILITY_LEVEL.REALISTIC;
+  if (score >= 4) {
+    level = FEASIBILITY_LEVEL.HARD;
+  } else if (score >= 2) {
+    level = FEASIBILITY_LEVEL.STRETCH;
+  }
+
+  const recommendedScopeChange = level === FEASIBILITY_LEVEL.HARD
+    ? "最終成果をそのまま追うより、まずは3か月以内に検証完了できる一段手前の目標へ分解するのがおすすめです。"
+    : level === FEASIBILITY_LEVEL.STRETCH
+      ? "方向性は良いので、対象・手段・週あたり時間を先に固定すると達成確率が上がります。"
+      : "今の条件でも進めやすいので、実行単位（週次アクション）に落とし込んで継続しましょう。";
+
+  return {
+    feasibilityLevel: level,
+    feasibilityReasons: reasons.length > 0 ? reasons : ["現時点の情報では、期限と条件のバランスはおおむね取れています。"],
+    mainConstraints: [...new Set(constraints)],
+    recommendedScopeChange
+  };
+};
+
+const buildDynamicQuestions = (analysis) => {
+  const candidates = [];
+  if (analysis.uncertaintyFields.includes("targetAudience")) {
+    candidates.push({ id: "targetAudience", text: "まず、誰向けの目標にしたいですか？（例: 忙しい会社員、学生など）" });
+  }
+  if (analysis.uncertaintyFields.includes("monetizationType")) {
+    candidates.push({ id: "monetizationType", text: "成果は何で作りますか？（例: 商品販売、広告、案件、サブスク）" });
+  }
+  if (analysis.uncertaintyFields.includes("availableTime")) {
+    candidates.push({ id: "availableTime", text: "1週間で使える時間はどれくらいですか？（例: 週5時間）" });
+  }
+  if (analysis.uncertaintyFields.includes("channel")) {
+    candidates.push({ id: "channel", text: "主にどのチャネルで進めますか？（例: X、Instagram、YouTube）" });
+  }
+  if (analysis.feasibility.mainConstraints.includes("期限")) {
+    candidates.push({ id: "priorityScope", text: "期限内で最優先したい成果は何ですか？（1つだけ）" });
+  }
+  if (candidates.length < 2) {
+    candidates.push({ id: "availableTime", text: "実行ペースを決めるため、1週間で使える時間を教えてください。" });
+    candidates.push({ id: "targetAudience", text: "誰に価値を届ける目標か、ひとことで教えてください。" });
+  }
+
+  return candidates.slice(0, 3).map((question, index) => ({ ...question, order: index + 1 }));
+};
+
+const analyzeRoughInput = (rawInput) => {
+  const normalized = {
+    goal: normalizeText(rawInput.roughGoal),
+    reason: normalizeText(rawInput.reason),
+    deadline: rawInput.deadline || "",
+    currentState: normalizeText(rawInput.currentState)
+  };
+
+  const uncertaintyFields = [];
+  if (!/向け|対象|誰/.test(normalized.goal)) uncertaintyFields.push("targetAudience");
+  if (!/売上|収益|販売|案件|広告|サブスク|単価/.test(normalized.goal)) uncertaintyFields.push("monetizationType");
+  if (!/X|Instagram|YouTube|TikTok|ブログ|メルマガ/.test(normalized.goal + normalized.currentState)) uncertaintyFields.push("channel");
+  if (!/週|時間|平日|土日|毎日/.test(normalized.currentState)) uncertaintyFields.push("availableTime");
+
+  const inferredGoal = summarizeGoal(normalized.goal);
+  const feasibility = assessFeasibility(normalized);
+
+  return {
+    normalizedIntent: normalized,
+    inferredGoal,
+    uncertaintyFields,
+    feasibility
+  };
+};
+
 const saveAnswerFromField = () => {
   const currentQuestion = wizardState.questions[wizardState.currentQuestionIndex];
   wizardState.answers[currentQuestion.id] = (questionAnswerInput.value || "").trim();
@@ -121,9 +272,9 @@ const renderQuestion = () => {
 
 const parseAvailableTimeTag = (text) => {
   if (!text) return "unknown";
-  if (/1.?2.?時間|90分|2時間未満/.test(text)) return "low";
-  if (/3.?5.?時間|毎日1時間|平日/.test(text)) return "medium";
-  if (/6.?時間|毎日2時間|フルタイム/.test(text)) return "high";
+  if (/1.?2.?時間|90分|2時間未満|週[1-4]時間/.test(text)) return "low";
+  if (/3.?5.?時間|毎日1時間|平日|週[5-9]時間/.test(text)) return "medium";
+  if (/6.?時間|毎日2時間|フルタイム|週10時間|週1[0-9]時間/.test(text)) return "high";
   return "medium";
 };
 
@@ -139,8 +290,7 @@ const extractTags = () => {
   const targetAudience = wizardState.answers.targetAudience || "";
   const channel = wizardState.answers.channel || "";
   const monetizationType = wizardState.answers.monetizationType || "";
-  const availableTime = parseAvailableTimeTag(wizardState.answers.availableTime || "");
-  const faceOrVoiceStyle = wizardState.answers.faceOrVoiceStyle || "";
+  const availableTime = parseAvailableTimeTag(wizardState.answers.availableTime || wizardState.normalizedIntent?.currentState || "");
   const motivationType = parseMotivationTag(wizardState.roughInput?.reason || "");
 
   return {
@@ -148,7 +298,6 @@ const extractTags = () => {
     channel,
     monetizationType,
     availableTime,
-    faceOrVoiceStyle,
     motivationType
   };
 };
@@ -157,37 +306,63 @@ const generateProposals = () => {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const deadline = wizardState.roughInput.deadline || formatDateInputValue(addDays(today, DEFAULT_KGI_DURATION_DAYS));
-  const roughGoal = wizardState.roughInput.roughGoal || "継続できる目標を作る";
+  const inferredGoal = wizardState.inferredGoal || "継続できる目標を作る";
   const channel = wizardState.tags.channel || "発信チャネル";
   const audience = wizardState.tags.targetAudience || "届けたい相手";
-  const monetization = wizardState.tags.monetizationType || "収益化方法";
+  const monetization = wizardState.tags.monetizationType || "成果化の手段";
+  const feasibilityLevel = wizardState.feasibility?.feasibilityLevel || FEASIBILITY_LEVEL.STRETCH;
+
+  const scopePrefix = feasibilityLevel === FEASIBILITY_LEVEL.HARD ? "まずは検証完了を重視し、" : "";
 
   return [
     {
-      name: `認知拡大型: ${channel}で土台を作る`,
-      goalText: `${deadline}までに「${audience}」向けに${channel}で発信を継続し、${roughGoal}につながる見込み顧客の導線を安定化する。`,
+      name: `検証優先型: 小さく当てる`,
+      goalText: `${deadline}までに${audience}向けに${channel}で検証を回し、${scopePrefix}${monetization}につながる初回成果を1件作る。`,
       deadline,
       level: "easy",
-      reason: "まずは届ける相手と発信導線を固める案です。初心者でも取り組みやすく、改善の手がかりが得やすいです。",
-      concerns: "短期の売上は出にくい可能性があります。"
+      reason: "最小の成果を先に作って実現可能性を上げる案です。厳しめの条件でも前進実感を得やすいです。",
+      concerns: "大きな売上目標は次段階に回す必要があります。"
     },
     {
-      name: `収益化優先型: ${monetization}を早く検証`,
-      goalText: `${deadline}までに${monetization}を主軸にしたオファーを作り、${channel}経由で初回販売まで到達する。`,
+      name: `成果直結型: 期限内で収益導線を作る`,
+      goalText: `${deadline}までに「${inferredGoal}」を実現するため、${channel}で見込み顧客導線を整え、${monetization}のオファーを実装する。`,
       deadline,
       level: "normal",
-      reason: "売上に直結する検証を先に進める案です。限られた時間でも成果判定がしやすい構成です。",
-      concerns: "設計が甘いと提案色が強くなり、継続率が下がる恐れがあります。"
+      reason: "成果に近い行動を優先しつつ、期限内で必要な要素をバランスよく進める案です。",
+      concerns: "運用時間が少ないと実行密度が不足しやすいです。"
     },
     {
-      name: "継続重視型: 無理なく積み上げる",
-      goalText: `${deadline}までに週次で継続できる運用リズムを作り、${roughGoal}の達成に必要な行動を習慣化する。`,
+      name: `継続安定型: 習慣化を先に作る`,
+      goalText: `${deadline}までに週次で継続できる運用リズムを確立し、${inferredGoal}達成に必要な行動を再現可能な形で定着させる。`,
       deadline,
       level: "detailed",
-      reason: "継続のしやすさを最優先にした案です。途中離脱を防ぎ、長期的な成果に繋げやすくなります。",
-      concerns: "成果が見えるまで時間がかかることがあります。"
+      reason: "忙しい状況でも継続しやすく、途中離脱を防ぎながら長期成果につなげる案です。",
+      concerns: "短期の数値成果が見えるまで時間がかかることがあります。"
     }
   ];
+};
+
+const renderFeasibilityBlock = () => {
+  const normalized = wizardState.normalizedIntent;
+  const feasibility = wizardState.feasibility;
+  if (!normalized || !feasibility) return;
+
+  normalizedSummary.innerHTML = `
+    <li><strong>やりたいこと:</strong> ${normalized.goal || "（未入力）"}</li>
+    <li><strong>背景:</strong> ${normalized.reason || "（未入力）"}</li>
+    <li><strong>期限:</strong> ${normalized.deadline || "未設定"}</li>
+  `;
+
+  feasibilityLevelText.textContent = feasibility.feasibilityLevel;
+  feasibilityReasons.innerHTML = feasibility.feasibilityReasons.map((reason) => `<li>${reason}</li>`).join("");
+
+  if (feasibility.feasibilityLevel === FEASIBILITY_LEVEL.HARD || feasibility.recommendedScopeChange) {
+    feasibilityAltRoute.classList.remove("hidden");
+    feasibilityAltRoute.textContent = feasibility.recommendedScopeChange;
+  } else {
+    feasibilityAltRoute.classList.add("hidden");
+    feasibilityAltRoute.textContent = "";
+  }
 };
 
 const renderProposals = () => {
@@ -244,15 +419,22 @@ const ensureCreationSession = async () => {
   if (wizardState.sessionId) return true;
 
   const sessionData = {
-    flowVersion: "in-app-ai-wizard-v1",
-    status: "questioning",
-    roughInput: wizardState.roughInput,
-    questionPlan: wizardState.questions,
-    answers: {},
-    proposalCandidates: [],
-    selectedProposalIndex: null,
+    flowVersion: "in-app-ai-wizard-v2-feasibility",
+    status: "rough_input_received",
+    rawInput: wizardState.roughInput,
+    normalizedIntent: wizardState.normalizedIntent,
+    inferredGoal: wizardState.inferredGoal,
+    uncertaintyFields: wizardState.uncertaintyFields,
+    feasibilityLevel: wizardState.feasibility?.feasibilityLevel || "",
+    feasibilityReasons: wizardState.feasibility?.feasibilityReasons || [],
+    mainConstraints: wizardState.feasibility?.mainConstraints || [],
+    recommendedScopeChange: wizardState.feasibility?.recommendedScopeChange || "",
+    askedQuestions: wizardState.questions,
+    userAnswers: {},
+    generatedCandidates: [],
+    selectedCandidateIndex: null,
     editedFields: [],
-    finalKgiDraft: null,
+    finalKgi: null,
     tags: {},
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp()
@@ -278,13 +460,36 @@ startDeepDiveButton.addEventListener("click", async () => {
     currentState: (roughCurrentStateInput.value || "").trim()
   };
 
+  const analysis = analyzeRoughInput(wizardState.roughInput);
+  wizardState.normalizedIntent = analysis.normalizedIntent;
+  wizardState.inferredGoal = analysis.inferredGoal;
+  wizardState.uncertaintyFields = analysis.uncertaintyFields;
+  wizardState.feasibility = analysis.feasibility;
+  wizardState.questions = buildDynamicQuestions(analysis);
+  wizardState.askedQuestions = wizardState.questions;
+  wizardState.currentQuestionIndex = 0;
+  wizardState.answers = {};
+
   const ready = await ensureCreationSession();
   if (!ready) return;
 
-  questionSection.classList.remove("hidden");
+  renderFeasibilityBlock();
+  feasibilitySection.classList.remove("hidden");
+  questionSection.classList.add("hidden");
+  proposalSection.classList.add("hidden");
   setStep(2);
+  setStatus("入力内容を整理し、実現可能性チェックを作成しました。", false);
+});
+
+toQuestionsButton.addEventListener("click", async () => {
+  questionSection.classList.remove("hidden");
   renderQuestion();
-  setStatus("深掘り質問を開始しました。", false);
+  await updateCreationSession({
+    status: "questioning",
+    askedQuestions: wizardState.questions
+  });
+  setStep(2);
+  setStatus("不足している点だけ質問します。", false);
 });
 
 prevQuestionButton.addEventListener("click", () => {
@@ -305,7 +510,7 @@ nextQuestionButton.addEventListener("click", async () => {
   }
 
   await updateCreationSession({
-    answers: wizardState.answers,
+    userAnswers: wizardState.answers,
     deepDiveResponses: wizardState.questions.map((question) => ({
       questionId: question.id,
       questionText: question.text,
@@ -331,7 +536,7 @@ nextQuestionButton.addEventListener("click", async () => {
   await updateCreationSession({
     status: "proposal_ready",
     tags: wizardState.tags,
-    proposalCandidates: wizardState.proposals
+    generatedCandidates: wizardState.proposals
   });
 
   setStatus("KGI候補を作成しました。使いたい案を選んでください。", false);
@@ -397,18 +602,20 @@ saveButton.addEventListener("click", async () => {
       explanationLevel: level,
       kgiCreationSessionId: wizardState.sessionId,
       kgiCreationData: {
-        flowVersion: "in-app-ai-wizard-v1",
-        roughInput: wizardState.roughInput,
-        deepDiveResponses: wizardState.questions.map((question) => ({
-          questionId: question.id,
-          questionText: question.text,
-          order: question.order,
-          answer: wizardState.answers[question.id] || "",
-          createdAt: new Date().toISOString()
-        })),
+        flowVersion: "in-app-ai-wizard-v2-feasibility",
+        rawInput: wizardState.roughInput,
+        normalizedIntent: wizardState.normalizedIntent,
+        inferredGoal: wizardState.inferredGoal,
+        uncertaintyFields: wizardState.uncertaintyFields,
+        feasibilityLevel: wizardState.feasibility?.feasibilityLevel || "",
+        feasibilityReasons: wizardState.feasibility?.feasibilityReasons || [],
+        mainConstraints: wizardState.feasibility?.mainConstraints || [],
+        recommendedScopeChange: wizardState.feasibility?.recommendedScopeChange || "",
+        askedQuestions: wizardState.questions,
+        userAnswers: wizardState.answers,
         tags: wizardState.tags,
-        proposalCandidates: wizardState.proposals,
-        selectedProposalIndex: wizardState.selectedProposalIndex,
+        generatedCandidates: wizardState.proposals,
+        selectedCandidateIndex: wizardState.selectedProposalIndex,
         editedFields,
         finalKgi: finalDraft
       }
@@ -418,9 +625,9 @@ saveButton.addEventListener("click", async () => {
 
     await updateCreationSession({
       status: "completed",
-      selectedProposalIndex: wizardState.selectedProposalIndex,
+      selectedCandidateIndex: wizardState.selectedProposalIndex,
       editedFields,
-      finalKgiDraft: finalDraft,
+      finalKgi: finalDraft,
       finalKgiId: kgiDocRef.id,
       completedAt: serverTimestamp()
     });

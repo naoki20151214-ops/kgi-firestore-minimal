@@ -107,7 +107,7 @@
 
       <div class="stepper">
         <div id="step1Label" class="step active">1. 入力</div>
-        <div id="step2Label" class="step">2. 質問</div>
+        <div id="step2Label" class="step">2. チェック/質問</div>
         <div id="step3Label" class="step">3. 候補</div>
         <div id="step4Label" class="step">4. 保存</div>
       </div>
@@ -134,8 +134,25 @@
         <button id="startDeepDiveButton" type="button">質問に進む</button>
       </section>
 
+
+      <section id="feasibilitySection" class="section hidden">
+        <h2>2. 実現可能性チェック</h2>
+        <p class="helper">入力内容を整えたうえで、今の条件で進めやすいかを確認します。</p>
+        <div class="question-box">
+          <strong>今の入力を整理すると</strong>
+          <ul id="normalizedSummary"></ul>
+        </div>
+        <div class="question-box">
+          <p class="proposal-meta"><strong>評価:</strong> <span id="feasibilityLevelText"></span></p>
+          <strong>理由</strong>
+          <ul id="feasibilityReasons"></ul>
+          <p id="feasibilityAltRoute" class="proposal-meta"></p>
+        </div>
+        <button id="toQuestionsButton" type="button">不足している点を追加で答える</button>
+      </section>
+
       <section id="questionSection" class="section hidden">
-        <h2>2. AI深掘り質問</h2>
+        <h2>3. 追加質問</h2>
         <p class="helper">この質問に答えると、より自分に合ったKGIになりやすいです。</p>
         <div id="questionProgress" class="q-badge"></div>
         <div id="questionText" class="question-box"></div>
