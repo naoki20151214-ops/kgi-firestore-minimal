@@ -44,6 +44,7 @@ const SYSTEM_PROMPT = `あなたはKGI達成支援アシスタントです。
 - まだ開始前として done は原則使わない
 - フェーズ数は3〜5件
 - 入力の level に応じて表現を変える
+- context があれば必ず参照し、誰向け・何を届けるか・媒体・収益化を説明やフェーズに反映する
 
 KGI説明文のルール:
 - easy: やさしい言葉だけで、何をするかがすぐ分かる短い説明にする
@@ -183,11 +184,12 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "OPENAI_API_KEY is missing" }, { status: 500 });
   }
 
-  const body = await request.json().catch(() => null) as { name?: string; goalText?: string; deadline?: string; level?: string } | null;
+  const body = await request.json().catch(() => null) as { name?: string; goalText?: string; deadline?: string; level?: string; context?: Record<string, unknown> } | null;
   const name = typeof body?.name === "string" ? body.name.trim() : "";
   const goalText = typeof body?.goalText === "string" ? body.goalText.trim() : "";
   const deadline = typeof body?.deadline === "string" ? body.deadline.trim() : "";
   const level = typeof body?.level === "string" && body.level in LEVEL_RULES ? body.level as Level : "normal";
+  const context = body?.context && typeof body.context === "object" ? body.context : {};
 
   if (!name) {
     return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
@@ -196,6 +198,7 @@ export async function POST(request: Request) {
   try {
     const promptText = JSON.stringify({
       kgi: { name, goalText: goalText || "未設定", deadline: deadline || "未設定" },
+      context,
       output: {
         language: "ja",
         phaseCount: "3-5",

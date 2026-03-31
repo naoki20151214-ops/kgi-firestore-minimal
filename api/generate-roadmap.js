@@ -42,6 +42,7 @@ const SYSTEM_PROMPT = `あなたはKGI達成支援アシスタントです。
 - まだ開始前として done は原則使わない
 - フェーズ数は3〜5件
 - 入力の level に応じて表現を変える
+- context があれば必ず参照し、誰向け・何を届けるか・媒体・収益化を説明やフェーズに反映する
 
 KGI説明文のルール:
 - easy: やさしい言葉だけで、何をするかがすぐ分かる短い説明にする
@@ -213,6 +214,7 @@ module.exports = async function handler(req, res) {
   const goalText = typeof body?.goalText === "string" ? body.goalText.trim() : "";
   const deadline = typeof body?.deadline === "string" ? body.deadline.trim() : "";
   const level = typeof body?.level === "string" && Object.prototype.hasOwnProperty.call(LEVEL_RULES, body.level) ? body.level : "normal";
+  const context = body?.context && typeof body.context === "object" ? body.context : {};
 
   if (!name) {
     return sendJson(res, 400, { error: 'Invalid request body. Expected JSON: { "name": "string", "goalText": "string", "deadline": "string" }.' });
@@ -225,6 +227,7 @@ module.exports = async function handler(req, res) {
         goalText: goalText || "未設定",
         deadline: deadline || "未設定"
       },
+      context,
       output: {
         language: "ja",
         phaseCount: "3-5",
