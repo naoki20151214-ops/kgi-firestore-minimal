@@ -45,6 +45,8 @@ const FEASIBILITY_LEVEL = {
   HARD: "今の条件だとかなり厳しい"
 };
 
+const AI_ASSIST_MODE = "rules-plus-writing";
+
 let db;
 const wizardState = {
   step: 1,
@@ -55,13 +57,23 @@ const wizardState = {
   uncertaintyFields: [],
   feasibility: null,
   questions: [],
+  dynamicQuestionsBase: [],
   currentQuestionIndex: 0,
   answers: {},
   askedQuestions: [],
+  questionTextsById: {},
   proposals: [],
+  candidateDirections: [],
   selectedProposalIndex: -1,
   selectedDraft: null,
-  tags: {}
+  tags: {},
+  aiWriting: {
+    normalizedSummaryText: "",
+    feasibilityReasonText: "",
+    scopeAdjustmentText: "",
+    questionTexts: [],
+    candidateTexts: []
+  }
 };
 
 const formatDateInputValue = (date) => {
@@ -342,23 +354,78 @@ const generateProposals = () => {
   ];
 };
 
+const buildCandidateDirections = (feasibilityLevel) => {
+  const scopePrefix = feasibilityLevel === FEASIBILITY_LEVEL.HARD ? "短期検証を優先しつつ" : "";
+  return [
+    {
+      id: "awareness",
+      title: "認知拡大型",
+      direction: "認知拡大",
+      baseGoalText: `${scopePrefix}届けたい相手への接点を増やし、反応データを集める`,
+      reason: "市場の反応を早く集めたい人向け",
+      concern: "短期売上は見えにくい"
+    },
+    {
+      id: "monetize",
+      title: "収益化優先型",
+      direction: "収益化優先",
+      baseGoalText: `${scopePrefix}見込み顧客導線とオファーを整え、成果発生を狙う`,
+      reason: "期限内の成果を重視したい人向け",
+      concern: "準備項目が多く、時間不足だと詰まりやすい"
+    },
+    {
+      id: "consistency",
+      title: "継続重視型",
+      direction: "継続重視",
+      baseGoalText: `${scopePrefix}週次運用の習慣化を先に作り、再現性を高める`,
+      reason: "忙しい中でも続ける土台を作りたい人向け",
+      concern: "即効性は低め"
+    }
+  ];
+};
+
+const fallbackAiWritingResult = ({ normalizedIntent, feasibility, questions, proposals }) => ({
+  normalizedSummaryText: `やりたいことは「${normalizedIntent.goal || "未入力"}」、背景は「${normalizedIntent.reason || "未入力"}」、期限は「${normalizedIntent.deadline || "未設定"}」として整理しました。`,
+  feasibilityReasonText: (feasibility?.feasibilityReasons || []).join(" "),
+  scopeAdjustmentText: feasibility?.recommendedScopeChange || "",
+  questionTexts: (questions || []).map((question) => ({ id: question.id, text: question.text })),
+  candidateTexts: (proposals || []).map((proposal) => ({
+    title: proposal.name,
+    goalText: proposal.goalText,
+    reasonText: proposal.reason,
+    concernText: proposal.concerns
+  }))
+});
+
+const callAiWritingPolish = async ({ payload }) => {
+  const response = await fetch("/api/polish-kgi-wizard-text", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(errorText || "AI文章化APIに失敗しました");
+  }
+  return response.json();
+};
+
 const renderFeasibilityBlock = () => {
   const normalized = wizardState.normalizedIntent;
   const feasibility = wizardState.feasibility;
   if (!normalized || !feasibility) return;
 
-  normalizedSummary.innerHTML = `
-    <li><strong>やりたいこと:</strong> ${normalized.goal || "（未入力）"}</li>
-    <li><strong>背景:</strong> ${normalized.reason || "（未入力）"}</li>
-    <li><strong>期限:</strong> ${normalized.deadline || "未設定"}</li>
-  `;
+  const summaryText = wizardState.aiWriting.normalizedSummaryText || `やりたいことは「${normalized.goal || "未入力"}」、背景は「${normalized.reason || "未入力"}」、期限は「${normalized.deadline || "未設定"}」です。`;
+  normalizedSummary.innerHTML = `<li>${summaryText}</li>`;
 
   feasibilityLevelText.textContent = feasibility.feasibilityLevel;
-  feasibilityReasons.innerHTML = feasibility.feasibilityReasons.map((reason) => `<li>${reason}</li>`).join("");
+  const reasonText = wizardState.aiWriting.feasibilityReasonText || feasibility.feasibilityReasons.join(" ");
+  feasibilityReasons.innerHTML = `<li>${reasonText}</li>`;
 
-  if (feasibility.feasibilityLevel === FEASIBILITY_LEVEL.HARD || feasibility.recommendedScopeChange) {
+  const scopeAdjustmentText = wizardState.aiWriting.scopeAdjustmentText || feasibility.recommendedScopeChange;
+  if (feasibility.feasibilityLevel === FEASIBILITY_LEVEL.HARD || scopeAdjustmentText) {
     feasibilityAltRoute.classList.remove("hidden");
-    feasibilityAltRoute.textContent = feasibility.recommendedScopeChange;
+    feasibilityAltRoute.textContent = scopeAdjustmentText;
   } else {
     feasibilityAltRoute.classList.add("hidden");
     feasibilityAltRoute.textContent = "";
@@ -419,7 +486,8 @@ const ensureCreationSession = async () => {
   if (wizardState.sessionId) return true;
 
   const sessionData = {
-    flowVersion: "in-app-ai-wizard-v2-feasibility",
+    flowVersion: "in-app-ai-wizard-v3-rules-plus-writing",
+    aiAssistMode: AI_ASSIST_MODE,
     status: "rough_input_received",
     rawInput: wizardState.roughInput,
     normalizedIntent: wizardState.normalizedIntent,
@@ -429,7 +497,10 @@ const ensureCreationSession = async () => {
     feasibilityReasons: wizardState.feasibility?.feasibilityReasons || [],
     mainConstraints: wizardState.feasibility?.mainConstraints || [],
     recommendedScopeChange: wizardState.feasibility?.recommendedScopeChange || "",
+    dynamicQuestionsBase: wizardState.dynamicQuestionsBase,
+    candidateDirections: wizardState.candidateDirections,
     askedQuestions: wizardState.questions,
+    aiWritingResult: wizardState.aiWriting,
     userAnswers: {},
     generatedCandidates: [],
     selectedCandidateIndex: null,
@@ -466,12 +537,55 @@ startDeepDiveButton.addEventListener("click", async () => {
   wizardState.uncertaintyFields = analysis.uncertaintyFields;
   wizardState.feasibility = analysis.feasibility;
   wizardState.questions = buildDynamicQuestions(analysis);
+  wizardState.dynamicQuestionsBase = wizardState.questions.map((question) => ({ ...question }));
+  wizardState.candidateDirections = buildCandidateDirections(analysis.feasibility.feasibilityLevel);
   wizardState.askedQuestions = wizardState.questions;
   wizardState.currentQuestionIndex = 0;
   wizardState.answers = {};
 
   const ready = await ensureCreationSession();
   if (!ready) return;
+
+  const fallbackWriting = fallbackAiWritingResult({
+    normalizedIntent: wizardState.normalizedIntent,
+    feasibility: wizardState.feasibility,
+    questions: wizardState.questions,
+    proposals: []
+  });
+  wizardState.aiWriting = { ...wizardState.aiWriting, ...fallbackWriting };
+  try {
+    const aiResult = await callAiWritingPolish({
+      payload: {
+        rawInput: wizardState.roughInput,
+        normalizedIntent: wizardState.normalizedIntent,
+        inferredGoal: wizardState.inferredGoal,
+        uncertaintyFields: wizardState.uncertaintyFields,
+        feasibilityLevel: wizardState.feasibility.feasibilityLevel,
+        feasibilityReasons: wizardState.feasibility.feasibilityReasons,
+        mainConstraints: wizardState.feasibility.mainConstraints,
+        recommendedScopeChange: wizardState.feasibility.recommendedScopeChange,
+        dynamicQuestions: wizardState.dynamicQuestionsBase,
+        candidateDirections: wizardState.candidateDirections
+      }
+    });
+    wizardState.aiWriting = { ...wizardState.aiWriting, ...aiResult };
+  } catch (error) {
+    console.warn("AI文章化に失敗したためフォールバック文面を使用します", error);
+  }
+
+  wizardState.questionTextsById = Object.fromEntries(
+    (wizardState.aiWriting.questionTexts || []).map((question) => [question.id, question.text])
+  );
+  wizardState.questions = wizardState.questions.map((question) => ({
+    ...question,
+    text: wizardState.questionTextsById[question.id] || question.text
+  }));
+
+  await updateCreationSession({
+    aiWritingResult: wizardState.aiWriting,
+    dynamicQuestionsBase: wizardState.dynamicQuestionsBase,
+    candidateDirections: wizardState.candidateDirections
+  });
 
   renderFeasibilityBlock();
   feasibilitySection.classList.remove("hidden");
@@ -529,6 +643,52 @@ nextQuestionButton.addEventListener("click", async () => {
 
   wizardState.tags = extractTags();
   wizardState.proposals = generateProposals();
+  const fallbackAfterQuestions = fallbackAiWritingResult({
+    normalizedIntent: wizardState.normalizedIntent,
+    feasibility: wizardState.feasibility,
+    questions: wizardState.questions,
+    proposals: wizardState.proposals
+  });
+  wizardState.aiWriting = { ...wizardState.aiWriting, ...fallbackAfterQuestions };
+  try {
+    const aiResult = await callAiWritingPolish({
+      payload: {
+        rawInput: wizardState.roughInput,
+        normalizedIntent: wizardState.normalizedIntent,
+        inferredGoal: wizardState.inferredGoal,
+        uncertaintyFields: wizardState.uncertaintyFields,
+        feasibilityLevel: wizardState.feasibility.feasibilityLevel,
+        feasibilityReasons: wizardState.feasibility.feasibilityReasons,
+        mainConstraints: wizardState.feasibility.mainConstraints,
+        recommendedScopeChange: wizardState.feasibility.recommendedScopeChange,
+        dynamicQuestions: wizardState.dynamicQuestionsBase,
+        candidateDirections: wizardState.candidateDirections,
+        candidateBases: wizardState.proposals.map((proposal, index) => ({
+          index,
+          title: proposal.name,
+          goalText: proposal.goalText,
+          reasonText: proposal.reason,
+          concernText: proposal.concerns
+        }))
+      }
+    });
+    wizardState.aiWriting = { ...wizardState.aiWriting, ...aiResult };
+  } catch (error) {
+    console.warn("AI文章化(候補)に失敗したためフォールバック文面を使用します", error);
+  }
+  if (Array.isArray(wizardState.aiWriting.candidateTexts) && wizardState.aiWriting.candidateTexts.length > 0) {
+    wizardState.proposals = wizardState.proposals.map((proposal, index) => {
+      const polished = wizardState.aiWriting.candidateTexts[index];
+      if (!polished) return proposal;
+      return {
+        ...proposal,
+        name: polished.title || proposal.name,
+        goalText: polished.goalText || proposal.goalText,
+        reason: polished.reasonText || proposal.reason,
+        concerns: polished.concernText || proposal.concerns
+      };
+    });
+  }
   proposalSection.classList.remove("hidden");
   setStep(3);
   renderProposals();
@@ -536,7 +696,8 @@ nextQuestionButton.addEventListener("click", async () => {
   await updateCreationSession({
     status: "proposal_ready",
     tags: wizardState.tags,
-    generatedCandidates: wizardState.proposals
+    generatedCandidates: wizardState.proposals,
+    aiWritingResult: wizardState.aiWriting
   });
 
   setStatus("KGI候補を作成しました。使いたい案を選んでください。", false);
@@ -602,7 +763,8 @@ saveButton.addEventListener("click", async () => {
       explanationLevel: level,
       kgiCreationSessionId: wizardState.sessionId,
       kgiCreationData: {
-        flowVersion: "in-app-ai-wizard-v2-feasibility",
+        flowVersion: "in-app-ai-wizard-v3-rules-plus-writing",
+        aiAssistMode: AI_ASSIST_MODE,
         rawInput: wizardState.roughInput,
         normalizedIntent: wizardState.normalizedIntent,
         inferredGoal: wizardState.inferredGoal,
@@ -611,6 +773,13 @@ saveButton.addEventListener("click", async () => {
         feasibilityReasons: wizardState.feasibility?.feasibilityReasons || [],
         mainConstraints: wizardState.feasibility?.mainConstraints || [],
         recommendedScopeChange: wizardState.feasibility?.recommendedScopeChange || "",
+        dynamicQuestionsBase: wizardState.dynamicQuestionsBase,
+        candidateDirections: wizardState.candidateDirections,
+        normalizedSummaryText: wizardState.aiWriting.normalizedSummaryText || "",
+        feasibilityReasonText: wizardState.aiWriting.feasibilityReasonText || "",
+        scopeAdjustmentText: wizardState.aiWriting.scopeAdjustmentText || "",
+        questionTexts: wizardState.aiWriting.questionTexts || [],
+        candidateTexts: wizardState.aiWriting.candidateTexts || [],
         askedQuestions: wizardState.questions,
         userAnswers: wizardState.answers,
         tags: wizardState.tags,
