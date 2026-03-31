@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>フェーズ詳細</title>
     <link rel="stylesheet" href="./readable-text.css" />
+    <link rel="stylesheet" href="./location-nav.css" />
     <style>
       :root { color-scheme: light; }
       body {
@@ -133,6 +134,16 @@
   </head>
   <body>
     <main class="container">
+      <nav class="flow-nav" aria-label="現在地ナビ">
+        <p class="flow-nav-caption">現在地: 今は各フェーズのKPIを整理する段階です。</p>
+        <ol class="flow-nav-list">
+          <li class="flow-nav-item is-completed">KGI作成</li>
+          <li class="flow-nav-item is-completed">フェーズ設計</li>
+          <li class="flow-nav-item is-current">KPI設計</li>
+          <li class="flow-nav-item is-upcoming">タスク設計・実行</li>
+        </ol>
+      </nav>
+
       <div class="row-links">
         <a id="backToKgiLink" href="./detail.html">KGI詳細に戻る</a>
       </div>
