@@ -23,6 +23,38 @@
       .phase-meta { margin-top: 12px; display: grid; gap: 14px; }
       .phase-meta-item dt { font-size: 0.86rem; color: #374151; font-weight: 700; letter-spacing: 0.02em; margin-bottom: 6px; }
       .phase-meta-item dd { margin: 0; }
+      .phase-meaning {
+        margin-top: 14px;
+        border: 1px solid #dbeafe;
+        background: #f8fbff;
+        border-radius: 10px;
+        padding: 12px;
+      }
+      .phase-meaning-title {
+        margin: 0;
+        font-size: 0.93rem;
+        font-weight: 700;
+        color: #1e3a8a;
+      }
+      .phase-meaning-list {
+        margin: 10px 0 0;
+        padding-left: 18px;
+        display: grid;
+        gap: 10px;
+      }
+      .phase-meaning-item-title {
+        margin: 0;
+        font-size: 0.9rem;
+        font-weight: 700;
+        color: #1e3a8a;
+        line-height: 1.5;
+      }
+      .phase-meaning-item-body {
+        margin: 3px 0 0;
+        font-size: 0.93rem;
+        line-height: 1.75;
+        color: #1f2937;
+      }
       .kpi-list { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 10px; }
       .kpi-item { border: 1px solid #e5e7eb; border-radius: 10px; padding: 12px; background: #f9fafb; }
       .kpi-item h3 { margin: 0; font-size: 1rem; }
@@ -118,6 +150,10 @@
             <dd id="phaseDeadline">-</dd>
           </div>
         </dl>
+        <div class="phase-meaning" id="phaseMeaningBlock" hidden>
+          <p class="phase-meaning-title">このフェーズの意味</p>
+          <ul class="phase-meaning-list" id="phaseMeaningList"></ul>
+        </div>
       </section>
 
       <section class="card">
