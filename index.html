@@ -94,6 +94,44 @@
       .hidden { display: none; }
       .hint { margin: 0; font-size: 0.85rem; color: #4b5563; }
       .hint.error { color: #b91c1c; }
+      .specificity-warning {
+        margin-top: 12px;
+        border: 1px solid #fde68a;
+        background: #fffbeb;
+        border-radius: 12px;
+        padding: 12px;
+        display: grid;
+        gap: 8px;
+      }
+      .specificity-warning p {
+        margin: 0;
+        line-height: 1.5;
+        font-size: 0.92rem;
+      }
+      .specificity-warning .candidate {
+        border: 1px solid #fcd34d;
+        background: #fff;
+        border-radius: 10px;
+        padding: 10px;
+        display: grid;
+        gap: 6px;
+      }
+      .specificity-warning .candidate-label {
+        margin: 0;
+        font-size: 0.8rem;
+        font-weight: 700;
+        color: #92400e;
+      }
+      .specificity-warning .candidate-text {
+        margin: 0;
+        font-size: 0.9rem;
+        color: #1f2937;
+      }
+      .specificity-warning .actions {
+        display: grid;
+        gap: 8px;
+        margin-top: 4px;
+      }
       @media (min-width: 700px) {
         body { display: grid; place-items: center; padding: 24px; }
         .card { max-width: 700px; padding: 22px; }
@@ -194,6 +232,21 @@
             </select>
           </div>
           <button id="saveButton" type="button">この内容で保存</button>
+          <div id="specificityWarningBox" class="specificity-warning hidden" role="alert">
+            <p>このKGIは少し抽象的です。</p>
+            <p>ロードマップを作りやすくするため、具体案を補いました。</p>
+            <p>内容を確認して、そのまま保存するか、自分で直してください。</p>
+            <div class="candidate">
+              <p class="candidate-label">補正候補（保存時に適用）</p>
+              <p id="specificityCandidateName" class="candidate-text"></p>
+              <p id="specificityCandidateGoal" class="candidate-text"></p>
+              <p id="specificityCandidateDeadline" class="candidate-text"></p>
+            </div>
+            <div class="actions">
+              <button id="saveWithSpecificityButton" type="button">この補正で保存する</button>
+              <button id="editSpecificityButton" class="secondary" type="button">自分で直す</button>
+            </div>
+          </div>
         </div>
       </section>
 

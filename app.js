@@ -29,6 +29,12 @@ const goalTextInput = document.getElementById("kgiGoalText");
 const deadlineInput = document.getElementById("kgiDeadline");
 const levelInput = document.getElementById("kgiLevel");
 const saveButton = document.getElementById("saveButton");
+const specificityWarningBox = document.getElementById("specificityWarningBox");
+const specificityCandidateName = document.getElementById("specificityCandidateName");
+const specificityCandidateGoal = document.getElementById("specificityCandidateGoal");
+const specificityCandidateDeadline = document.getElementById("specificityCandidateDeadline");
+const saveWithSpecificityButton = document.getElementById("saveWithSpecificityButton");
+const editSpecificityButton = document.getElementById("editSpecificityButton");
 
 const step1Label = document.getElementById("step1Label");
 const step2Label = document.getElementById("step2Label");
@@ -79,6 +85,7 @@ const wizardState = {
   candidateDirections: [],
   selectedProposalIndex: -1,
   selectedDraft: null,
+  pendingSpecificityPatch: null,
   tags: {},
   aiWriting: {
     normalizedSummaryText: "",
@@ -662,6 +669,7 @@ const renderProposals = () => {
       goalTextInput.value = wizardState.selectedDraft.goalText;
       deadlineInput.value = wizardState.selectedDraft.deadline;
       levelInput.value = wizardState.selectedDraft.level;
+      hideSpecificityWarning();
       editSection.classList.remove("hidden");
       setStep(4);
       renderProposals();
@@ -725,6 +733,149 @@ const updateCreationSession = async (payload) => {
     });
   } catch (error) {
     console.error("Failed to update creation session", error);
+  }
+};
+
+const hideSpecificityWarning = () => {
+  wizardState.pendingSpecificityPatch = null;
+  if (!specificityWarningBox) return;
+  specificityWarningBox.classList.add("hidden");
+};
+
+const showSpecificityWarning = (specificityPatch) => {
+  wizardState.pendingSpecificityPatch = specificityPatch;
+  if (!specificityWarningBox) return;
+  specificityCandidateName.textContent = `KGI名: ${specificityPatch.suggestedName}`;
+  specificityCandidateGoal.textContent = `ゴール説明: ${specificityPatch.suggestedGoal}`;
+  specificityCandidateDeadline.textContent = `期限: ${specificityPatch.normalizedDeadline}`;
+  specificityWarningBox.classList.remove("hidden");
+};
+
+const getInputDraft = () => {
+  const name = (nameInput.value || "").trim();
+  const goalText = (goalTextInput.value || "").trim();
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const startDate = formatDateInputValue(today);
+  const deadline = deadlineInput.value || formatDateInputValue(addDays(today, DEFAULT_KGI_DURATION_DAYS));
+  const level = levelInput.value || "normal";
+  return { name, goalText, startDate, deadline, level };
+};
+
+const persistKgi = async ({ finalDraft, startDate, level }) => {
+  setButtonBusy(saveButton, true, "保存中...");
+  setButtonBusy(saveWithSpecificityButton, true, "保存中...");
+  if (editSpecificityButton) editSpecificityButton.disabled = true;
+
+  const selectedOriginal = wizardState.proposals[wizardState.selectedProposalIndex];
+  const selectedCandidateType = selectedOriginal?.directionLabel || "";
+  const editedFields = Object.keys(finalDraft).filter((key) => finalDraft[key] !== selectedOriginal[key]);
+
+  try {
+    const createdKgi = {
+      name: finalDraft.name,
+      goalText: finalDraft.goalText,
+      deadline: finalDraft.deadline,
+      startDate,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+      status: "active",
+      overallProgress: 0,
+      nextActionText: "",
+      nextActionReason: "",
+      roadmapPhases: [],
+      explanationLevel: level,
+      kgiCreationSessionId: wizardState.sessionId,
+      kgiCreationData: {
+        flowVersion: "in-app-ai-wizard-v3-rules-plus-writing",
+        aiAssistMode: AI_ASSIST_MODE,
+        rawInput: wizardState.roughInput,
+        normalizedIntent: wizardState.normalizedIntent,
+        businessGoalType: wizardState.businessGoalType,
+        businessGoalTypeReason: wizardState.businessGoalTypeReason,
+        questionTemplateType: wizardState.questionTemplateType,
+        candidateTemplateType: wizardState.candidateTemplateType,
+        inferredGoal: wizardState.inferredGoal,
+        uncertaintyFields: wizardState.uncertaintyFields,
+        feasibilityLevel: wizardState.feasibility?.feasibilityLevel || "",
+        feasibilityReasons: wizardState.feasibility?.feasibilityReasons || [],
+        mainConstraints: wizardState.feasibility?.mainConstraints || [],
+        recommendedScopeChange: wizardState.feasibility?.recommendedScopeChange || "",
+        dynamicQuestionsBase: wizardState.dynamicQuestionsBase,
+        candidateDirections: wizardState.candidateDirections,
+        normalizedSummaryText: wizardState.aiWriting.normalizedSummaryText || "",
+        feasibilityReasonText: wizardState.aiWriting.feasibilityReasonText || "",
+        scopeAdjustmentText: wizardState.aiWriting.scopeAdjustmentText || "",
+        questionTexts: wizardState.aiWriting.questionTexts || [],
+        candidateTexts: wizardState.aiWriting.candidateTexts || [],
+        askedQuestions: wizardState.questions,
+        userAnswers: wizardState.answers,
+        tags: wizardState.tags,
+        selectedCandidateType,
+        generatedCandidates: wizardState.proposals,
+        selectedCandidateIndex: wizardState.selectedProposalIndex,
+        editedFields,
+        finalKgi: finalDraft
+      }
+    };
+
+    const kgiDocRef = await addDoc(collection(db, "kgis"), createdKgi);
+
+    await updateCreationSession({
+      status: "completed",
+      selectedCandidateIndex: wizardState.selectedProposalIndex,
+      editedFields,
+      finalKgi: finalDraft,
+      finalKgiId: kgiDocRef.id,
+      completedAt: serverTimestamp()
+    });
+
+    try {
+      const generated = await generateRoadmap({
+        name: finalDraft.name,
+        goalText: finalDraft.goalText,
+        deadline: finalDraft.deadline,
+        level,
+        context: {
+          rawInput: wizardState.roughInput,
+          normalizedIntent: wizardState.normalizedIntent,
+          businessGoalType: wizardState.businessGoalType,
+          targetAudience: wizardState.tags.targetAudience || "",
+          channel: wizardState.tags.channel || "",
+          monetizationType: wizardState.tags.monetizationType || "",
+          availableTime: wizardState.tags.availableTime || wizardState.answers.availableTime || "",
+          feasibilityReasons: wizardState.feasibility?.feasibilityReasons || [],
+          selectedCandidateType,
+          finalKgi: finalDraft
+        }
+      });
+      if (Array.isArray(generated.roadmapPhases) && generated.roadmapPhases.length > 0) {
+        await updateDoc(doc(db, "kgis", kgiDocRef.id), {
+          roadmapPhases: generated.roadmapPhases,
+          goalText: generated.kgiDescription || finalDraft.goalText,
+          explanationLevel: level,
+          updatedAt: serverTimestamp()
+        });
+      }
+    } catch (roadmapError) {
+      console.error("Failed to generate roadmap", roadmapError);
+    }
+
+    window.sessionStorage.setItem(buildInitialDetailEntryStorageKey(kgiDocRef.id), JSON.stringify({
+      source: "new-kgi",
+      createdAt: Date.now(),
+      roadmapKpiStarted: false
+    }));
+    location.href = `./detail.html?id=${kgiDocRef.id}`;
+  } catch (error) {
+    console.error(error);
+    alert("保存に失敗しました。Firebase設定とルールを確認してください。");
+    setStatus("保存に失敗しました。Firebase設定とルールを確認してください。", true);
+    throw error;
+  } finally {
+    setButtonBusy(saveButton, false);
+    setButtonBusy(saveWithSpecificityButton, false);
+    if (editSpecificityButton) editSpecificityButton.disabled = false;
   }
 };
 
@@ -1033,13 +1184,7 @@ saveButton.addEventListener("click", async () => {
     return;
   }
 
-  const name = (nameInput.value || "").trim();
-  const goalText = (goalTextInput.value || "").trim();
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const startDate = formatDateInputValue(today);
-  const deadline = deadlineInput.value || formatDateInputValue(addDays(today, DEFAULT_KGI_DURATION_DAYS));
-  const level = levelInput.value || "normal";
+  const { name, goalText, startDate, deadline, level } = getInputDraft();
 
   if (!name) {
     alert("KGI名を入力してください。");
@@ -1049,129 +1194,67 @@ saveButton.addEventListener("click", async () => {
 
   const specificityPatch = buildSpecificityPatch({ name, goalText, deadline });
   if (specificityPatch.missing.length > 0) {
-    nameInput.value = specificityPatch.suggestedName;
-    goalTextInput.value = specificityPatch.suggestedGoal;
-    deadlineInput.value = specificityPatch.normalizedDeadline;
-    const warningMessage = `このKGIは方向性は分かりますが、${specificityPatch.missing.join("・")}が少し抽象的です。具体性を補う候補を自動反映したので、内容を確認してもう一度保存してください。`;
-    setStatus(warningMessage, true);
-    alert(warningMessage);
+    showSpecificityWarning(specificityPatch);
+    setStatus("具体性チェックで補正候補を表示しています。採用して保存するか、手動で編集してください。", true);
     endInFlight("saveKgi");
     return;
   }
 
-  setButtonBusy(saveButton, true, "保存中...");
+  hideSpecificityWarning();
+  const finalDraft = {
+    name,
+    goalText,
+    deadline,
+    level
+  };
 
-  const selectedOriginal = wizardState.proposals[wizardState.selectedProposalIndex];
-  const selectedCandidateType = selectedOriginal?.directionLabel || "";
+  try {
+    await persistKgi({ finalDraft, startDate, level });
+  } catch (_error) {
+    endInFlight("saveKgi");
+    return;
+  }
+});
+
+saveWithSpecificityButton.addEventListener("click", async () => {
+  const actionToken = beginInFlight("saveKgi");
+  if (!actionToken) return;
+  if (!db) {
+    alert("Firebase接続を初期化中です。数秒後に再試行してください。");
+    endInFlight("saveKgi");
+    return;
+  }
+  if (wizardState.selectedProposalIndex < 0) {
+    alert("先にKGI候補を1つ選んでください。");
+    endInFlight("saveKgi");
+    return;
+  }
+  const specificityPatch = wizardState.pendingSpecificityPatch;
+  if (!specificityPatch) {
+    setStatus("補正候補が見つからないため、再度「この内容で保存」を押してください。", true);
+    endInFlight("saveKgi");
+    return;
+  }
+
+  const { startDate, level } = getInputDraft();
   const finalDraft = {
     name: specificityPatch.suggestedName,
     goalText: specificityPatch.suggestedGoal,
     deadline: specificityPatch.normalizedDeadline,
     level
   };
-  const editedFields = Object.keys(finalDraft).filter((key) => finalDraft[key] !== selectedOriginal[key]);
 
+  hideSpecificityWarning();
   try {
-    const createdKgi = {
-      name: finalDraft.name,
-      goalText: finalDraft.goalText,
-      deadline: finalDraft.deadline,
-      startDate,
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-      status: "active",
-      overallProgress: 0,
-      nextActionText: "",
-      nextActionReason: "",
-      roadmapPhases: [],
-      explanationLevel: level,
-      kgiCreationSessionId: wizardState.sessionId,
-      kgiCreationData: {
-        flowVersion: "in-app-ai-wizard-v3-rules-plus-writing",
-        aiAssistMode: AI_ASSIST_MODE,
-        rawInput: wizardState.roughInput,
-        normalizedIntent: wizardState.normalizedIntent,
-        businessGoalType: wizardState.businessGoalType,
-        businessGoalTypeReason: wizardState.businessGoalTypeReason,
-        questionTemplateType: wizardState.questionTemplateType,
-        candidateTemplateType: wizardState.candidateTemplateType,
-        inferredGoal: wizardState.inferredGoal,
-        uncertaintyFields: wizardState.uncertaintyFields,
-        feasibilityLevel: wizardState.feasibility?.feasibilityLevel || "",
-        feasibilityReasons: wizardState.feasibility?.feasibilityReasons || [],
-        mainConstraints: wizardState.feasibility?.mainConstraints || [],
-        recommendedScopeChange: wizardState.feasibility?.recommendedScopeChange || "",
-        dynamicQuestionsBase: wizardState.dynamicQuestionsBase,
-        candidateDirections: wizardState.candidateDirections,
-        normalizedSummaryText: wizardState.aiWriting.normalizedSummaryText || "",
-        feasibilityReasonText: wizardState.aiWriting.feasibilityReasonText || "",
-        scopeAdjustmentText: wizardState.aiWriting.scopeAdjustmentText || "",
-        questionTexts: wizardState.aiWriting.questionTexts || [],
-        candidateTexts: wizardState.aiWriting.candidateTexts || [],
-        askedQuestions: wizardState.questions,
-        userAnswers: wizardState.answers,
-        tags: wizardState.tags,
-        selectedCandidateType,
-        generatedCandidates: wizardState.proposals,
-        selectedCandidateIndex: wizardState.selectedProposalIndex,
-        editedFields,
-        finalKgi: finalDraft
-      }
-    };
-
-    const kgiDocRef = await addDoc(collection(db, "kgis"), createdKgi);
-
-    await updateCreationSession({
-      status: "completed",
-      selectedCandidateIndex: wizardState.selectedProposalIndex,
-      editedFields,
-      finalKgi: finalDraft,
-      finalKgiId: kgiDocRef.id,
-      completedAt: serverTimestamp()
-    });
-
-    try {
-      const generated = await generateRoadmap({
-        name: finalDraft.name,
-        goalText: finalDraft.goalText,
-        deadline: finalDraft.deadline,
-        level,
-        context: {
-          rawInput: wizardState.roughInput,
-          normalizedIntent: wizardState.normalizedIntent,
-          businessGoalType: wizardState.businessGoalType,
-          targetAudience: wizardState.tags.targetAudience || "",
-          channel: wizardState.tags.channel || "",
-          monetizationType: wizardState.tags.monetizationType || "",
-          availableTime: wizardState.tags.availableTime || wizardState.answers.availableTime || "",
-          feasibilityReasons: wizardState.feasibility?.feasibilityReasons || [],
-          selectedCandidateType,
-          finalKgi: finalDraft
-        }
-      });
-      if (Array.isArray(generated.roadmapPhases) && generated.roadmapPhases.length > 0) {
-        await updateDoc(doc(db, "kgis", kgiDocRef.id), {
-          roadmapPhases: generated.roadmapPhases,
-          goalText: generated.kgiDescription || finalDraft.goalText,
-          explanationLevel: level,
-          updatedAt: serverTimestamp()
-        });
-      }
-    } catch (roadmapError) {
-      console.error("Failed to generate roadmap", roadmapError);
-    }
-
-    window.sessionStorage.setItem(buildInitialDetailEntryStorageKey(kgiDocRef.id), JSON.stringify({
-      source: "new-kgi",
-      createdAt: Date.now(),
-      roadmapKpiStarted: false
-    }));
-    location.href = `./detail.html?id=${kgiDocRef.id}`;
-  } catch (error) {
-    console.error(error);
-    alert("保存に失敗しました。Firebase設定とルールを確認してください。");
-    setStatus("保存に失敗しました。Firebase設定とルールを確認してください。", true);
+    await persistKgi({ finalDraft, startDate, level });
+  } catch (_error) {
     endInFlight("saveKgi");
-    setButtonBusy(saveButton, false);
+    return;
   }
+});
+
+editSpecificityButton.addEventListener("click", () => {
+  hideSpecificityWarning();
+  goalTextInput.focus();
+  setStatus("手動で編集してから保存してください。", false);
 });
