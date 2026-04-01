@@ -33,7 +33,7 @@
   font-size: 0.76rem;
   line-height: 1.35;
   font-weight: 600;
-  padding: 4px 9px;
+  min-height: 34px;
 }
 
 .flow-nav-item::before {
@@ -42,8 +42,40 @@
   height: 7px;
   border-radius: 999px;
   background: currentColor;
+  margin-left: 9px;
   margin-right: 6px;
   opacity: 0.85;
+}
+
+.flow-nav-link,
+.flow-nav-text {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 10px 6px 0;
+}
+
+.flow-nav-link {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.flow-nav-link:hover,
+.flow-nav-link:focus-visible {
+  opacity: 0.8;
+}
+
+.flow-nav-item.is-clickable {
+  cursor: pointer;
+}
+
+.flow-nav-item.is-clickable:focus-within {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+}
+
+.flow-nav-item.is-static {
+  cursor: default;
 }
 
 .flow-nav-item.is-completed {
@@ -76,6 +108,11 @@
 
   .flow-nav-item {
     font-size: 0.72rem;
-    padding: 4px 8px;
+    min-height: 38px;
+  }
+
+  .flow-nav-link,
+  .flow-nav-text {
+    padding: 8px 10px 8px 0;
   }
 }

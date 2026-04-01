@@ -131,14 +131,9 @@
   </head>
   <body class="page-stage-task">
     <main class="container stage-shell">
-      <nav class="flow-nav" aria-label="現在地ナビ">
+      <nav class="flow-nav" aria-label="現在地ナビ" data-current-stage="task">
         <p class="flow-nav-caption">現在地: 今はタスクを作って実行に進める段階です。</p>
-        <ol class="flow-nav-list">
-          <li class="flow-nav-item is-completed">KGI作成</li>
-          <li class="flow-nav-item is-completed">フェーズ設計</li>
-          <li class="flow-nav-item is-completed">KPI設計</li>
-          <li class="flow-nav-item is-current">タスク設計・実行</li>
-        </ol>
+        <ol class="flow-nav-list"></ol>
       </nav>
 
       <div class="row-links">
@@ -216,6 +211,7 @@
       </section>
     </main>
 
+    <script type="module" src="./location-nav.js"></script>
     <script type="module" src="./kpi.js"></script>
   </body>
 </html>
