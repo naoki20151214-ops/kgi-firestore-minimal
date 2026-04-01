@@ -35,7 +35,10 @@ const createHref = ({ actionType, kgiId = "", phaseId = "", kpiId = "" }) => {
   if (actionType === "create_kgi") {
     return "./index.html";
   }
-  if (actionType === "create_roadmap" || actionType === "review") {
+  if (actionType === "create_roadmap") {
+    return `./detail.html?id=${encodeURIComponent(kgiId)}&focus=roadmap`;
+  }
+  if (actionType === "review") {
     return `./detail.html?id=${encodeURIComponent(kgiId)}`;
   }
   if (actionType === "create_kpi" || actionType === "cleanup_kpi") {
@@ -96,7 +99,7 @@ const resolveForKgi = ({ kgi, phases = [], kpis = [], tasksByKpiId = new Map() }
       title: "ロードマップを作成する",
       reason: "このKGIは大きな流れが未作成のため、先にフェーズ設計が必要です",
       stageLabel: "ロードマップ未作成",
-      buttonLabel: "このKGIのロードマップを作る",
+      buttonLabel: `${getKgiName(kgi)}のロードマップを作る`,
       priority: 2,
       progressSummary: "ロードマップ未作成"
     });
