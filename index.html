@@ -41,13 +41,66 @@
         padding: 7px 4px;
       }
       .step.active { background: #2563eb; color: #fff; font-weight: 700; }
+      .step.completed { background: #dbeafe; color: #1d4ed8; }
       .section {
         border: 1px solid #e5e7eb;
         border-radius: 14px;
         padding: 14px;
         margin-bottom: 14px;
+        transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease, opacity 0.2s ease;
+      }
+      .section[data-state="current"] {
+        border-color: #93c5fd;
+        background: #eff6ff;
+      }
+      .section[data-state="completed"] {
+        background: #f3f4f6;
+        border-color: #e5e7eb;
+        color: #6b7280;
+      }
+      .section[data-state="future"] {
+        background: #f9fafb;
+        opacity: 0.7;
+      }
+      .section[data-state="completed"] .helper,
+      .section[data-state="completed"] label,
+      .section[data-state="completed"] .proposal-meta,
+      .section[data-state="completed"] .question-box {
+        color: #6b7280;
+      }
+      .section[data-state="completed"] .question-box {
+        border-color: #e5e7eb;
+        background: #f9fafb;
+      }
+      .section[data-state="completed"] button:not(:disabled) {
+        background: #cbd5e1;
+        color: #475569;
       }
       .section h2 { margin: 0 0 8px; font-size: 1rem; }
+      .section-title {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+      .state-chip {
+        display: inline-flex;
+        align-items: center;
+        border-radius: 999px;
+        font-size: 0.72rem;
+        font-weight: 700;
+        padding: 3px 8px;
+        background: #dbeafe;
+        color: #1d4ed8;
+      }
+      .section[data-state="completed"] .state-chip {
+        background: #e5e7eb;
+        color: #6b7280;
+      }
+      .section[data-state="future"] .state-chip {
+        background: #e5e7eb;
+        color: #6b7280;
+      }
       .helper { margin: 0 0 12px; color: #6b7280; font-size: 0.85rem; }
       .field { display: grid; gap: 6px; margin-bottom: 12px; }
       label { font-size: 0.92rem; font-weight: 600; }
@@ -158,8 +211,8 @@
         <div id="step4Label" class="step">4. 保存</div>
       </div>
 
-      <section id="roughSection" class="section stage-focus-card">
-        <h2>1. ざっくり入力</h2>
+      <section id="roughSection" class="section stage-focus-card" data-state="current">
+        <h2 class="section-title">1. ざっくり入力 <span id="roughStateChip" class="state-chip">入力中</span></h2>
         <p class="helper">まずは大枠だけでOKです。ここから質問であなた向けに整えます。</p>
         <div class="field">
           <label for="roughGoalInput">やりたいこと</label>
@@ -181,8 +234,8 @@
       </section>
 
 
-      <section id="feasibilitySection" class="section hidden">
-        <h2>2. 実現可能性チェック</h2>
+      <section id="feasibilitySection" class="section hidden" data-state="future">
+        <h2 class="section-title">2. 実現可能性チェック <span id="feasibilityStateChip" class="state-chip">これから</span></h2>
         <p class="helper">入力内容を整えたうえで、今の条件で進めやすいかを確認します。</p>
         <div class="question-box">
           <strong>今の入力を整理すると</strong>
@@ -197,8 +250,8 @@
         <button id="toQuestionsButton" type="button">不足している点を追加で答える</button>
       </section>
 
-      <section id="questionSection" class="section hidden">
-        <h2>3. 追加質問</h2>
+      <section id="questionSection" class="section hidden" data-state="future">
+        <h2 class="section-title">3. 追加質問 <span id="questionStateChip" class="state-chip">これから</span></h2>
         <p class="helper">この質問に答えると、より自分に合ったKGIになりやすいです。</p>
         <div id="questionProgress" class="q-badge"></div>
         <div id="questionText" class="question-box"></div>
@@ -212,8 +265,8 @@
         </div>
       </section>
 
-      <section id="proposalSection" class="section hidden">
-        <h2>3. KGI候補</h2>
+      <section id="proposalSection" class="section hidden" data-state="future">
+        <h2 class="section-title">4. KGI候補・保存 <span id="proposalStateChip" class="state-chip">これから</span></h2>
         <p class="helper">2〜3案から選び、必要なら軽く編集して保存できます。</p>
         <div id="proposalList" class="proposal-list"></div>
 

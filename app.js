@@ -7,8 +7,11 @@ const roughReasonInput = document.getElementById("roughReasonInput");
 const roughDeadlineInput = document.getElementById("roughDeadlineInput");
 const roughCurrentStateInput = document.getElementById("roughCurrentStateInput");
 const startDeepDiveButton = document.getElementById("startDeepDiveButton");
+const roughSection = document.getElementById("roughSection");
+const roughStateChip = document.getElementById("roughStateChip");
 
 const feasibilitySection = document.getElementById("feasibilitySection");
+const feasibilityStateChip = document.getElementById("feasibilityStateChip");
 const normalizedSummary = document.getElementById("normalizedSummary");
 const feasibilityLevelText = document.getElementById("feasibilityLevelText");
 const feasibilityReasons = document.getElementById("feasibilityReasons");
@@ -16,6 +19,7 @@ const feasibilityAltRoute = document.getElementById("feasibilityAltRoute");
 const toQuestionsButton = document.getElementById("toQuestionsButton");
 
 const questionSection = document.getElementById("questionSection");
+const questionStateChip = document.getElementById("questionStateChip");
 const questionProgress = document.getElementById("questionProgress");
 const questionText = document.getElementById("questionText");
 const questionAnswerInput = document.getElementById("questionAnswerInput");
@@ -23,6 +27,7 @@ const prevQuestionButton = document.getElementById("prevQuestionButton");
 const nextQuestionButton = document.getElementById("nextQuestionButton");
 
 const proposalSection = document.getElementById("proposalSection");
+const proposalStateChip = document.getElementById("proposalStateChip");
 const proposalList = document.getElementById("proposalList");
 const editSection = document.getElementById("editSection");
 const nameInput = document.getElementById("kgiName");
@@ -119,10 +124,49 @@ const setStatus = (message, isError = false) => {
 
 const setStep = (step) => {
   wizardState.step = step;
-  step1Label.classList.toggle("active", step === 1);
-  step2Label.classList.toggle("active", step === 2);
-  step3Label.classList.toggle("active", step === 3);
-  step4Label.classList.toggle("active", step === 4);
+  const steps = [step1Label, step2Label, step3Label, step4Label];
+  steps.forEach((label, index) => {
+    const stepNumber = index + 1;
+    label.classList.toggle("active", step === stepNumber);
+    label.classList.toggle("completed", step > stepNumber);
+  });
+  if (typeof updateWizardBlockFocus === "function") {
+    updateWizardBlockFocus();
+  }
+};
+
+const applyBlockState = (section, chip, state, text) => {
+  section.dataset.state = state;
+  chip.textContent = text;
+};
+
+const updateWizardBlockFocus = () => {
+  const isQuestionVisible = !questionSection.classList.contains("hidden");
+
+  if (wizardState.step === 1) {
+    applyBlockState(roughSection, roughStateChip, "current", "入力中");
+    applyBlockState(feasibilitySection, feasibilityStateChip, "future", "これから");
+    applyBlockState(questionSection, questionStateChip, "future", "これから");
+    applyBlockState(proposalSection, proposalStateChip, "future", "これから");
+  } else if (wizardState.step === 2 && !isQuestionVisible) {
+    applyBlockState(roughSection, roughStateChip, "completed", "入力済み");
+    applyBlockState(feasibilitySection, feasibilityStateChip, "current", "確認中");
+    applyBlockState(questionSection, questionStateChip, "future", "これから");
+    applyBlockState(proposalSection, proposalStateChip, "future", "これから");
+  } else if (wizardState.step === 2 && isQuestionVisible) {
+    applyBlockState(roughSection, roughStateChip, "completed", "入力済み");
+    applyBlockState(feasibilitySection, feasibilityStateChip, "completed", "確認済み");
+    applyBlockState(questionSection, questionStateChip, "current", "回答中");
+    applyBlockState(proposalSection, proposalStateChip, "future", "これから");
+  } else if (wizardState.step >= 3) {
+    applyBlockState(roughSection, roughStateChip, "completed", "入力済み");
+    applyBlockState(feasibilitySection, feasibilityStateChip, "completed", "確認済み");
+    applyBlockState(questionSection, questionStateChip, "completed", "回答済み");
+    applyBlockState(proposalSection, proposalStateChip, "current", wizardState.step === 4 ? "保存中" : "選択中");
+  }
+
+  startDeepDiveButton.disabled = wizardState.step > 1 || wizardState.inFlight.startDeepDive;
+  toQuestionsButton.disabled = wizardState.step > 2 || wizardState.inFlight.toQuestions;
 };
 
 const beginInFlight = (key) => {
@@ -1014,6 +1058,7 @@ startDeepDiveButton.addEventListener("click", async () => {
     questionSection.classList.add("hidden");
     proposalSection.classList.add("hidden");
     setStep(2);
+    updateWizardBlockFocus();
     setStatus("入力内容を整理し、実現可能性チェックを作成しました。", false);
   } catch (error) {
     console.error(error);
@@ -1036,6 +1081,7 @@ toQuestionsButton.addEventListener("click", async () => {
       askedQuestions: wizardState.questions
     });
     setStep(2);
+    updateWizardBlockFocus();
     setStatus("不足している点だけ質問します。", false);
   } finally {
     if (isLatestToken("toQuestions", actionToken)) {
@@ -1140,6 +1186,7 @@ nextQuestionButton.addEventListener("click", async () => {
     if (!isLatestToken("nextQuestion", actionToken)) return;
     proposalSection.classList.remove("hidden");
     setStep(3);
+    updateWizardBlockFocus();
     renderProposals();
 
     await updateCreationSession({
@@ -1158,6 +1205,7 @@ nextQuestionButton.addEventListener("click", async () => {
 
 saveButton.disabled = true;
 setStatus("Firebase接続を初期化しています...");
+updateWizardBlockFocus();
 
 (async () => {
   try {
