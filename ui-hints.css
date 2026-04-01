@@ -1,0 +1,34 @@
+.inline-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.15em;
+  margin-right: 0.28em;
+  font-size: 0.95em;
+  opacity: 0.9;
+}
+
+.icon-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.16rem;
+}
+
+.priority-rating {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.82rem;
+  color: #475569;
+}
+
+.priority-rating .stars {
+  letter-spacing: 0.06em;
+  font-weight: 700;
+  color: #92400e;
+}
+
+.priority-rating .label {
+  font-weight: 600;
+  color: #64748b;
+}

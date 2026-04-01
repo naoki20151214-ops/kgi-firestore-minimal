@@ -21,6 +21,7 @@ const overviewDesignReasonElement = document.getElementById("overviewDesignReaso
 const overviewDesignReasonListElement = document.getElementById("overviewDesignReasonList");
 const nowActionCardElement = document.getElementById("nowActionCard");
 const nowActionTypeBadgeElement = document.getElementById("nowActionTypeBadge");
+const nowActionPriorityElement = document.getElementById("nowActionPriority");
 const nowActionStageElement = document.getElementById("nowActionStage");
 const nowActionTargetPhaseElement = document.getElementById("nowActionTargetPhase");
 const nowActionTargetKpiElement = document.getElementById("nowActionTargetKpi");
@@ -165,6 +166,11 @@ const ACTION_TYPE_META = {
   task_create: { label: "タスク作成", badgeClass: "is-task-create" },
   task_run: { label: "タスク実行", badgeClass: "is-task-run" },
   review: { label: "見直し", badgeClass: "is-review" }
+};
+
+const toStars = (level = 3) => {
+  const safeLevel = Math.max(1, Math.min(5, Number(level) || 3));
+  return `${"★".repeat(safeLevel)}${"☆".repeat(5 - safeLevel)}`;
 };
 
 const resolvePhaseKpiStatus = ({ phase, kpiCount = 0 }) => {
@@ -348,6 +354,7 @@ const pickNowAction = ({
     return {
       stage: "KPI作成",
       actionType: "kpi_create",
+      importanceLevel: 4,
       targetPhase: `フェーズ${firstNoKpiPhase.phase.phaseNumber} ${asDisplayText(firstNoKpiPhase.phase.title, "")}`,
       targetKpi: "-",
       progress: buildProgress({
@@ -365,6 +372,7 @@ const pickNowAction = ({
     return {
       stage: "KPI整理",
       actionType: "kpi_cleanup",
+      importanceLevel: 4,
       targetPhase: `フェーズ${firstCleanupPhase.phase.phaseNumber} ${asDisplayText(firstCleanupPhase.phase.title, "")}`,
       targetKpi: "-",
       progress: buildProgress({
@@ -382,6 +390,7 @@ const pickNowAction = ({
     return {
       stage: "KPI整理",
       actionType: "kpi_cleanup",
+      importanceLevel: 4,
       targetPhase: `フェーズ${firstDraftPhase.phase.phaseNumber} ${asDisplayText(firstDraftPhase.phase.title, "")}`,
       targetKpi: "-",
       progress: buildProgress({
@@ -419,6 +428,7 @@ const pickNowAction = ({
     return {
       stage: "タスク作成",
       actionType: "task_create",
+      importanceLevel: 3,
       targetPhase: phase ? `フェーズ${phase.phase.phaseNumber} ${asDisplayText(phase.phase.title, "")}` : "-",
       targetKpi: asDisplayText(firstTasklessKpi.name, "名称未設定KPI"),
       progress: buildProgress({
@@ -455,6 +465,7 @@ const pickNowAction = ({
     return {
       stage: "タスク実行",
       actionType: "task_run",
+      importanceLevel: 5,
       targetPhase: phase ? `フェーズ${phase.phase.phaseNumber} ${asDisplayText(phase.phase.title, "")}` : "-",
       targetKpi: asDisplayText(firstInProgressKpi.name, "名称未設定KPI"),
       progress: buildProgress({
@@ -474,6 +485,7 @@ const pickNowAction = ({
     return {
       stage: "タスク実行",
       actionType: "task_run",
+      importanceLevel: 4,
       targetPhase: phase ? `フェーズ${phase.phase.phaseNumber} ${asDisplayText(phase.phase.title, "")}` : "-",
       targetKpi: asDisplayText(firstIncompleteKpi.name, "名称未設定KPI"),
       progress: buildProgress({
@@ -490,6 +502,7 @@ const pickNowAction = ({
   return {
     stage: "見直し",
     actionType: "review",
+    importanceLevel: 2,
     targetPhase: "このKGI全体",
     targetKpi: "-",
     progress: buildProgress({
@@ -506,6 +519,7 @@ const renderNowActionCard = (action) => {
   if (
     !nowActionCardElement
     || !nowActionTypeBadgeElement
+    || !nowActionPriorityElement
     || !nowActionStageElement
     || !nowActionTargetPhaseElement
     || !nowActionTargetKpiElement
@@ -524,6 +538,7 @@ const renderNowActionCard = (action) => {
   nowActionCardElement.hidden = false;
   nowActionTypeBadgeElement.textContent = actionMeta.label;
   nowActionTypeBadgeElement.className = `action-type-badge ${actionMeta.badgeClass}`;
+  nowActionPriorityElement.innerHTML = `<span class="label">重要度</span><span class="stars">${toStars(action.importanceLevel)}</span>`;
   nowActionStageElement.textContent = `今いる段階: ${asDisplayText(action.stage, "-")}`;
   nowActionTargetPhaseElement.textContent = `対象フェーズ: ${asDisplayText(action.targetPhase, "-")}`;
   nowActionTargetKpiElement.textContent = `対象KPI: ${asDisplayText(action.targetKpi, "-")}`;

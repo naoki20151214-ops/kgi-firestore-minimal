@@ -7,6 +7,7 @@
     <link rel="stylesheet" href="./readable-text.css" />
     <link rel="stylesheet" href="./location-nav.css" />
     <link rel="stylesheet" href="./stage-tone.css" />
+    <link rel="stylesheet" href="./ui-hints.css" />
     <style>
       :root { color-scheme: light; }
       body {
@@ -235,6 +236,9 @@
         font-weight: 700;
         color: #1e3a8a;
       }
+      .now-action-priority {
+        margin: 0;
+      }
       .action-type-badge {
         display: inline-flex;
         align-items: center;
@@ -368,24 +372,25 @@
           </div>
           <div id="nowActionCard" class="now-action-card stage-focus-card" hidden>
             <div class="now-action-header">
-              <p class="now-action-title">今やること</p>
+              <p class="now-action-title"><span class="inline-icon" aria-hidden="true">⚡</span>今やること</p>
               <span id="nowActionTypeBadge" class="action-type-badge">-</span>
             </div>
+            <p id="nowActionPriority" class="now-action-priority priority-rating"><span class="label">重要度</span><span class="stars">-</span></p>
             <div class="now-action-block">
-              <p class="now-action-label">今いる段階</p>
+              <p class="now-action-label"><span class="inline-icon" aria-hidden="true">📍</span>今いる段階</p>
               <p id="nowActionStage" class="now-action-body">-</p>
             </div>
             <div class="now-action-block">
-              <p class="now-action-label">対象</p>
+              <p class="now-action-label"><span class="inline-icon" aria-hidden="true">🎯</span>対象</p>
               <p id="nowActionTargetPhase" class="now-action-body">対象フェーズ: -</p>
               <p id="nowActionTargetKpi" class="now-action-body">対象KPI: -</p>
             </div>
             <div class="now-action-block">
-              <p class="now-action-label">ここまでの進捗</p>
+              <p class="now-action-label"><span class="inline-icon" aria-hidden="true">⭕</span>ここまでの進捗</p>
               <ul id="nowActionProgressList" class="now-action-progress-list"></ul>
             </div>
             <div class="now-action-block">
-              <p class="now-action-label">次にやること</p>
+              <p class="now-action-label"><span class="inline-icon" aria-hidden="true">➡️</span>次にやること</p>
               <p id="nowActionText" class="now-action-body">-</p>
             </div>
             <a id="nowActionLink" class="now-action-button stage-primary-link" href="#" hidden>今やることへ進む</a>

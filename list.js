@@ -17,6 +17,7 @@ const todayTaskEmpty = document.getElementById("todayTaskEmpty");
 const todayTaskName = document.getElementById("todayTaskName");
 const todayTaskKpi = document.getElementById("todayTaskKpi");
 const todayTaskKgi = document.getElementById("todayTaskKgi");
+const todayTaskPriority = document.getElementById("todayTaskPriority");
 const todayTaskLink = document.getElementById("todayTaskLink");
 const listDebugPanel = document.getElementById("listDebugPanel");
 const listDebugText = document.getElementById("listDebugText");
@@ -216,9 +217,12 @@ const renderTodayTask = (todayTask) => {
   todayTaskName.textContent = todayTask.isTaskAction
     ? `今日やること: ${todayTask.nextActionText}`
     : `次にやること: ${todayTask.nextActionText}`;
-  todayTaskKpi.textContent = `段階: ${todayTask.stageLabel}`;
+  todayTaskKpi.innerHTML = `<span class="inline-icon" aria-hidden="true">📈</span>段階: ${todayTask.stageLabel}`;
   if (todayTaskKgi) {
-    todayTaskKgi.textContent = `${todayTask.contextText}: ${todayTask.contextName} / 対象KGI: ${todayTask.kgiName}`;
+    todayTaskKgi.innerHTML = `<span class="inline-icon" aria-hidden="true">🎯</span>${todayTask.contextText}: ${todayTask.contextName} / 対象KGI: ${todayTask.kgiName}`;
+  }
+  if (todayTaskPriority) {
+    todayTaskPriority.innerHTML = `<span class="label">重要度</span><span class="stars">${toStars(todayTask.importanceLevel)}</span>`;
   }
   todayTaskLink.textContent = todayTask.buttonText;
   todayTaskLink.href = todayTask.link;
@@ -289,6 +293,16 @@ const getStagePriority = (stageCode) => {
   return priorities[stageCode] ?? 0;
 };
 
+const getImportanceLevelByStage = (stageCode) => {
+  const map = { A: 4, B: 4, C: 4, D: 3, E: 5, F: 4, G: 2 };
+  return map[stageCode] ?? 3;
+};
+
+const toStars = (level = 3) => {
+  const safeLevel = Math.max(1, Math.min(5, Number(level) || 3));
+  return `${"★".repeat(safeLevel)}${"☆".repeat(5 - safeLevel)}`;
+};
+
 const decideTodayActionForKgi = ({ kgiId, kgiName, phaseRows, kpis, tasksByKpiId }) => {
   const firstPhase = phaseRows[0];
   const hasNoKpiPhase = phaseRows.some((row) => row.planningStatus === "no_kpi");
@@ -352,15 +366,16 @@ const renderCards = (items) => {
 
     card.innerHTML = `
       <header class="kgi-card-head">
-        <h2 class="kgi-name">${item.name}</h2>
+        <h2 class="kgi-name"><span class="inline-icon" aria-hidden="true">🎯</span>${item.name}</h2>
         <p class="kgi-summary">${item.summary}</p>
       </header>
       <section class="progress-group" aria-label="進捗サマリー">
-        <span class="progress-item ${item.progress.phaseClass}">${item.progress.phaseText}</span>
-        <span class="progress-item ${item.progress.kpiClass}">${item.progress.kpiText}</span>
-        <span class="progress-item ${item.progress.taskClass}">${item.progress.taskText}</span>
+        <span class="progress-item ${item.progress.phaseClass}"><span class="inline-icon" aria-hidden="true">🗺️</span>${item.progress.phaseText}</span>
+        <span class="progress-item ${item.progress.kpiClass}"><span class="inline-icon" aria-hidden="true">📈</span>${item.progress.kpiText}</span>
+        <span class="progress-item ${item.progress.taskClass}"><span class="inline-icon" aria-hidden="true">☑️</span>${item.progress.taskText}</span>
       </section>
-      <p class="next-action">${item.nextAction}</p>
+      <p class="card-priority priority-rating"><span class="label">重要度</span><span class="stars">${toStars(item.importanceLevel)}</span></p>
+      <p class="next-action"><span class="inline-icon" aria-hidden="true">⚡</span>${item.nextAction}</p>
       <a class="button kgi-open" href="./detail.html?id=${item.id}">このKGIを開く</a>
     `;
 
@@ -427,6 +442,7 @@ const renderCards = (items) => {
       const kgiName = asText(data.name, "名称未設定KGI");
       const todayAction = decideTodayActionForKgi({ kgiId, kgiName, phaseRows, kpis, tasksByKpiId });
       const nextAction = todayAction.nextActionCardText;
+      todayAction.importanceLevel = getImportanceLevelByStage(todayAction.stageCode);
       const updatedAtMs = getComparableCreatedAt(data.updatedAt);
       const createdAtMs = getComparableCreatedAt(data.createdAt);
       const priorityScore = computePriorityScore({
@@ -439,9 +455,10 @@ const renderCards = (items) => {
       return {
         id: kgiId,
         name: kgiName,
-        summary: `${createGoalSummary(data.goalText)} / 期限: ${displayDeadline(data.deadline)}`,
+        summary: `${createGoalSummary(data.goalText)} / 📅 期限: ${displayDeadline(data.deadline)}`,
         progress,
         nextAction,
+        importanceLevel: todayAction.importanceLevel,
         priorityScore,
         isInProgressCandidate: todayAction.stageCode !== "G",
         todayAction
