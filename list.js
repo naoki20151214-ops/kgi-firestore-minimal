@@ -7,6 +7,7 @@ import {
   query
 } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
 import { getDb } from "./firebase-config.js";
+import { decideNowAction, getNowActionImportance, getNowActionStageWeight } from "./now-action-engine.js";
 
 const pageMode = document.body?.dataset?.pageMode || "home";
 const statusText = document.getElementById("statusText");
@@ -214,18 +215,16 @@ const renderTodayTask = (todayTask) => {
     return;
   }
 
-  todayTaskName.textContent = todayTask.isTaskAction
-    ? `今日やること: ${todayTask.nextActionText}`
-    : `次にやること: ${todayTask.nextActionText}`;
+  todayTaskName.textContent = `今日やること: ${todayTask.title}`;
   todayTaskKpi.innerHTML = `<span class="inline-icon" aria-hidden="true">📈</span>段階: ${todayTask.stageLabel}`;
   if (todayTaskKgi) {
-    todayTaskKgi.innerHTML = `<span class="inline-icon" aria-hidden="true">🎯</span>${todayTask.contextText}: ${todayTask.contextName} / 対象KGI: ${todayTask.kgiName}`;
+    todayTaskKgi.innerHTML = `<span class="inline-icon" aria-hidden="true">🎯</span>${todayTask.reason} / 進捗: ${todayTask.progressSummary}`;
   }
   if (todayTaskPriority) {
     todayTaskPriority.innerHTML = `<span class="label">重要度</span><span class="stars">${toStars(todayTask.importanceLevel)}</span>`;
   }
-  todayTaskLink.textContent = todayTask.buttonText;
-  todayTaskLink.href = todayTask.link;
+  todayTaskLink.textContent = todayTask.buttonLabel;
+  todayTaskLink.href = todayTask.href;
   todayTaskSection.hidden = false;
   if (todayTaskEmpty) {
     todayTaskEmpty.hidden = true;
@@ -288,68 +287,9 @@ const computePriorityScore = ({ taskStats, hasNextAction, updatedAtMs, createdAt
   return score;
 };
 
-const getStagePriority = (stageCode) => {
-  const priorities = { E: 70, F: 60, D: 50, C: 40, B: 30, A: 20, G: 0 };
-  return priorities[stageCode] ?? 0;
-};
-
-const getImportanceLevelByStage = (stageCode) => {
-  const map = { A: 4, B: 4, C: 4, D: 3, E: 5, F: 4, G: 2 };
-  return map[stageCode] ?? 3;
-};
-
 const toStars = (level = 3) => {
   const safeLevel = Math.max(1, Math.min(5, Number(level) || 3));
   return `${"★".repeat(safeLevel)}${"☆".repeat(5 - safeLevel)}`;
-};
-
-const decideTodayActionForKgi = ({ kgiId, kgiName, phaseRows, kpis, tasksByKpiId }) => {
-  const firstPhase = phaseRows[0];
-  const hasNoKpiPhase = phaseRows.some((row) => row.planningStatus === "no_kpi");
-  const hasDraftPhase = phaseRows.some((row) => row.planningStatus === "draft" || row.planningStatus === "cleanup_needed");
-  const pendingKpis = kpis.filter((kpi) => isKpiPendingCleanup(kpi));
-  const finalizedKpis = kpis.filter((kpi) => isKpiFinalized(kpi));
-
-  if (phaseRows.length === 0) {
-    return { stageCode: "A", stageLabel: "ロードマップ作成", nextActionText: "ロードマップを作る", nextActionCardText: "次: ロードマップを作る", buttonText: "このKGIを開く", link: `./detail.html?id=${kgiId}`, kgiName, contextText: "対象KGI", contextName: kgiName, isTaskAction: false };
-  }
-
-  if (hasNoKpiPhase || kpis.length === 0) {
-    const phaseText = `フェーズ${firstPhase?.phaseNumber ?? 1}`;
-    return { stageCode: "B", stageLabel: "KPI作成", nextActionText: `${phaseText}でKPIを作る`, nextActionCardText: `次: ${phaseText}でKPIを作る`, buttonText: "このフェーズを開く", link: `./detail.html?id=${kgiId}`, kgiName, contextText: "対象フェーズ", contextName: phaseText, isTaskAction: false };
-  }
-
-  if (hasDraftPhase || pendingKpis.length > 0) {
-    const targetKpi = pendingKpis[0] ?? kpis[0];
-    return { stageCode: "C", stageLabel: "KPI整理", nextActionText: "KPIを整理して確定する", nextActionCardText: "次: KPIを整理して確定する", buttonText: "このフェーズを開く", link: `./detail.html?id=${kgiId}`, kgiName, contextText: "対象KPI", contextName: asText(targetKpi?.name, "名称未設定KPI"), isTaskAction: false };
-  }
-
-  const finalizedKpisWithTasks = finalizedKpis.map((kpi) => {
-    const tasks = sortTasks(tasksByKpiId.get(kpi.id) ?? []);
-    return {
-      kpi,
-      tasks,
-      inProgressTask: tasks.find((task) => getTaskIsInProgress(task)) ?? null,
-      firstIncompleteTask: tasks.find((task) => !getTaskIsCompleted(task)) ?? null
-    };
-  });
-
-  if (!finalizedKpisWithTasks.some((row) => row.tasks.length > 0)) {
-    const targetKpi = finalizedKpisWithTasks[0]?.kpi ?? finalizedKpis[0] ?? kpis[0];
-    return { stageCode: "D", stageLabel: "タスク作成", nextActionText: "最初のタスクを1件作る", nextActionCardText: "次: 最初のタスクを1件作る", buttonText: "このKPIを見る", link: `./detail.html?id=${kgiId}`, kgiName, contextText: "対象KPI", contextName: asText(targetKpi?.name, "名称未設定KPI"), isTaskAction: false };
-  }
-
-  const inProgressRow = finalizedKpisWithTasks.find((row) => row.inProgressTask);
-  if (inProgressRow) {
-    return { stageCode: "E", stageLabel: "タスク実行", nextActionText: asText(inProgressRow.inProgressTask?.title, "名称未設定Task"), nextActionCardText: "次: 進行中タスクを進める", buttonText: "このTaskを見る", link: `./detail.html?id=${kgiId}`, kgiName, contextText: "対象KPI", contextName: asText(inProgressRow.kpi?.name, "名称未設定KPI"), isTaskAction: true };
-  }
-
-  const incompleteRow = finalizedKpisWithTasks.find((row) => row.firstIncompleteTask);
-  if (incompleteRow) {
-    return { stageCode: "F", stageLabel: "タスク実行", nextActionText: asText(incompleteRow.firstIncompleteTask?.title, "名称未設定Task"), nextActionCardText: "次: 未完了タスクに着手する", buttonText: "このTaskを見る", link: `./detail.html?id=${kgiId}`, kgiName, contextText: "対象KPI", contextName: asText(incompleteRow.kpi?.name, "名称未設定KPI"), isTaskAction: true };
-  }
-
-  return { stageCode: "G", stageLabel: "次フェーズ", nextActionText: "次のKPIまたは次のフェーズへ進む", nextActionCardText: "次: 次のKPIまたは次のフェーズへ進む", buttonText: "このKGIを開く", link: `./detail.html?id=${kgiId}`, kgiName, contextText: "対象KGI", contextName: kgiName, isTaskAction: false };
 };
 
 const renderCards = (items) => {
@@ -397,7 +337,15 @@ const renderCards = (items) => {
       if (inProgressEmptyState) {
         inProgressEmptyState.hidden = false;
       }
-      renderTodayTask(null);
+      renderTodayTask({
+        title: "新しいKGIを作成する",
+        stageLabel: "KGI未作成",
+        reason: "まず目標がないため、最初のKGI作成が必要です",
+        buttonLabel: "KGIを作成する",
+        href: "./index.html",
+        progressSummary: "KGI未作成",
+        importanceLevel: 5
+      });
       return;
     }
 
@@ -431,6 +379,10 @@ const renderCards = (items) => {
       kpisByKgiId.set(kpi.kgiId, rows);
     });
 
+    const allKgis = activeDocs.map((docItem) => ({ id: docItem.id, ...docItem.data() }));
+    const allPhases = allKgis.flatMap((kgi) => getPhaseRows(kgi).map((phase) => ({ ...phase, kgiId: kgi.id })));
+    const allTasks = activeKpiDocs.flatMap((kpi) => (tasksByKpiId.get(kpi.id) ?? []).map((task) => ({ ...task, kpiId: kpi.id })));
+
     const cards = activeDocs.map((docItem) => {
       const data = docItem.data();
       const kgiId = docItem.id;
@@ -440,9 +392,16 @@ const renderCards = (items) => {
       const taskStats = buildTaskStats(tasks);
       const progress = buildProgressMeta({ phaseRows, kpis, taskStats });
       const kgiName = asText(data.name, "名称未設定KGI");
-      const todayAction = decideTodayActionForKgi({ kgiId, kgiName, phaseRows, kpis, tasksByKpiId });
-      const nextAction = todayAction.nextActionCardText;
-      todayAction.importanceLevel = getImportanceLevelByStage(todayAction.stageCode);
+      const todayAction = decideNowAction({
+        kgis: allKgis,
+        phases: allPhases,
+        kpis: activeKpiDocs,
+        tasks: allTasks,
+        scope: "kgi",
+        kgiId
+      });
+      const nextAction = todayAction?.title ?? "次の行動を確認する";
+      const importanceLevel = getNowActionImportance(todayAction?.actionType);
       const updatedAtMs = getComparableCreatedAt(data.updatedAt);
       const createdAtMs = getComparableCreatedAt(data.createdAt);
       const priorityScore = computePriorityScore({
@@ -450,7 +409,7 @@ const renderCards = (items) => {
         hasNextAction: Boolean(nextAction),
         updatedAtMs,
         createdAtMs
-      }) + getStagePriority(todayAction.stageCode);
+      }) + getNowActionStageWeight(todayAction?.actionType);
 
       return {
         id: kgiId,
@@ -458,9 +417,9 @@ const renderCards = (items) => {
         summary: `${createGoalSummary(data.goalText)} / 📅 期限: ${displayDeadline(data.deadline)}`,
         progress,
         nextAction,
-        importanceLevel: todayAction.importanceLevel,
+        importanceLevel,
         priorityScore,
-        isInProgressCandidate: todayAction.stageCode !== "G",
+        isInProgressCandidate: todayAction?.actionType !== "review",
         todayAction
       };
     });
@@ -468,7 +427,16 @@ const renderCards = (items) => {
     cards.sort((a, b) => b.priorityScore - a.priorityScore);
 
     const homeCandidates = cards.filter((card) => card.isInProgressCandidate);
-    const todayTask = homeCandidates[0]?.todayAction ?? null;
+    const todayTask = decideNowAction({
+      kgis: allKgis,
+      phases: allPhases,
+      kpis: activeKpiDocs,
+      tasks: allTasks,
+      scope: "global"
+    });
+    if (todayTask) {
+      todayTask.importanceLevel = getNowActionImportance(todayTask.actionType);
+    }
     renderTodayTask(todayTask);
 
     const cardsToRender = pageMode === "home"

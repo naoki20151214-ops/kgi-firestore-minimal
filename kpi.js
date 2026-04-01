@@ -10,6 +10,7 @@ import {
   where
 } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
 import { getDb } from "./firebase-config.js";
+import { decideNowAction } from "./now-action-engine.js";
 
 const params = new URLSearchParams(window.location.search);
 const kgiId = params.get("id")?.trim() ?? "";
@@ -324,7 +325,16 @@ const loadTasks = async () => {
       });
     currentTasksForKpi = tasks;
     renderTasks(tasks);
-    taskStatus.textContent = `${tasks.length}件のタスクを表示しています。 (query: kpiId=${asText(kpiId, "undefined")})`;
+    const kpiAction = decideNowAction({
+      kgis: [{ id: kgiId }],
+      phases: [{ id: phaseId, kgiId, kpiPlanningStatus: currentPhasePlanningStatus }],
+      kpis: [{ id: kpiId, kgiId, phaseId, status: asText(currentKpi?.status, "draft") }],
+      tasks: tasks.map((task) => ({ ...task, kpiId })),
+      scope: "kpi",
+      kpiId
+    });
+    const actionSummary = kpiAction ? ` / 今やること: ${kpiAction.title}` : "";
+    taskStatus.textContent = `${tasks.length}件のタスクを表示しています。${actionSummary} (query: kpiId=${asText(kpiId, "undefined")})`;
   } catch (error) {
     const { code, message } = formatErrorDetail(error);
     tasksDebugState.errorCode = code;
