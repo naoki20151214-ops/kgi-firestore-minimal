@@ -8,17 +8,24 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
 import { getDb } from "./firebase-config.js";
 
+const pageMode = document.body?.dataset?.pageMode || "home";
 const statusText = document.getElementById("statusText");
 const cardsContainer = document.getElementById("kgiCards");
-const emptyState = document.getElementById("emptyState");
+const inProgressEmptyState = document.getElementById("inProgressEmptyState") || document.getElementById("emptyState");
 const todayTaskSection = document.getElementById("todayTaskSection");
+const todayTaskEmpty = document.getElementById("todayTaskEmpty");
 const todayTaskName = document.getElementById("todayTaskName");
 const todayTaskKpi = document.getElementById("todayTaskKpi");
+const todayTaskKgi = document.getElementById("todayTaskKgi");
 const todayTaskLink = document.getElementById("todayTaskLink");
 const listDebugPanel = document.getElementById("listDebugPanel");
 const listDebugText = document.getElementById("listDebugText");
 
 const setStatus = (message, isError = false) => {
+  if (!statusText) {
+    return;
+  }
+
   statusText.textContent = message;
   statusText.classList.toggle("error", isError);
 };
@@ -223,13 +230,22 @@ const renderTodayTask = (todayTask) => {
 
   if (!todayTask) {
     todayTaskSection.hidden = true;
+    if (todayTaskEmpty) {
+      todayTaskEmpty.hidden = false;
+    }
     return;
   }
 
   todayTaskName.textContent = todayTask.taskTitle;
   todayTaskKpi.textContent = `対象KPI: ${todayTask.kpiName}`;
+  if (todayTaskKgi) {
+    todayTaskKgi.textContent = `対象KGI: ${todayTask.kgiName}`;
+  }
   todayTaskLink.href = `./detail.html?id=${todayTask.kgiId}`;
   todayTaskSection.hidden = false;
+  if (todayTaskEmpty) {
+    todayTaskEmpty.hidden = true;
+  }
 };
 
 const sortTasks = (tasks) => (Array.isArray(tasks) ? [...tasks] : []).sort((a, b) => {
@@ -268,6 +284,7 @@ const findTodayTask = ({ kgiById, kpisByKgiId, tasksByKpiId }) => {
 
       return {
         kgiId,
+        kgiName: asText(kgiById.get(kgiId)?.name, "名称未設定KGI"),
         kpiName: asText(kpi.name, "名称未設定KPI"),
         taskTitle: asText(firstIncompleteTask.title, "名称未設定Task")
       };
@@ -316,18 +333,21 @@ const computePriorityScore = ({ taskStats, hasNextAction, updatedAtMs, createdAt
 };
 
 const renderCards = (items) => {
+  if (!cardsContainer) {
+    return;
+  }
+
   cardsContainer.innerHTML = "";
 
   const fragment = document.createDocumentFragment();
   items.forEach((item) => {
     const card = document.createElement("article");
-    card.className = `kgi-card${item.isLowPriority ? " is-low-priority" : ""}`;
+    card.className = "kgi-card";
 
     card.innerHTML = `
       <header class="kgi-card-head">
         <h2 class="kgi-name">${item.name}</h2>
         <p class="kgi-summary">${item.summary}</p>
-        <p class="meta-row${item.deadline === "期限未設定" ? " is-empty" : ""}">期限: ${item.deadline}</p>
       </header>
       <section class="progress-group" aria-label="進捗サマリー">
         <span class="progress-item ${item.progress.phaseClass}">${item.progress.phaseText}</span>
@@ -353,15 +373,19 @@ const renderCards = (items) => {
 
     if (snapshot.empty) {
       setStatus("データは0件です。");
-      emptyState.hidden = false;
+      if (inProgressEmptyState) {
+        inProgressEmptyState.hidden = false;
+      }
       renderTodayTask(null);
       return;
     }
 
     const activeDocs = await validateKgiDocs(db, snapshot.docs);
     if (activeDocs.length === 0) {
-      setStatus("表示可能なKGIが見つかりませんでした。");
-      emptyState.hidden = false;
+      setStatus("表示可能なKGIが見つかりませんでした。", true);
+      if (inProgressEmptyState) {
+        inProgressEmptyState.hidden = false;
+      }
       renderTodayTask(null);
       return;
     }
@@ -403,28 +427,48 @@ const renderCards = (items) => {
         updatedAtMs,
         createdAtMs
       });
+      const hasUnfinishedTasks = taskStats.total > taskStats.done;
+      const hasKpiIssue = kpis.length === 0 || phaseRows.some((row) => row.planningStatus === "no_kpi" || row.planningStatus === "draft" || row.planningStatus === "cleanup_needed");
 
       return {
         id: kgiId,
         name: asText(data.name, "名称未設定KGI"),
-        summary: createGoalSummary(data.goalText),
-        deadline: displayDeadline(data.deadline),
+        summary: `${createGoalSummary(data.goalText)} / 期限: ${displayDeadline(data.deadline)}`,
         progress,
         nextAction,
         priorityScore,
-        isLowPriority: taskStats.total > 0 && taskStats.done === taskStats.total
+        isInProgressCandidate: taskStats.inProgress > 0 || hasUnfinishedTasks || hasKpiIssue,
+        hasUnfinishedTasks
       };
     });
 
     cards.sort((a, b) => b.priorityScore - a.priorityScore);
 
-    renderCards(cards);
-    cardsContainer.hidden = false;
-
     const todayTask = findTodayTask({ kgiById, kpisByKgiId, tasksByKpiId });
     renderTodayTask(todayTask);
 
-    setStatus(`${cards.length}件のKGIを表示しています。進捗が高い順に並べています。`);
+    const cardsToRender = pageMode === "home"
+      ? cards.filter((card) => card.isInProgressCandidate).slice(0, 3)
+      : cards;
+
+    if (cardsToRender.length === 0) {
+      if (inProgressEmptyState) {
+        inProgressEmptyState.hidden = false;
+      }
+      setStatus("進行中のKGIはありません。新しいKGIを追加してください。");
+      return;
+    }
+
+    renderCards(cardsToRender);
+    if (cardsContainer) {
+      cardsContainer.hidden = false;
+    }
+
+    if (pageMode === "home") {
+      setStatus(`今日進めるKGIを${cardsToRender.length}件表示しています。`);
+    } else {
+      setStatus(`${cardsToRender.length}件のKGIを表示しています。`);
+    }
   } catch (error) {
     console.error(error);
     setStatus("一覧の読み込みに失敗しました。Firebase設定とルールを確認してください。", true);
