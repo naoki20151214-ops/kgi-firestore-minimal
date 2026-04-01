@@ -8,6 +8,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
 import { getDb } from "./firebase-config.js";
 import { enhanceReadableText } from "./readable-text.js";
+import { decideNowAction, getNowActionImportance } from "./now-action-engine.js";
 
 const kgiNameElement = document.getElementById("kgiName");
 const statusTextElement = document.getElementById("statusText");
@@ -161,10 +162,12 @@ const PHASE_KPI_STATUS_CLASSES = {
 };
 
 const ACTION_TYPE_META = {
-  kpi_create: { label: "KPI作成", badgeClass: "is-kpi-create" },
-  kpi_cleanup: { label: "KPI整理", badgeClass: "is-kpi-cleanup" },
-  task_create: { label: "タスク作成", badgeClass: "is-task-create" },
-  task_run: { label: "タスク実行", badgeClass: "is-task-run" },
+  create_kpi: { label: "KPI作成", badgeClass: "is-kpi-create" },
+  cleanup_kpi: { label: "KPI整理", badgeClass: "is-kpi-cleanup" },
+  create_task: { label: "タスク作成", badgeClass: "is-task-create" },
+  execute_task: { label: "タスク実行", badgeClass: "is-task-run" },
+  resume_task: { label: "タスク再開", badgeClass: "is-task-run" },
+  create_roadmap: { label: "ロードマップ作成", badgeClass: "is-kpi-create" },
   review: { label: "見直し", badgeClass: "is-review" }
 };
 
@@ -306,212 +309,22 @@ const renderDesignReasonBlock = (phaseRows = []) => {
   overviewDesignReasonElement.hidden = items.length === 0;
 };
 
-const pickNowAction = ({
-  kgiId,
-  phaseRows = [],
-  phases = [],
-  kpis = [],
-  tasksByKpiId = new Map()
-}) => {
-  if (!kgiId || phaseRows.length === 0) {
+const pickNowAction = ({ kgiId, phases = [], kpis = [], tasksByKpiId = new Map() }) => {
+  const tasks = kpis.flatMap((kpi) => (tasksByKpiId.get(kpi.id) ?? []).map((task) => ({ ...task, kpiId: kpi.id })));
+  const action = decideNowAction({
+    kgis: [{ id: kgiId, name: "" }],
+    phases: phases.map((phase) => ({ ...phase, kgiId })),
+    kpis,
+    tasks,
+    scope: "kgi",
+    kgiId
+  });
+  if (!action) {
     return null;
   }
-
-  const findPhaseById = (phaseId) => phaseRows.find((row) => row?.phase?.id === phaseId) ?? null;
-  const getTaskStatsByKpiId = (kpiId) => {
-    const tasks = tasksByKpiId.get(kpiId) ?? [];
-    const total = tasks.length;
-    const completed = tasks.filter((task) => task?.isCompleted === true || asDisplayText(task?.status, "") === "completed").length;
-    const inProgress = tasks.filter((task) => {
-      if (task?.isCompleted === true) {
-        return false;
-      }
-      return asDisplayText(task?.status, "active") === "active";
-    }).length;
-    return {
-      total,
-      completed,
-      inProgress
-    };
-  };
-
-  const buildProgress = ({
-    phaseLabel,
-    kpiStatus = "-",
-    taskStats = { total: 0, completed: 0, inProgress: 0 }
-  }) => ([
-    `フェーズ状態: ${phaseLabel}`,
-    `KPI状態: ${kpiStatus}`,
-    `タスク数: ${taskStats.total}件`,
-    `完了済み: ${taskStats.completed}件`,
-    `進行中: ${taskStats.inProgress}件`
-  ]);
-
-  const getFirstPhaseByStatus = (statusKey) => phaseRows.find((row) => row?.status?.key === statusKey) ?? null;
-
-  const firstNoKpiPhase = getFirstPhaseByStatus("no_kpi");
-  if (firstNoKpiPhase) {
-    return {
-      stage: "KPI作成",
-      actionType: "kpi_create",
-      importanceLevel: 4,
-      targetPhase: `フェーズ${firstNoKpiPhase.phase.phaseNumber} ${asDisplayText(firstNoKpiPhase.phase.title, "")}`,
-      targetKpi: "-",
-      progress: buildProgress({
-        phaseLabel: PHASE_KPI_STATUS_LABELS.no_kpi,
-        kpiStatus: "未作成"
-      }),
-      text: "このフェーズでKPIを出力してください。",
-      linkText: "このフェーズでKPIを作る",
-      href: `./phase.html?id=${encodeURIComponent(kgiId)}&phaseId=${encodeURIComponent(firstNoKpiPhase.phase.id)}`
-    };
-  }
-
-  const firstCleanupPhase = getFirstPhaseByStatus("cleanup_needed");
-  if (firstCleanupPhase) {
-    return {
-      stage: "KPI整理",
-      actionType: "kpi_cleanup",
-      importanceLevel: 4,
-      targetPhase: `フェーズ${firstCleanupPhase.phase.phaseNumber} ${asDisplayText(firstCleanupPhase.phase.title, "")}`,
-      targetKpi: "-",
-      progress: buildProgress({
-        phaseLabel: PHASE_KPI_STATUS_LABELS.cleanup_needed,
-        kpiStatus: "cleanup_needed"
-      }),
-      text: "KPI整理を進めてください。",
-      linkText: "このフェーズでKPIを整理する",
-      href: `./phase.html?id=${encodeURIComponent(kgiId)}&phaseId=${encodeURIComponent(firstCleanupPhase.phase.id)}`
-    };
-  }
-
-  const firstDraftPhase = getFirstPhaseByStatus("draft");
-  if (firstDraftPhase) {
-    return {
-      stage: "KPI整理",
-      actionType: "kpi_cleanup",
-      importanceLevel: 4,
-      targetPhase: `フェーズ${firstDraftPhase.phase.phaseNumber} ${asDisplayText(firstDraftPhase.phase.title, "")}`,
-      targetKpi: "-",
-      progress: buildProgress({
-        phaseLabel: PHASE_KPI_STATUS_LABELS.draft,
-        kpiStatus: "draft"
-      }),
-      text: "KPI整理を進めてください。",
-      linkText: "このフェーズでKPIを整理する",
-      href: `./phase.html?id=${encodeURIComponent(kgiId)}&phaseId=${encodeURIComponent(firstDraftPhase.phase.id)}`
-    };
-  }
-
-  const phaseOrderById = new Map(phases.map((phase, index) => [phase.id, index]));
-  const sortedKpis = [...kpis]
-    .sort((a, b) => {
-      const phaseA = Number(phaseOrderById.get(a.phaseId) ?? Number.POSITIVE_INFINITY);
-      const phaseB = Number(phaseOrderById.get(b.phaseId) ?? Number.POSITIVE_INFINITY);
-      if (phaseA !== phaseB) {
-        return phaseA - phaseB;
-      }
-
-      const createdDiff = toTimestampMs(a.createdAt) - toTimestampMs(b.createdAt);
-      if (createdDiff !== 0) {
-        return createdDiff;
-      }
-
-      return asDisplayText(a.name, "").localeCompare(asDisplayText(b.name, ""), "ja");
-    });
-
-  const toKpiHref = (kpi) => `./kpi.html?id=${encodeURIComponent(kgiId)}&phaseId=${encodeURIComponent(asDisplayText(kpi.phaseId, ""))}&kpiId=${encodeURIComponent(kpi.id)}`;
-
-  const firstTasklessKpi = sortedKpis.find((kpi) => (tasksByKpiId.get(kpi.id) ?? []).length === 0);
-  if (firstTasklessKpi) {
-    const phase = findPhaseById(firstTasklessKpi.phaseId);
-    return {
-      stage: "タスク作成",
-      actionType: "task_create",
-      importanceLevel: 3,
-      targetPhase: phase ? `フェーズ${phase.phase.phaseNumber} ${asDisplayText(phase.phase.title, "")}` : "-",
-      targetKpi: asDisplayText(firstTasklessKpi.name, "名称未設定KPI"),
-      progress: buildProgress({
-        phaseLabel: phase?.status?.label ?? PHASE_KPI_STATUS_LABELS.finalized,
-        kpiStatus: asDisplayText(firstTasklessKpi.status, "finalized"),
-        taskStats: getTaskStatsByKpiId(firstTasklessKpi.id)
-      }),
-      text: "最初のタスクを1件作ってください。",
-      linkText: "このKPIでタスクを作る",
-      href: toKpiHref(firstTasklessKpi)
-    };
-  }
-
-  const hasInProgressTask = (task) => {
-    if (!task || task.isCompleted === true) {
-      return false;
-    }
-    return asDisplayText(task.status, "active") === "active";
-  };
-
-  const hasIncompleteTask = (task) => {
-    if (!task) {
-      return false;
-    }
-    if (task.isCompleted === true) {
-      return false;
-    }
-    return asDisplayText(task.status, "active") !== "completed";
-  };
-
-  const firstInProgressKpi = sortedKpis.find((kpi) => (tasksByKpiId.get(kpi.id) ?? []).some(hasInProgressTask));
-  if (firstInProgressKpi) {
-    const phase = findPhaseById(firstInProgressKpi.phaseId);
-    return {
-      stage: "タスク実行",
-      actionType: "task_run",
-      importanceLevel: 5,
-      targetPhase: phase ? `フェーズ${phase.phase.phaseNumber} ${asDisplayText(phase.phase.title, "")}` : "-",
-      targetKpi: asDisplayText(firstInProgressKpi.name, "名称未設定KPI"),
-      progress: buildProgress({
-        phaseLabel: phase?.status?.label ?? PHASE_KPI_STATUS_LABELS.finalized,
-        kpiStatus: asDisplayText(firstInProgressKpi.status, "finalized"),
-        taskStats: getTaskStatsByKpiId(firstInProgressKpi.id)
-      }),
-      text: "進行中タスクを進めてください。",
-      linkText: "進行中タスクを開く",
-      href: toKpiHref(firstInProgressKpi)
-    };
-  }
-
-  const firstIncompleteKpi = sortedKpis.find((kpi) => (tasksByKpiId.get(kpi.id) ?? []).some(hasIncompleteTask));
-  if (firstIncompleteKpi) {
-    const phase = findPhaseById(firstIncompleteKpi.phaseId);
-    return {
-      stage: "タスク実行",
-      actionType: "task_run",
-      importanceLevel: 4,
-      targetPhase: phase ? `フェーズ${phase.phase.phaseNumber} ${asDisplayText(phase.phase.title, "")}` : "-",
-      targetKpi: asDisplayText(firstIncompleteKpi.name, "名称未設定KPI"),
-      progress: buildProgress({
-        phaseLabel: phase?.status?.label ?? PHASE_KPI_STATUS_LABELS.finalized,
-        kpiStatus: asDisplayText(firstIncompleteKpi.status, "finalized"),
-        taskStats: getTaskStatsByKpiId(firstIncompleteKpi.id)
-      }),
-      text: "未完了タスクを進めてください。",
-      linkText: "このKPIでタスクを進める",
-      href: toKpiHref(firstIncompleteKpi)
-    };
-  }
-
   return {
-    stage: "見直し",
-    actionType: "review",
-    importanceLevel: 2,
-    targetPhase: "このKGI全体",
-    targetKpi: "-",
-    progress: buildProgress({
-      phaseLabel: "全フェーズ実行済み",
-      kpiStatus: "completed"
-    }),
-    text: "次のKPIまたは次のフェーズへ進んでください。",
-    linkText: "フェーズ全体を見直す",
-    href: ""
+    ...action,
+    importanceLevel: getNowActionImportance(action.actionType)
   };
 };
 
@@ -539,18 +352,18 @@ const renderNowActionCard = (action) => {
   nowActionTypeBadgeElement.textContent = actionMeta.label;
   nowActionTypeBadgeElement.className = `action-type-badge ${actionMeta.badgeClass}`;
   nowActionPriorityElement.innerHTML = `<span class="label">重要度</span><span class="stars">${toStars(action.importanceLevel)}</span>`;
-  nowActionStageElement.textContent = `今いる段階: ${asDisplayText(action.stage, "-")}`;
-  nowActionTargetPhaseElement.textContent = `対象フェーズ: ${asDisplayText(action.targetPhase, "-")}`;
-  nowActionTargetKpiElement.textContent = `対象KPI: ${asDisplayText(action.targetKpi, "-")}`;
+  nowActionStageElement.textContent = `今いる段階: ${asDisplayText(action.stageLabel, "-")}`;
+  nowActionTargetPhaseElement.textContent = `対象フェーズID: ${asDisplayText(action.targetPhaseId, "-")}`;
+  nowActionTargetKpiElement.textContent = `対象KPIID: ${asDisplayText(action.targetKpiId, "-")}`;
   nowActionProgressListElement.innerHTML = "";
-  const progressRows = Array.isArray(action.progress) ? action.progress : [];
+  const progressRows = [asDisplayText(action.progressSummary, "-")];
   progressRows.forEach((rowText) => {
     const item = document.createElement("li");
     item.textContent = asDisplayText(rowText, "-");
     nowActionProgressListElement.appendChild(item);
   });
-  nowActionTextElement.textContent = asDisplayText(action.text, "次にやることを確認してください。");
-  nowActionLinkElement.textContent = asDisplayText(action.linkText, "今やることへ進む");
+  nowActionTextElement.textContent = asDisplayText(action.reason, "次にやることを確認してください。");
+  nowActionLinkElement.textContent = asDisplayText(action.buttonLabel, "今やることへ進む");
 
   if (asDisplayText(action.href, "") !== "") {
     nowActionLinkElement.href = action.href;

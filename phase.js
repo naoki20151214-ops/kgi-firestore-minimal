@@ -12,6 +12,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
 import { getDb } from "./firebase-config.js";
 import { enhanceReadableText } from "./readable-text.js";
+import { decideNowAction } from "./now-action-engine.js";
 
 const backToKgiLink = document.getElementById("backToKgiLink");
 const phaseName = document.getElementById("phaseName");
@@ -629,6 +630,17 @@ const loadPhaseAndKpis = async () => {
   const kpisSnapshot = await getDocs(query(collection(db, "kpis"), where("kgiId", "==", kgiId), where("phaseId", "==", currentPhase.id)));
   currentKpis = kpisSnapshot.docs.map((kpiDoc) => normalizeKpi(kpiDoc));
   renderKpis(currentKpis);
+  const phaseAction = decideNowAction({
+    kgis: [currentKgi],
+    phases: [{ ...currentPhase, kgiId }],
+    kpis: currentKpis,
+    tasks: [],
+    scope: "phase",
+    phaseId: currentPhase.id
+  });
+  if (phaseAction) {
+    phasePlanningStatusText.textContent = `今やること: ${phaseAction.title}（${phaseAction.progressSummary}）`;
+  }
   updatePhasePlanningUi();
   updateGenerateAiButtonState();
 };
