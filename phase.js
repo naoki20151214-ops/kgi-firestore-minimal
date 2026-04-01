@@ -11,6 +11,7 @@ import {
   where
 } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
 import { getDb } from "./firebase-config.js";
+import { getCollectionName, initEnvironmentModeUi } from "./environment-mode.js";
 import { enhanceReadableText } from "./readable-text.js";
 import { decideNowAction } from "./now-action-engine.js";
 
@@ -598,7 +599,7 @@ const renderAiCandidates = () => {
 };
 
 const loadPhaseAndKpis = async () => {
-  const kgiRef = doc(db, "kgis", kgiId);
+  const kgiRef = doc(db, getCollectionName("kgis"), kgiId);
   const kgiSnapshot = await getDoc(kgiRef);
 
   if (!kgiSnapshot.exists()) {
@@ -627,7 +628,7 @@ const loadPhaseAndKpis = async () => {
   currentPhasePlanningStatus = currentPhase.planningStatus;
   renderPhase(currentPhase);
 
-  const kpisSnapshot = await getDocs(query(collection(db, "kpis"), where("kgiId", "==", kgiId), where("phaseId", "==", currentPhase.id)));
+  const kpisSnapshot = await getDocs(query(collection(db, getCollectionName("kpis")), where("kgiId", "==", kgiId), where("phaseId", "==", currentPhase.id)));
   currentKpis = kpisSnapshot.docs.map((kpiDoc) => normalizeKpi(kpiDoc));
   renderKpis(currentKpis);
   const phaseAction = decideNowAction({
@@ -650,7 +651,7 @@ const savePhasePlanningStatus = async (nextStatus) => {
     return;
   }
 
-  const kgiRef = doc(db, "kgis", currentKgi.id);
+  const kgiRef = doc(db, getCollectionName("kgis"), currentKgi.id);
   const kgiSnapshot = await getDoc(kgiRef);
   if (!kgiSnapshot.exists()) {
     return;
@@ -677,7 +678,7 @@ const savePhasePlanningStatus = async (nextStatus) => {
   updateGenerateAiButtonState();
 };
 
-const saveKpiDocument = async (kpiPayload) => addDoc(collection(db, "kpis"), {
+const saveKpiDocument = async (kpiPayload) => addDoc(collection(db, getCollectionName("kpis")), {
   kgiId,
   kgiName: currentKgi?.name ?? "",
   kgiGoalText: currentKgi?.goalText ?? "",
@@ -1055,7 +1056,7 @@ const applyAiCleanupProposal = async () => {
       if (!targetId) {
         continue;
       }
-      await deleteDoc(doc(db, "kpis", targetId));
+      await deleteDoc(doc(db, getCollectionName("kpis"), targetId));
     }
     await savePhasePlanningStatus("finalized");
     await loadPhaseAndKpis();
@@ -1126,6 +1127,7 @@ const init = async () => {
   backToKgiLink.href = `./detail.html?id=${encodeURIComponent(kgiId)}`;
 
   try {
+    initEnvironmentModeUi();
     db = await getDb();
     await loadPhaseAndKpis();
     updateAiGuidanceBoxes("", []);

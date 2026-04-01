@@ -4,10 +4,12 @@ import {
   getDoc,
   getDocs,
   orderBy,
-  query
+  query,
+  where
 } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
 import { getDb } from "./firebase-config.js";
 import { decideNowAction, getNowActionImportance, getNowActionStageWeight } from "./now-action-engine.js";
+import { getCollectionName, initEnvironmentModeUi } from "./environment-mode.js";
 
 const pageMode = document.body?.dataset?.pageMode || "home";
 const statusText = document.getElementById("statusText");
@@ -201,7 +203,7 @@ const validateKgiDocs = async (db, docs) => {
     const data = docItem.data();
     const displayName = asText(data?.name, "");
     const hrefId = docItem.id;
-    const snapshot = await getDoc(doc(db, "kgis", hrefId));
+    const snapshot = await getDoc(doc(db, getCollectionName("kgis"), hrefId));
     const exists = snapshot.exists();
     const inactive = isInactiveKgi(data);
 
@@ -350,8 +352,9 @@ const renderCards = (items) => {
 
 (async () => {
   try {
+    initEnvironmentModeUi();
     const db = await getDb();
-    const kgisRef = collection(db, "kgis");
+    const kgisRef = collection(db, getCollectionName("kgis"));
     const kgisQuery = query(kgisRef, orderBy("createdAt", "desc"));
     const snapshot = await getDocs(kgisQuery);
 
@@ -384,14 +387,14 @@ const renderCards = (items) => {
 
     const kgiById = new Map(activeDocs.map((docItem) => [docItem.id, docItem.data()]));
 
-    const kpisSnapshot = await getDocs(collection(db, "kpis"));
+    const kpisSnapshot = await getDocs(collection(db, getCollectionName("kpis")));
     const activeKpiDocs = kpisSnapshot.docs
       .map((docItem) => ({ id: docItem.id, ...docItem.data() }))
       .filter((kpi) => !isArchivedKpi(kpi) && kgiById.has(kpi.kgiId));
 
     const tasksByKpiId = new Map();
     await Promise.all(activeKpiDocs.map(async (kpi) => {
-      const tasksSnapshot = await getDocs(collection(db, "kpis", kpi.id, "tasks"));
+      const tasksSnapshot = await getDocs(query(collection(db, getCollectionName("tasks")), where("kpiId", "==", kpi.id)));
       tasksByKpiId.set(kpi.id, tasksSnapshot.docs.map((docItem) => ({ id: docItem.id, ...docItem.data() })));
     }));
 
