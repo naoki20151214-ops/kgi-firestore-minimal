@@ -785,6 +785,10 @@ const hideSpecificityWarning = () => {
   wizardState.pendingSpecificityPatch = null;
   if (!specificityWarningBox) return;
   specificityWarningBox.classList.add("hidden");
+  if (saveButton) {
+    saveButton.hidden = false;
+    saveButton.disabled = !db;
+  }
 };
 
 const showSpecificityWarning = (specificityPatch) => {
@@ -794,6 +798,10 @@ const showSpecificityWarning = (specificityPatch) => {
   specificityCandidateGoal.textContent = `ゴール説明: ${specificityPatch.suggestedGoal}`;
   specificityCandidateDeadline.textContent = `期限: ${specificityPatch.normalizedDeadline}`;
   specificityWarningBox.classList.remove("hidden");
+  if (saveButton) {
+    saveButton.hidden = true;
+    saveButton.disabled = true;
+  }
 };
 
 const getInputDraft = () => {
@@ -1245,7 +1253,7 @@ saveButton.addEventListener("click", async () => {
   const specificityPatch = buildSpecificityPatch({ name, goalText, deadline });
   if (specificityPatch.missing.length > 0) {
     showSpecificityWarning(specificityPatch);
-    setStatus("具体性チェックで補正候補を表示しています。採用して保存するか、手動で編集してください。", true);
+    setStatus("補正候補を表示しました。「この補正で保存する」か「自分で直す」を選んでください。", true);
     endInFlight("saveKgi");
     return;
   }
@@ -1279,14 +1287,8 @@ saveWithSpecificityButton.addEventListener("click", async () => {
     endInFlight("saveKgi");
     return;
   }
-  const specificityPatch = wizardState.pendingSpecificityPatch;
-  if (!specificityPatch) {
-    setStatus("補正候補が見つからないため、再度「この内容で保存」を押してください。", true);
-    endInFlight("saveKgi");
-    return;
-  }
-
-  const { startDate, level } = getInputDraft();
+  const { name, goalText, startDate, deadline, level } = getInputDraft();
+  const specificityPatch = wizardState.pendingSpecificityPatch || buildSpecificityPatch({ name, goalText, deadline });
   const finalDraft = {
     name: specificityPatch.suggestedName,
     goalText: specificityPatch.suggestedGoal,
@@ -1306,5 +1308,5 @@ saveWithSpecificityButton.addEventListener("click", async () => {
 editSpecificityButton.addEventListener("click", () => {
   hideSpecificityWarning();
   goalTextInput.focus();
-  setStatus("手動で編集してから保存してください。", false);
+  setStatus("手動で編集できます。編集後は「この内容で保存」を1回押すと保存されます。", false);
 });
