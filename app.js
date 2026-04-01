@@ -542,6 +542,102 @@ const extractTags = () => {
   };
 };
 
+const formatDeadlineLabel = (deadline) => {
+  if (!deadline) return "期限までに";
+  const [year, month, day] = String(deadline).split("-");
+  if (!year || !month || !day) return `${deadline}までに`;
+  return `${Number(month)}月${Number(day)}日までに`;
+};
+
+const buildConcretePlanText = ({ directionId, deadline, audience, channel, monetization, inferredGoal }) => {
+  const deadlineLabel = formatDeadlineLabel(deadline);
+  const audienceLabel = audience || "届けたい相手";
+  const channelLabel = channel || "主な導線";
+  const offerLabel = inferredGoal || monetization || "提供内容";
+
+  const planByDirection = {
+    touchpoint_growth: {
+      title: `${deadlineLabel}${audienceLabel}向けに${channelLabel}で発信し、反応を10件集める`,
+      goalText: `${deadline}までに${audienceLabel}向けに${channelLabel}で週3回発信し、コメント・DM・クリックなどの反応を合計10件集める。反応が高いテーマを1つ特定して次月の軸にする。`
+    },
+    consistent_publishing: {
+      title: `${deadlineLabel}${channelLabel}で週3回の発信を8週続ける`,
+      goalText: `${deadline}までに${audienceLabel}向けの発信を${channelLabel}で週3回、8週連続で実施する。投稿フォーマットを1つ決め、継続できる運用手順を作って翌月も回せる状態にする。`
+    },
+    funnel_preparation: {
+      title: `${deadlineLabel}${channelLabel}の集客から問い合わせまでの導線を完成させる`,
+      goalText: `${deadline}までに${audienceLabel}向けの集客導線を${channelLabel}上で整え、プロフィール・案内文・申込リンクを接続する。導線経由で問い合わせまたは登録を5件獲得して機能確認する。`
+    },
+    first_sale_validation: {
+      title: `${deadlineLabel}${audienceLabel}向けに${offerLabel}を販売し、初回販売1件を作る`,
+      goalText: `${deadline}までに${audienceLabel}向けに${offerLabel}を${channelLabel}で案内し、初回販売1件を達成する。販売までの流れを記録し、次回も同じ手順で実行できる状態にする。`
+    },
+    small_amount_confirmation: {
+      title: `${deadlineLabel}小さな商品を1つ販売して収益発生を確認する`,
+      goalText: `${deadline}までに${audienceLabel}向けの小さな商品を1つ作り、${channelLabel}で販売して実際の入金を1件確認する。価格・訴求文・申込導線のどれが効いたかを検証メモに残す。`
+    },
+    offer_response_validation: {
+      title: `${deadlineLabel}${channelLabel}で提案を出し、見込み客の反応を10件集める`,
+      goalText: `${deadline}までに${audienceLabel}向けオファーを${channelLabel}で提示し、いいね・返信・DM・相談申込を合計10件獲得する。反応率が高い切り口を1つ選び、販売案内文を更新する。`
+    },
+    offer_definition: {
+      title: `${deadlineLabel}初心者向け商品を1つ作り、販売内容を明文化する`,
+      goalText: `${deadline}までに${audienceLabel}向けに提供する商品を1つ定義し、対象者・提供内容・価格・提供方法を1ページにまとめる。第三者が読んで内容を説明できる状態を達成する。`
+    },
+    target_fit: {
+      title: `${deadlineLabel}買ってほしい相手を1人に絞り、提案文を作る`,
+      goalText: `${deadline}までに${audienceLabel}の中から優先顧客像を1人に絞り、その人向けの提案文を${channelLabel}用に1本作成する。ヒアリングまたは投稿反応で適合性を5件確認する。`
+    },
+    first_proposal: {
+      title: `${deadlineLabel}初回提案を送れる形にし、見込み客へ3件提案する`,
+      goalText: `${deadline}までに${audienceLabel}向けの初回提案資料または案内文を完成させ、${channelLabel}経由で見込み客へ3件送る。返信内容をもとに提案の改善点を3つ抽出する。`
+    },
+    media_foundation: {
+      title: `${deadlineLabel}${channelLabel}の基盤を整え、主要コンテンツを3本公開する`,
+      goalText: `${deadline}までに${audienceLabel}向けの媒体基盤を整え、プロフィール・導入記事・代表コンテンツを含む3本を${channelLabel}で公開する。初回訪問者が次アクションへ進める構成にする。`
+    },
+    acquisition_route: {
+      title: `${deadlineLabel}流入経路を2本作り、${channelLabel}への訪問を増やす`,
+      goalText: `${deadline}までに${audienceLabel}へ届く流入経路を2本設計し、${channelLabel}へ誘導する投稿または導線を実装する。流入データを取得し、どちらが有効か比較できる状態にする。`
+    },
+    update_consistency: {
+      title: `${deadlineLabel}${channelLabel}の更新を週2回で8週間継続する`,
+      goalText: `${deadline}までに${audienceLabel}向けの更新を${channelLabel}で週2回、8週間継続する。更新テンプレートと作業時間の目安を決め、継続運用できる手順を固定化する。`
+    },
+    mvp_launch: {
+      title: `${deadlineLabel}最小版を公開し、利用開始できる状態にする`,
+      goalText: `${deadline}までに${audienceLabel}向けの最小版サービス（MVP）を公開し、申込または利用開始まで完了できる状態にする。初回ユーザー3人の利用ログを取得して改善点を整理する。`
+    },
+    early_user_validation: {
+      title: `${deadlineLabel}初期ユーザーを3人集めて利用検証を完了する`,
+      goalText: `${deadline}までに${audienceLabel}から初期ユーザー3人を獲得し、${channelLabel}経由で利用検証を実施する。利用後フィードバックを回収し、改善優先順位を決める。`
+    },
+    release_readiness: {
+      title: `${deadlineLabel}公開前の必須準備を完了し、公開判定を出せる状態にする`,
+      goalText: `${deadline}までに${audienceLabel}向け公開に必要な案内文・利用手順・問い合わせ対応を整備する。チェックリストを完了し、公開可否を判断できる状態にする。`
+    },
+    bottleneck_improvement: {
+      title: `${deadlineLabel}詰まり工程を1つ改善し、成果までの時間を短縮する`,
+      goalText: `${deadline}までに現在の作業で最も詰まる工程を1つ特定し、${channelLabel}での運用手順を改善する。1回あたりの作業時間を20%短縮し、実行記録を4週分残す。`
+    },
+    reproducibility: {
+      title: `${deadlineLabel}成果が出た手順をテンプレ化し、同条件で3回再現する`,
+      goalText: `${deadline}までに${audienceLabel}向け施策で成果が出た手順をテンプレート化し、${channelLabel}で同条件の実行を3回行う。結果差分を記録し、再現率を確認する。`
+    },
+    validation_habit: {
+      title: `${deadlineLabel}週1回の検証ループを8週続け、改善ログを残す`,
+      goalText: `${deadline}までに${audienceLabel}向けの施策について、${channelLabel}で週1回の実行→振り返り→改善を8週連続で回す。改善ログを8件残し、次に伸ばす指標を1つ決める。`
+    }
+  };
+
+  const fallback = {
+    title: `${deadlineLabel}${audienceLabel}向けに${channelLabel}で実行し、前進指標を達成する`,
+    goalText: `${deadline}までに${audienceLabel}向けに${offerLabel}を${channelLabel}で実行し、反応や申込など前進を示す指標を達成する。達成条件と次の改善点を明文化する。`
+  };
+
+  return planByDirection[directionId] || fallback;
+};
+
 const generateProposals = () => {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -552,23 +648,31 @@ const generateProposals = () => {
   const monetization = wizardState.tags.monetizationType || "成果化の手段";
   const feasibilityLevel = wizardState.feasibility?.feasibilityLevel || FEASIBILITY_LEVEL.STRETCH;
 
-  const scopePrefix = feasibilityLevel === FEASIBILITY_LEVEL.HARD ? "まずは検証完了を重視し、" : "";
-  const concreteNameBase = `${audience}向け${channel}と${monetization}`;
   const levels = ["easy", "normal", "detailed"];
   const directionBases = wizardState.candidateDirections.length > 0
     ? wizardState.candidateDirections
     : buildCandidateDirectionsByBusinessGoalType(wizardState.businessGoalType, feasibilityLevel);
 
-  return directionBases.slice(0, 3).map((direction, index) => ({
+  return directionBases.slice(0, 3).map((direction, index) => {
+    const concretePlan = buildConcretePlanText({
+      directionId: direction.id,
+      deadline,
+      audience,
+      channel,
+      monetization,
+      inferredGoal
+    });
+    return {
     candidateType: direction.id,
     directionLabel: direction.title,
-    name: `${concreteNameBase}の${direction.title}`,
-    goalText: `${deadline}までに「${inferredGoal}」を前提に、${scopePrefix}${audience}向けの取り組みを${channel}で実行し、${monetization}につながる状態を作る（方向: ${direction.direction}）。`,
+    name: concretePlan.title,
+    goalText: concretePlan.goalText,
     deadline,
     level: levels[index] || "normal",
     reason: direction.reason,
     concerns: direction.concern
-  }));
+    };
+  });
 };
 
 const buildCandidateDirectionsByBusinessGoalType = (businessGoalType, feasibilityLevel) => {
@@ -691,7 +795,7 @@ const renderProposals = () => {
     card.className = `proposal-card${wizardState.selectedProposalIndex === index ? " selected" : ""}`;
     card.innerHTML = `
       <h3>${proposal.name}</h3>
-      <p class="proposal-meta"><strong>方向タイプ:</strong> ${proposal.directionLabel || "未設定"}</p>
+      <p class="proposal-meta"><small><strong>方向タイプ:</strong> ${proposal.directionLabel || "未設定"}</small></p>
       <p class="proposal-meta"><strong>ゴール説明:</strong> ${proposal.goalText}</p>
       <p class="proposal-meta"><strong>期限:</strong> ${proposal.deadline}</p>
       <p class="proposal-meta"><strong>説明レベル:</strong> ${proposal.level}</p>
