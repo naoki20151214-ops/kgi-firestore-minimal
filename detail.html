@@ -405,14 +405,9 @@
   </head>
   <body class="page-stage-phase">
     <main class="container stage-shell">
-      <nav class="flow-nav" aria-label="現在地ナビ">
+      <nav class="flow-nav" aria-label="現在地ナビ" data-current-stage="phase">
         <p class="flow-nav-caption">現在地: 今はロードマップのフェーズを設計する段階です。</p>
-        <ol class="flow-nav-list">
-          <li class="flow-nav-item is-completed">KGI作成</li>
-          <li class="flow-nav-item is-current">フェーズ設計</li>
-          <li class="flow-nav-item is-upcoming">KPI設計</li>
-          <li class="flow-nav-item is-upcoming">タスク設計・実行</li>
-        </ol>
+        <ol class="flow-nav-list"></ol>
       </nav>
 
       <section class="card">
@@ -491,6 +486,7 @@
       </section>
     </main>
 
+    <script type="module" src="./location-nav.js"></script>
     <script type="module" src="./detail.js"></script>
   </body>
 </html>
