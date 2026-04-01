@@ -4,6 +4,8 @@ import {
   getDoc,
   getDocs,
   query,
+  serverTimestamp,
+  updateDoc,
   where
 } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
 import { getDb } from "./firebase-config.js";
@@ -36,6 +38,15 @@ const roadmapEmptyActionsElement = document.getElementById("roadmapEmptyActions"
 const roadmapCreateButtonElement = document.getElementById("roadmapCreateButton");
 const kpiSummarySectionElement = document.getElementById("kpiSummarySection");
 const kpiSummaryTextElement = document.getElementById("kpiSummaryText");
+let currentDb = null;
+let currentKgiId = "";
+let currentKgiData = null;
+let currentKpiContext = {
+  kpiCountByPhaseId: new Map(),
+  kpis: [],
+  tasksByKpiId: new Map()
+};
+let isRoadmapGenerating = false;
 
 const setStatus = (text, isError = false) => {
   if (!statusTextElement) {
@@ -70,6 +81,47 @@ const asDisplayText = (value, fallback = "-") => {
   }
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : fallback;
+};
+
+const setButtonBusy = (button, busy, busyText) => {
+  if (!button) {
+    return;
+  }
+  if (!button.dataset.defaultText) {
+    button.dataset.defaultText = button.textContent || "";
+  }
+  button.disabled = !!busy;
+  button.textContent = busy ? busyText : (button.dataset.defaultText || "");
+};
+
+const generateRoadmap = async ({
+  name = "",
+  goalText = "",
+  deadline = "",
+  level = "normal"
+}) => {
+  const response = await fetch("/api/generate-roadmap", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      name,
+      goalText,
+      deadline,
+      level,
+      context: {}
+    })
+  });
+
+  const responseText = await response.text();
+  const data = responseText ? JSON.parse(responseText) : null;
+  if (!response.ok || !Array.isArray(data?.roadmapPhases)) {
+    throw new Error(data?.error || "ロードマップの生成に失敗しました");
+  }
+
+  return {
+    roadmapPhases: data.roadmapPhases,
+    kgiDescription: typeof data?.kgiDescription === "string" ? data.kgiDescription.trim() : ""
+  };
 };
 
 const formatUnknownValue = (value) => {
@@ -455,7 +507,7 @@ const renderRoadmap = ({ kgiId, phases = [], kpiCountByPhaseId = new Map() }) =>
     roadmapSectionElement.hidden = false;
     roadmapEmptyElement.hidden = false;
     roadmapCreateButtonElement.textContent = `${kgiLabel}のロードマップを作成する`;
-    roadmapCreateButtonElement.href = `./detail.html?id=${encodeURIComponent(kgiId)}&focus=roadmap`;
+    roadmapCreateButtonElement.dataset.kgiId = kgiId;
     roadmapEmptyActionsElement.hidden = false;
     guideRoadmapFocus();
     return;
@@ -653,6 +705,58 @@ const renderDoc = ({ kgiId, data, kpiContext }) => {
   setStatus("");
 };
 
+const handleRoadmapCreateClick = async (event) => {
+  event.preventDefault();
+  if (isRoadmapGenerating) {
+    return;
+  }
+  if (!currentDb || !currentKgiId || !currentKgiData) {
+    console.warn("Roadmap generation skipped due to missing context", {
+      currentKgiId,
+      hasDb: !!currentDb,
+      hasKgiData: !!currentKgiData
+    });
+    setStatus("ロードマップ作成の準備に失敗しました。ページを再読み込みしてください。", true);
+    return;
+  }
+
+  const kgiName = pickFirstDisplayValue(currentKgiData, ["name", "title", "kgiName"], "このKGI");
+  const goalText = pickFirstDisplayValue(currentKgiData, ["goalText", "goalDescription", "goal", "description"], "");
+  const deadline = pickFirstDisplayValue(currentKgiData, ["deadline", "targetDate", "dueDate", "targetDeadline"], "");
+  const level = pickFirstDisplayValue(currentKgiData, ["explanationLevel", "level"], "normal");
+
+  isRoadmapGenerating = true;
+  setButtonBusy(roadmapCreateButtonElement, true, "処理中...");
+  setStatus("ロードマップ作成中...");
+
+  try {
+    const generated = await generateRoadmap({ name: kgiName, goalText, deadline, level });
+    const nextData = {
+      ...currentKgiData,
+      roadmapPhases: Array.isArray(generated.roadmapPhases) ? generated.roadmapPhases : currentKgiData?.roadmapPhases,
+      updatedAt: serverTimestamp()
+    };
+    if (generated.kgiDescription) {
+      nextData.goalText = generated.kgiDescription;
+      nextData.goalDescription = generated.kgiDescription;
+    }
+
+    await updateDoc(doc(currentDb, "kgis", currentKgiId), nextData);
+    currentKgiData = nextData;
+    renderDoc({ kgiId: currentKgiId, data: currentKgiData, kpiContext: currentKpiContext });
+    setStatus("ロードマップを作成しました。");
+  } catch (error) {
+    console.error("Failed to generate roadmap from detail page", {
+      kgiId: currentKgiId,
+      error
+    });
+    setStatus("ロードマップ作成に失敗しました。再試行してください。", true);
+  } finally {
+    isRoadmapGenerating = false;
+    setButtonBusy(roadmapCreateButtonElement, false, "ロードマップ作成中...");
+  }
+};
+
 const showLoadError = (message) => {
   if (detailFieldsElement) {
     detailFieldsElement.hidden = true;
@@ -683,6 +787,13 @@ const init = async () => {
 
   try {
     const db = await getDb();
+    currentDb = db;
+    currentKgiId = kgiId;
+    if (roadmapCreateButtonElement) {
+      roadmapCreateButtonElement.addEventListener("click", handleRoadmapCreateClick, { passive: false });
+      roadmapCreateButtonElement.style.pointerEvents = "auto";
+    }
+
     const kgiRef = doc(db, "kgis", kgiId);
     const kgiSnapshot = await getDoc(kgiRef);
 
@@ -692,7 +803,9 @@ const init = async () => {
     }
 
     const kpiContext = await loadKpiSummary(db, kgiId);
-    renderDoc({ kgiId, data: kgiSnapshot.data(), kpiContext });
+    currentKpiContext = kpiContext;
+    currentKgiData = kgiSnapshot.data();
+    renderDoc({ kgiId, data: currentKgiData, kpiContext: currentKpiContext });
   } catch (error) {
     console.error("Failed to load detail document", {
       kgiId,
