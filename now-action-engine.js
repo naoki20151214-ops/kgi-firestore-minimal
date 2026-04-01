@@ -77,6 +77,13 @@ const buildAction = ({
 const getKgiName = (kgi) => asText(kgi?.name ?? kgi?.title ?? kgi?.kgiName, "名称未設定KGI");
 const getPhaseStatus = (phase) => asText(phase?.kpiPlanningStatus ?? phase?.planningStatus, "draft").toLowerCase();
 const getKpiStatus = (kpi) => asText(kpi?.status, "draft").toLowerCase();
+const isArchivedKgi = (kgi) => {
+  const status = asText(kgi?.status, "").toLowerCase();
+  if (status === "archived" || status === "deleted") {
+    return true;
+  }
+  return kgi?.isArchived === true || kgi?.isDeleted === true || kgi?.excludedFromNowAction === true;
+};
 
 const getOrderedPhases = (phases = []) => [...phases].sort((a, b) => {
   const numA = Number(a?.phaseNumber);
@@ -226,7 +233,9 @@ export const decideNowAction = ({
   phaseId = "",
   kpiId = ""
 } = {}) => {
-  if (!Array.isArray(kgis) || kgis.length === 0) {
+  const normalizedKgis = Array.isArray(kgis) ? kgis.filter((kgi) => !isArchivedKgi(kgi)) : [];
+
+  if (normalizedKgis.length === 0) {
     return buildAction({
       actionType: "create_kgi",
       targetLevel: "global",
@@ -239,7 +248,7 @@ export const decideNowAction = ({
     });
   }
 
-  const inScopeKgis = scope === "kgi" ? kgis.filter((kgi) => kgi.id === kgiId) : kgis;
+  const inScopeKgis = scope === "kgi" ? normalizedKgis.filter((kgi) => kgi.id === kgiId) : normalizedKgis;
   const buildForKgi = (targetKgi) => {
     const targetPhases = phases.filter((phase) => asText(phase?.kgiId, "") === targetKgi.id);
     const targetKpis = kpis.filter((kpi) => asText(kpi?.kgiId, "") === targetKgi.id);

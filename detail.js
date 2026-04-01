@@ -38,6 +38,8 @@ const roadmapEmptyActionsElement = document.getElementById("roadmapEmptyActions"
 const roadmapCreateButtonElement = document.getElementById("roadmapCreateButton");
 const kpiSummarySectionElement = document.getElementById("kpiSummarySection");
 const kpiSummaryTextElement = document.getElementById("kpiSummaryText");
+const archiveKgiButtonElement = document.getElementById("archiveKgiButton");
+const archiveStatusNoteElement = document.getElementById("archiveStatusNote");
 let currentDb = null;
 let currentKgiId = "";
 let currentKgiData = null;
@@ -47,6 +49,7 @@ let currentKpiContext = {
   tasksByKpiId: new Map()
 };
 let isRoadmapGenerating = false;
+let isArchiveSubmitting = false;
 
 const setStatus = (text, isError = false) => {
   if (!statusTextElement) {
@@ -92,6 +95,14 @@ const setButtonBusy = (button, busy, busyText) => {
   }
   button.disabled = !!busy;
   button.textContent = busy ? busyText : (button.dataset.defaultText || "");
+};
+
+const isArchivedKgi = (kgi) => {
+  const status = asDisplayText(kgi?.status, "").toLowerCase();
+  if (status === "archived" || status === "deleted") {
+    return true;
+  }
+  return kgi?.isArchived === true;
 };
 
 const generateRoadmap = async ({
@@ -382,10 +393,19 @@ const renderDesignReasonBlock = (phaseRows = []) => {
   overviewDesignReasonElement.hidden = items.length === 0;
 };
 
-const pickNowAction = ({ kgiId, phases = [], kpis = [], tasksByKpiId = new Map() }) => {
+const pickNowAction = ({ kgiId, kgiData = null, phases = [], kpis = [], tasksByKpiId = new Map() }) => {
+  if (isArchivedKgi(kgiData)) {
+    return null;
+  }
   const tasks = kpis.flatMap((kpi) => (tasksByKpiId.get(kpi.id) ?? []).map((task) => ({ ...task, kpiId: kpi.id })));
   const action = decideNowAction({
-    kgis: [{ id: kgiId, name: "" }],
+    kgis: [{
+      id: kgiId,
+      name: "",
+      isArchived: kgiData?.isArchived === true,
+      excludedFromNowAction: kgiData?.excludedFromNowAction === true,
+      status: asDisplayText(kgiData?.status, "")
+    }],
     phases: phases.map((phase) => ({ ...phase, kgiId })),
     kpis,
     tasks,
@@ -447,8 +467,20 @@ const renderNowActionCard = (action) => {
   }
 };
 
+const syncArchiveUI = (data) => {
+  const archived = isArchivedKgi(data);
+  if (archiveStatusNoteElement) {
+    archiveStatusNoteElement.hidden = !archived;
+  }
+  if (archiveKgiButtonElement) {
+    archiveKgiButtonElement.disabled = archived || isArchiveSubmitting;
+    archiveKgiButtonElement.textContent = archived ? "アーカイブ済み" : "このKGIをアーカイブ";
+  }
+};
+
 const renderOverviewPanel = ({
   kgiId,
+  kgiData = null,
   phases = [],
   kpis = [],
   tasksByKpiId = new Map(),
@@ -470,7 +502,7 @@ const renderOverviewPanel = ({
 
   const phaseRows = buildPhaseProgressRows({ phases, kpiCountByPhaseId });
   const summaryItems = createOverviewSummaryItems(phaseRows);
-  const nowAction = pickNowAction({ kgiId, phaseRows, phases, kpis, tasksByKpiId });
+  const nowAction = pickNowAction({ kgiId, kgiData, phaseRows, phases, kpis, tasksByKpiId });
 
   const summaryFragment = document.createDocumentFragment();
   summaryItems.forEach((item) => {
@@ -700,9 +732,51 @@ const renderDoc = ({ kgiId, data, kpiContext }) => {
   const kpis = Array.isArray(kpiContext?.kpis) ? kpiContext.kpis : [];
   const tasksByKpiId = kpiContext?.tasksByKpiId instanceof Map ? kpiContext.tasksByKpiId : new Map();
 
-  renderOverviewPanel({ kgiId, phases: roadmapPhases, kpiCountByPhaseId, kpis, tasksByKpiId });
+  renderOverviewPanel({ kgiId, kgiData: data, phases: roadmapPhases, kpiCountByPhaseId, kpis, tasksByKpiId });
   renderRoadmap({ kgiId, phases: roadmapPhases, kpiCountByPhaseId });
+  syncArchiveUI(data);
   setStatus("");
+};
+
+const handleArchiveKgiClick = async (event) => {
+  event.preventDefault();
+  if (isArchiveSubmitting || !currentDb || !currentKgiId || !currentKgiData || isArchivedKgi(currentKgiData)) {
+    return;
+  }
+
+  const confirmed = window.confirm("このKGIを通常表示から外します。よろしいですか？");
+  if (!confirmed) {
+    return;
+  }
+
+  isArchiveSubmitting = true;
+  syncArchiveUI(currentKgiData);
+  setStatus("KGIをアーカイブしています...");
+
+  try {
+    await updateDoc(doc(currentDb, "kgis", currentKgiId), {
+      isArchived: true,
+      archivedAt: serverTimestamp(),
+      excludedFromNowAction: true,
+      status: "archived",
+      updatedAt: serverTimestamp()
+    });
+
+    currentKgiData = {
+      ...currentKgiData,
+      isArchived: true,
+      excludedFromNowAction: true,
+      status: "archived"
+    };
+    syncArchiveUI(currentKgiData);
+    setStatus("このKGIをアーカイブしました。ホームと一覧の通常表示から除外されます。");
+  } catch (error) {
+    console.error("Failed to archive kgi", { kgiId: currentKgiId, error });
+    setStatus("アーカイブに失敗しました。再試行してください。", true);
+  } finally {
+    isArchiveSubmitting = false;
+    syncArchiveUI(currentKgiData);
+  }
 };
 
 const handleRoadmapCreateClick = async (event) => {
@@ -792,6 +866,9 @@ const init = async () => {
     if (roadmapCreateButtonElement) {
       roadmapCreateButtonElement.addEventListener("click", handleRoadmapCreateClick, { passive: false });
       roadmapCreateButtonElement.style.pointerEvents = "auto";
+    }
+    if (archiveKgiButtonElement) {
+      archiveKgiButtonElement.addEventListener("click", handleArchiveKgiClick, { passive: false });
     }
 
     const kgiRef = doc(db, "kgis", kgiId);

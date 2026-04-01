@@ -79,7 +79,7 @@ const isInactiveKgi = (kgi) => {
     return true;
   }
 
-  return kgi?.isArchived === true || kgi?.isDeleted === true || kgi?.isStale === true;
+  return kgi?.isArchived === true || kgi?.isDeleted === true || kgi?.isStale === true || kgi?.excludedFromNowAction === true;
 };
 
 const getTaskIsCompleted = (task) => {
