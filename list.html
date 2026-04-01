@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>ホーム | KGIダッシュボード</title>
     <link rel="stylesheet" href="./stage-tone.css" />
+    <link rel="stylesheet" href="./ui-hints.css" />
     <style>
       :root { color-scheme: light; }
       * { box-sizing: border-box; }
@@ -107,6 +108,10 @@
         font-size: 0.9rem;
       }
 
+      .today-priority {
+        margin: 0;
+      }
+
       .block {
         display: grid;
         gap: 10px;
@@ -187,6 +192,10 @@
         font-size: 0.88rem;
       }
 
+      .card-priority {
+        margin: -2px 0 0;
+      }
+
       .empty {
         border: 1px solid #dbe6fb;
         border-radius: 12px;
@@ -223,15 +232,16 @@
         </header>
 
         <section class="today-card" id="todayTaskSection" hidden>
-          <p class="today-label">今日やること</p>
+          <p class="today-label"><span class="icon-label"><span class="inline-icon" aria-hidden="true">⚡</span>今日やること</span></p>
+          <p id="todayTaskPriority" class="today-priority priority-rating"><span class="label">重要度</span><span class="stars">-</span></p>
           <strong id="todayTaskName" class="today-task-name">-</strong>
-          <p id="todayTaskKpi" class="today-task-kpi">対象KPI: -</p>
-          <p id="todayTaskKgi" class="today-task-kgi">対象KGI: -</p>
+          <p id="todayTaskKpi" class="today-task-kpi"><span class="inline-icon" aria-hidden="true">📈</span>対象KPI: -</p>
+          <p id="todayTaskKgi" class="today-task-kgi"><span class="inline-icon" aria-hidden="true">🎯</span>対象KGI: -</p>
           <a id="todayTaskLink" class="button" href="./list.html">このTaskを見る</a>
         </section>
 
         <div id="todayTaskEmpty" class="empty" hidden>
-          <p class="section-title">今日やること</p>
+          <p class="section-title"><span class="inline-icon" aria-hidden="true">⚡</span>今日やること</p>
           <p class="hint">未完了タスクは見つかりませんでした。進行中のKGIから次アクションを選んでください。</p>
         </div>
 
