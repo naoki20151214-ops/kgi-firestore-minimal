@@ -32,6 +32,8 @@ const nowActionLinkElement = document.getElementById("nowActionLink");
 const roadmapSectionElement = document.getElementById("roadmapSection");
 const roadmapListElement = document.getElementById("roadmapList");
 const roadmapEmptyElement = document.getElementById("roadmapEmpty");
+const roadmapEmptyActionsElement = document.getElementById("roadmapEmptyActions");
+const roadmapCreateButtonElement = document.getElementById("roadmapCreateButton");
 const kpiSummarySectionElement = document.getElementById("kpiSummarySection");
 const kpiSummaryTextElement = document.getElementById("kpiSummaryText");
 
@@ -41,6 +43,25 @@ const setStatus = (text, isError = false) => {
   }
   statusTextElement.textContent = text;
   statusTextElement.classList.toggle("error", isError);
+};
+
+const pageQuery = new URLSearchParams(window.location.search);
+const focusTarget = String(pageQuery.get("focus") || "").trim().toLowerCase();
+
+const guideRoadmapFocus = () => {
+  if (!roadmapSectionElement || focusTarget !== "roadmap") {
+    return;
+  }
+
+  roadmapSectionElement.classList.remove("focus-highlight");
+  requestAnimationFrame(() => {
+    roadmapSectionElement.classList.add("focus-highlight");
+    roadmapSectionElement.scrollIntoView({ behavior: "smooth", block: "start" });
+  });
+
+  window.setTimeout(() => {
+    roadmapSectionElement?.classList.remove("focus-highlight");
+  }, 1700);
 };
 
 const asDisplayText = (value, fallback = "-") => {
@@ -423,15 +444,20 @@ const renderOverviewPanel = ({
 };
 
 const renderRoadmap = ({ kgiId, phases = [], kpiCountByPhaseId = new Map() }) => {
-  if (!roadmapSectionElement || !roadmapListElement || !roadmapEmptyElement) {
+  if (!roadmapSectionElement || !roadmapListElement || !roadmapEmptyElement || !roadmapEmptyActionsElement || !roadmapCreateButtonElement) {
     return;
   }
 
   roadmapListElement.innerHTML = "";
 
   if (phases.length === 0) {
+    const kgiLabel = asDisplayText(kgiNameElement?.textContent, "このKGI");
     roadmapSectionElement.hidden = false;
     roadmapEmptyElement.hidden = false;
+    roadmapCreateButtonElement.textContent = `${kgiLabel}のロードマップを作成する`;
+    roadmapCreateButtonElement.href = `./detail.html?id=${encodeURIComponent(kgiId)}&focus=roadmap`;
+    roadmapEmptyActionsElement.hidden = false;
+    guideRoadmapFocus();
     return;
   }
 
@@ -495,7 +521,9 @@ const renderRoadmap = ({ kgiId, phases = [], kpiCountByPhaseId = new Map() }) =>
 
   roadmapListElement.appendChild(fragment);
   roadmapEmptyElement.hidden = true;
+  roadmapEmptyActionsElement.hidden = true;
   roadmapSectionElement.hidden = false;
+  guideRoadmapFocus();
 };
 
 const renderKpiSummary = ({ total = 0, completed = 0 } = {}) => {

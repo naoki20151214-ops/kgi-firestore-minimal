@@ -218,7 +218,8 @@ const renderTodayTask = (todayTask) => {
   todayTaskName.textContent = `今日やること: ${todayTask.title}`;
   todayTaskKpi.innerHTML = `<span class="inline-icon" aria-hidden="true">📈</span>段階: ${todayTask.stageLabel}`;
   if (todayTaskKgi) {
-    todayTaskKgi.innerHTML = `<span class="inline-icon" aria-hidden="true">🎯</span>${todayTask.reason} / 進捗: ${todayTask.progressSummary}`;
+    const targetKgiName = asText(todayTask.targetKgiName, "このKGI");
+    todayTaskKgi.innerHTML = `<span class="inline-icon" aria-hidden="true">🎯</span>対象KGI: <strong>${targetKgiName}</strong>`;
   }
   if (todayTaskPriority) {
     todayTaskPriority.innerHTML = `<span class="label">重要度</span><span class="stars">${toStars(todayTask.importanceLevel)}</span>`;
@@ -436,6 +437,14 @@ const renderCards = (items) => {
     });
     if (todayTask) {
       todayTask.importanceLevel = getNowActionImportance(todayTask.actionType);
+      const matchedKgi = allKgis.find((kgi) => kgi.id === todayTask.targetKgiId);
+      const targetKgiName = asText(matchedKgi?.name, "");
+      if (targetKgiName) {
+        todayTask.targetKgiName = targetKgiName;
+      }
+      if (todayTask.actionType === "create_roadmap" && targetKgiName) {
+        todayTask.buttonLabel = `${targetKgiName}のロードマップを作る`;
+      }
     }
     renderTodayTask(todayTask);
 

@@ -137,6 +137,33 @@
       }
       .roadmap-title-link:hover { text-decoration: underline; }
       .roadmap-empty { margin: 0; color: #6b7280; font-size: 0.92rem; }
+
+      .roadmap-empty-actions {
+        margin-top: 10px;
+      }
+      .roadmap-create-button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 44px;
+        padding: 10px 14px;
+        border-radius: 10px;
+        text-decoration: none;
+        font-weight: 700;
+        font-size: 0.92rem;
+        color: #ffffff;
+        background: #2563eb;
+      }
+      .roadmap-create-button:hover {
+        background: #1d4ed8;
+      }
+      .focus-highlight {
+        animation: roadmapFocusPulse 1.6s ease-out 1;
+      }
+      @keyframes roadmapFocusPulse {
+        0% { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.36); }
+        100% { box-shadow: 0 0 0 14px rgba(37, 99, 235, 0); }
+      }
       .kpi-summary-inline {
         margin: 8px 0 0;
         font-size: 0.98rem;
@@ -402,6 +429,7 @@
         <h2>ロードマップ</h2>
         <ol id="roadmapList" class="roadmap-list"></ol>
         <p id="roadmapEmpty" class="roadmap-empty" hidden>ロードマップは未設定です。</p>
+        <p id="roadmapEmptyActions" class="roadmap-empty-actions" hidden><a id="roadmapCreateButton" class="roadmap-create-button stage-primary-link" href="#">このKGIのロードマップを作成する</a></p>
       </section>
 
       <section class="card" id="kpiSummarySection" hidden>
