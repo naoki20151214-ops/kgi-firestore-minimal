@@ -3,7 +3,7 @@ const STAGES = [
     key: "kgi",
     label: "KGI作成",
     caption: "現在地: 今はKGIを定義する段階です。",
-    buildHref: () => "./index.html",
+    buildHref: () => "./list.html?focus=create-kgi#create-kgi",
   },
   {
     key: "phase",

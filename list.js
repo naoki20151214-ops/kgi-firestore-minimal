@@ -22,6 +22,7 @@ const todayTaskPriority = document.getElementById("todayTaskPriority");
 const todayTaskLink = document.getElementById("todayTaskLink");
 const listDebugPanel = document.getElementById("listDebugPanel");
 const listDebugText = document.getElementById("listDebugText");
+const createKgiSection = document.getElementById("create-kgi");
 
 const setStatus = (message, isError = false) => {
   if (!statusText) {
@@ -30,6 +31,25 @@ const setStatus = (message, isError = false) => {
 
   statusText.textContent = message;
   statusText.classList.toggle("error", isError);
+};
+
+const focusCreateKgiSection = () => {
+  if (!createKgiSection) {
+    return;
+  }
+
+  const searchParams = new URLSearchParams(window.location.search);
+  const focusTarget = searchParams.get("focus");
+  const hashTarget = window.location.hash.replace(/^#/, "");
+  const shouldFocus = focusTarget === "create-kgi" || hashTarget === "create-kgi";
+
+  if (!shouldFocus) {
+    return;
+  }
+
+  window.requestAnimationFrame(() => {
+    createKgiSection.scrollIntoView({ behavior: "smooth", block: "start" });
+  });
 };
 
 const asText = (value, fallback = "") => {
@@ -249,6 +269,8 @@ const sortTasks = (tasks) => (Array.isArray(tasks) ? [...tasks] : []).sort((a, b
 
   return String(a?.id ?? "").localeCompare(String(b?.id ?? ""), "ja");
 });
+
+focusCreateKgiSection();
 
 const buildTaskStats = (tasks = []) => {
   let done = 0;
