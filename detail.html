@@ -55,26 +55,32 @@
         border-radius: 8px;
         padding: 8px 10px;
       }
-      .archive-actions {
-        margin-top: 14px;
-        padding-top: 10px;
-        border-top: 1px dashed #e5e7eb;
-      }
       .archive-button {
         display: inline-flex;
         align-items: center;
         justify-content: center;
         min-height: 42px;
-        padding: 9px 13px;
-        border: 1px solid #fca5a5;
+        padding: 10px 14px;
+        border: 1px solid #b45353;
         border-radius: 10px;
-        background: #fff5f5;
-        color: #991b1b;
-        font-size: 0.86rem;
-        font-weight: 600;
+        background: #c65d5d;
+        color: #ffffff;
+        font-size: 0.9rem;
+        font-weight: 700;
       }
+      .archive-button:hover { background: #b45353; }
       .archive-button:disabled {
         opacity: 0.65;
+      }
+      .archive-actions-bottom {
+        margin-top: 24px;
+        padding-top: 16px;
+        border-top: 1px dashed #e5e7eb;
+      }
+      .archive-actions-title {
+        margin: 0 0 8px;
+        font-size: 0.82rem;
+        color: #6b7280;
       }
       .roadmap-list { margin: 0; padding-left: 20px; display: grid; gap: 12px; }
       .roadmap-item details {
@@ -427,9 +433,6 @@
             <dd id="targetDate">-</dd>
           </div>
         </dl>
-        <div class="archive-actions">
-          <button id="archiveKgiButton" class="archive-button" type="button">このKGIをアーカイブ</button>
-        </div>
       </section>
 
       <section class="card" id="overviewSection" hidden>
@@ -481,6 +484,11 @@
       </section>
 
       <a class="back-link" href="./all-kgi.html">一覧に戻る</a>
+
+      <section class="archive-actions-bottom" aria-label="補助操作">
+        <p class="archive-actions-title">補助操作（慎重に実行してください）</p>
+        <button id="archiveKgiButton" class="archive-button" type="button">このKGIをアーカイブ</button>
+      </section>
     </main>
 
     <script type="module" src="./detail.js"></script>
