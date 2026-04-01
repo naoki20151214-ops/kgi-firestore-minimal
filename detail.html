@@ -46,6 +46,36 @@
       }
       .status { margin: 0; font-size: 0.95rem; color: #374151; }
       .status.error { color: #b91c1c; }
+      .archive-note {
+        margin: 8px 0 0;
+        font-size: 0.85rem;
+        color: #7f1d1d;
+        background: #fef2f2;
+        border: 1px solid #fecaca;
+        border-radius: 8px;
+        padding: 8px 10px;
+      }
+      .archive-actions {
+        margin-top: 14px;
+        padding-top: 10px;
+        border-top: 1px dashed #e5e7eb;
+      }
+      .archive-button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 42px;
+        padding: 9px 13px;
+        border: 1px solid #fca5a5;
+        border-radius: 10px;
+        background: #fff5f5;
+        color: #991b1b;
+        font-size: 0.86rem;
+        font-weight: 600;
+      }
+      .archive-button:disabled {
+        opacity: 0.65;
+      }
       .roadmap-list { margin: 0; padding-left: 20px; display: grid; gap: 12px; }
       .roadmap-item details {
         border: 1px solid #e5e7eb;
@@ -382,6 +412,7 @@
       <section class="card">
         <h1 id="kgiName" class="stage-main-title">KGI詳細</h1>
         <p id="statusText" class="status">読み込み中...</p>
+        <p id="archiveStatusNote" class="archive-note" hidden>このKGIはアーカイブ済みです。</p>
         <dl id="detailFields" hidden>
           <div>
             <dt>ゴール説明</dt>
@@ -396,6 +427,9 @@
             <dd id="targetDate">-</dd>
           </div>
         </dl>
+        <div class="archive-actions">
+          <button id="archiveKgiButton" class="archive-button" type="button">このKGIをアーカイブ</button>
+        </div>
       </section>
 
       <section class="card" id="overviewSection" hidden>
