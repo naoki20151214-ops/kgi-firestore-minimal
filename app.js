@@ -69,6 +69,18 @@ const BUSINESS_GOAL_TYPE = {
   BUSINESS_OPERATION_IMPROVEMENT: "business_operation_improvement"
 };
 
+const BUSINESS_KGI_TYPE = {
+  PROJECT_BUILD: "project_build",
+  PROJECT_PLUS_REVENUE: "project_plus_revenue",
+  REVENUE_SCALE: "revenue_scale"
+};
+
+const BUSINESS_KGI_TYPE_LABEL = {
+  [BUSINESS_KGI_TYPE.PROJECT_BUILD]: "プロジェクト達成型",
+  [BUSINESS_KGI_TYPE.PROJECT_PLUS_REVENUE]: "複合型",
+  [BUSINESS_KGI_TYPE.REVENUE_SCALE]: "収益化型"
+};
+
 const AI_ASSIST_MODE = "rules-plus-writing";
 
 let db;
@@ -78,6 +90,13 @@ const wizardState = {
   roughInput: null,
   normalizedIntent: null,
   inferredGoal: "",
+  businessKgiType: BUSINESS_KGI_TYPE.PROJECT_PLUS_REVENUE,
+  businessKgiTypeReason: "",
+  ultimateBenefit: "",
+  phase1Goal: "",
+  phase2Goal: "",
+  revenueTarget: "",
+  monetizationPath: "",
   businessGoalType: "",
   businessGoalTypeReason: "",
   questionTemplateType: "",
@@ -307,6 +326,85 @@ const inferBusinessGoalType = (normalized) => {
   };
 };
 
+const resolveUltimateBenefit = (normalized, answers = {}) => {
+  const selected = answers.ultimateBenefit || "";
+  if (selected) {
+    if (/売上|収益/.test(selected)) return "revenue";
+    if (/見込み客|問い合わせ|リード|登録/.test(selected)) return "leads";
+    if (/影響力|認知/.test(selected)) return "influence";
+    if (/時間の自由|脱却|自由/.test(selected)) return "freedom";
+  }
+  const text = `${normalized.goal} ${normalized.reason} ${normalized.currentState}`.toLowerCase();
+  if (/(売上|収益|販売|課金|月.?円|マネタイズ)/i.test(text)) return "revenue";
+  if (/(問い合わせ|見込み客|リード|登録|相談)/i.test(text)) return "leads";
+  if (/(影響力|認知|フォロワー|発信力|ブランド)/i.test(text)) return "influence";
+  if (/(時間の自由|自由な時間|本業依存からの脱却)/i.test(text)) return "freedom";
+  return "revenue";
+};
+
+const resolveScopeIntent = (normalized, answers = {}) => {
+  const selected = answers.scopeIntent || "";
+  if (selected) {
+    if (/既存|収益化する|改善/.test(selected)) return "existing_revenue";
+    if (/初回収益|収益まで/.test(selected)) return "build_and_revenue";
+    if (/まず形|土台/.test(selected)) return "build_only";
+  }
+  const text = `${normalized.goal} ${normalized.reason} ${normalized.currentState}`.toLowerCase();
+  if (/(既存|改善|拡大|最適化|テコ入れ|見直し)/i.test(text)) return "existing_revenue";
+  if (/(初回売上|初回販売|初回収益|問い合わせ.*件|検証)/i.test(text)) return "build_and_revenue";
+  return "build_only";
+};
+
+const inferBusinessKgiType = ({ normalized, answers }) => {
+  const scopeIntent = resolveScopeIntent(normalized, answers);
+  const text = `${normalized.goal} ${normalized.currentState} ${answers.currentAssets || ""}`.toLowerCase();
+  const hasExistingAssetSignal = /(すでに|既存|運用中|公開済み|記事\d+|ユーザー\d+|フォロワー\d+)/i.test(text);
+
+  if (scopeIntent === "existing_revenue" || hasExistingAssetSignal) {
+    return {
+      businessKgiType: BUSINESS_KGI_TYPE.REVENUE_SCALE,
+      reason: "既存資産の改善・拡大が中心で、今回の主目的が収益化改善に寄っているため。"
+    };
+  }
+  if (scopeIntent === "build_only") {
+    return {
+      businessKgiType: BUSINESS_KGI_TYPE.PROJECT_BUILD,
+      reason: "今回の期限ではまず土台完成を主目的にしており、収益は次段階として扱うため。"
+    };
+  }
+  return {
+    businessKgiType: BUSINESS_KGI_TYPE.PROJECT_PLUS_REVENUE,
+    reason: "土台構築と初回収益化を同じ期間で狙う意図が確認できるため。"
+  };
+};
+
+const resolveRevenueTarget = (answers = {}) => (
+  answers.revenueTarget
+  || answers.revenueTargetClarification
+  || answers.targetOutcomeValue
+  || answers.targetOutcomeMetric
+  || ""
+).trim();
+
+const resolveMonetizationPath = (answers = {}) => (
+  answers.monetizationPath
+  || answers.monetizationPathClarification
+  || answers.monetizationType
+  || answers.acquisitionRoute
+  || ""
+).trim();
+
+const buildBusinessReadiness = ({ normalizedIntent, answers }) => {
+  const revenueTarget = resolveRevenueTarget(answers);
+  const monetizationPath = resolveMonetizationPath(answers);
+  const text = `${normalizedIntent.goal} ${normalizedIntent.reason} ${normalizedIntent.currentState}`.toLowerCase();
+  const hasEconomicIntentSignal = /(ブログ|発信|商品|アプリ|サービス|コンテンツ|メディア)/i.test(text);
+  const missing = [];
+  if (!revenueTarget) missing.push("revenueTarget");
+  if (!monetizationPath) missing.push("monetizationPath");
+  return { revenueTarget, monetizationPath, hasEconomicIntentSignal, missing };
+};
+
 const assessFeasibility = (normalized, businessGoalType) => {
   const reasons = [];
   const constraints = [];
@@ -479,6 +577,8 @@ const buildDynamicQuestions = (analysis) => {
 
 const buildQuestionsByBusinessGoalType = (businessGoalType) => {
   const common = [
+    { id: "scopeIntent", text: "今回の期限では、まず何を達成したいですか？（まず形にする / 形にして初回収益まで出す / すでにあるものを収益化する）", axis: "今回の達成範囲" },
+    { id: "ultimateBenefit", text: "最終的に一番欲しいベネフィットはどれですか？（売上 / 見込み客 / 問い合わせ / 影響力 / 時間の自由）", axis: "最終ベネフィット" },
     { id: "dreamStatement", text: "本当はどうなりたいですか？（叶えたい夢・理想の状態）", axis: "夢・意味" },
     { id: "trueIntent", text: "この目標を達成すると何が変わりますか？", axis: "夢・意味" },
     { id: "whyNow", text: "なぜ今それをやりたいですか？", axis: "夢・意味" },
@@ -486,6 +586,8 @@ const buildQuestionsByBusinessGoalType = (businessGoalType) => {
     { id: "valueOffer", text: "その相手に何を渡せたら価値になりますか？", axis: "価値" },
     { id: "targetOutcomeMetric", text: "最終目標の数字はどれに近いですか？（月売上 / 初回販売件数 / 問い合わせ件数 / アクセス数 / 登録者数）", axis: "最終目標の数字" },
     { id: "targetOutcomeValue", text: "いつまでに、どのくらいを目指しますか？（例: 2026-07-31までに月5万円）", axis: "最終目標の数字" },
+    { id: "revenueTarget", text: "今回または次段階で追いたい収益目標は何ですか？（例: 初回販売1件 / 月3万円 / 問い合わせ5件 / 登録20件）", axis: "収益目標" },
+    { id: "monetizationPath", text: "どの導線でお金や見込み客につなげますか？（商品販売 / 相談獲得 / 問い合わせ / アフィリエイト / 課金導線）", axis: "収益導線" },
     { id: "progressMetrics", text: "途中の目印はどれに近いですか？（記事数 / 投稿数 / 商品数 / 導線設置数 / 反応件数 / 面談件数）", axis: "途中の判定数字" },
     { id: "progressMetricValue", text: "前進と判断する具体値を教えてください（例: 記事10本、反応10件）", axis: "途中の判定数字" },
     { id: "availableTime", text: "期限までに使える時間はどれくらいですか？", axis: "制約" },
@@ -651,6 +753,27 @@ const buildAdaptiveFollowUpQuestion = (question, answer) => {
   };
 };
 
+const buildBusinessClarificationQuestions = (readiness) => {
+  const questions = [];
+  if (readiness.missing.includes("revenueTarget")) {
+    questions.push({
+      id: "revenueTargetClarification",
+      text: "このアプリはビジネス目標を作る前提です。今回の成果はどれに近いですか？（初回販売 / 月売上 / 問い合わせ / 見込み客 / まず土台完成）",
+      axis: "収益目標",
+      isFollowUp: true
+    });
+  }
+  if (readiness.missing.includes("monetizationPath")) {
+    questions.push({
+      id: "monetizationPathClarification",
+      text: "どの導線で経済的ベネフィットにつなげますか？（商品販売 / 相談獲得 / 問い合わせ / アフィリエイト / 課金導線）",
+      axis: "収益導線",
+      isFollowUp: true
+    });
+  }
+  return questions;
+};
+
 const buildUpdatedUnderstandingSummary = () => {
   const dream = wizardState.answers.dreamStatement || wizardState.answers.trueIntent || wizardState.roughInput?.roughGoal || "夢は追加調整中";
   const intent = wizardState.answers.whyNow || wizardState.answers.trueIntent || wizardState.roughInput?.reason || "背景は追加調整中";
@@ -788,6 +911,26 @@ const buildConcretePlanText = ({ directionId, deadline, audience, channel, monet
   };
 };
 
+const buildPhaseGoalsByKgiType = ({ businessKgiType, deadline, audience, channel, monetizationPath, revenueTarget }) => {
+  const d = deadline || "期限まで";
+  if (businessKgiType === BUSINESS_KGI_TYPE.PROJECT_BUILD) {
+    return {
+      phase1Goal: `${d}までに${audience || "対象顧客"}向けの土台（媒体/商品/導線）を完成し、公開できる状態にする。`,
+      phase2Goal: `次段階で${monetizationPath || "収益導線"}を使い、${revenueTarget || "初回収益または問い合わせ"}を検証する。`
+    };
+  }
+  if (businessKgiType === BUSINESS_KGI_TYPE.REVENUE_SCALE) {
+    return {
+      phase1Goal: `${d}までに既存導線を改善し、計測と改善サイクルを回せる状態にする。`,
+      phase2Goal: `${monetizationPath || "既存の収益導線"}で${revenueTarget || "売上・問い合わせ増加"}を達成する。`
+    };
+  }
+  return {
+    phase1Goal: `${d}までに${audience || "対象顧客"}向けの土台（媒体/商品/導線）を完成する。`,
+    phase2Goal: `${monetizationPath || channel || "導線"}で${revenueTarget || "初回販売1件または問い合わせ獲得"}を達成する。`
+  };
+};
+
 const generateProposals = () => {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -798,6 +941,12 @@ const generateProposals = () => {
   const monetization = wizardState.tags.monetizationType || "成果化の手段";
   const feasibilityLevel = wizardState.feasibility?.feasibilityLevel || FEASIBILITY_LEVEL.STRETCH;
   const insights = buildWizardInsights();
+  const readiness = buildBusinessReadiness({ normalizedIntent: wizardState.normalizedIntent, answers: wizardState.answers });
+  const { businessKgiType, reason: businessKgiTypeReason } = inferBusinessKgiType({
+    normalized: wizardState.normalizedIntent,
+    answers: wizardState.answers
+  });
+  const ultimateBenefit = resolveUltimateBenefit(wizardState.normalizedIntent, wizardState.answers);
 
   const levels = ["easy", "normal", "detailed"];
   const directionBases = wizardState.candidateDirections.length > 0
@@ -815,14 +964,36 @@ const generateProposals = () => {
       insights,
       feasibilityLevel
     });
-    const completionCondition = concretePlan.goalText.split("達成条件:")[1]?.trim() || concretePlan.goalText;
+    const phaseGoals = buildPhaseGoalsByKgiType({
+      businessKgiType,
+      deadline,
+      audience,
+      channel,
+      monetizationPath: readiness.monetizationPath || monetization,
+      revenueTarget: readiness.revenueTarget
+    });
+    const typeLabel = BUSINESS_KGI_TYPE_LABEL[businessKgiType] || "未分類";
+    const typeAwareName = businessKgiType === BUSINESS_KGI_TYPE.PROJECT_BUILD
+      ? `${formatDeadlineLabel(deadline)}収益化の土台になる${audience}向けプロジェクトを完成する`
+      : businessKgiType === BUSINESS_KGI_TYPE.REVENUE_SCALE
+        ? `${formatDeadlineLabel(deadline)}既存プロジェクトの収益化を改善する`
+        : `${formatDeadlineLabel(deadline)}${audience}向けプロジェクトを完成し初回収益まで検証する`;
+    const typeAwareGoalText = `${phaseGoals.phase1Goal} ${phaseGoals.phase2Goal} 達成条件: ${concretePlan.goalText}`;
     return {
     candidateType: direction.id,
     directionLabel: direction.title,
-    name: concretePlan.title,
-    goalText: concretePlan.goalText,
-    narrative: concretePlan.title,
-    metrics: completionCondition,
+    businessKgiType,
+    businessKgiTypeLabel: typeLabel,
+    businessKgiTypeReason,
+    ultimateBenefit,
+    phase1Goal: phaseGoals.phase1Goal,
+    phase2Goal: phaseGoals.phase2Goal,
+    revenueTarget: readiness.revenueTarget || "",
+    monetizationPath: readiness.monetizationPath || "",
+    name: `${typeAwareName}`,
+    goalText: typeAwareGoalText,
+    narrative: typeAwareName,
+    metrics: `${phaseGoals.phase1Goal} / ${phaseGoals.phase2Goal}`,
     deadline,
     level: levels[index] || "normal",
     reason: direction.reason,
@@ -951,6 +1122,7 @@ const renderProposals = () => {
     card.className = `proposal-card${wizardState.selectedProposalIndex === index ? " selected" : ""}`;
     card.innerHTML = `
       <h3>${proposal.name}</h3>
+      <p class="proposal-meta"><small><strong>KGIタイプ:</strong> ${proposal.businessKgiTypeLabel || "未設定"}</small></p>
       <p class="proposal-meta"><small><strong>方向タイプ:</strong> ${proposal.directionLabel || "未設定"}</small></p>
       <p class="proposal-meta"><strong>夢の見出し:</strong> ${proposal.narrative || proposal.name}</p>
       <p class="proposal-meta"><strong>達成条件:</strong> ${proposal.metrics || proposal.goalText}</p>
@@ -1112,6 +1284,13 @@ const persistKgi = async ({ finalDraft, startDate, level }) => {
         normalizedIntent: wizardState.normalizedIntent,
         businessGoalType: wizardState.businessGoalType,
         businessGoalTypeReason: wizardState.businessGoalTypeReason,
+        businessKgiType: wizardState.businessKgiType,
+        kgiTypeReason: wizardState.businessKgiTypeReason,
+        ultimateBenefit: wizardState.ultimateBenefit,
+        phase1Goal: wizardState.phase1Goal,
+        phase2Goal: wizardState.phase2Goal,
+        revenueTarget: wizardState.revenueTarget,
+        monetizationPath: wizardState.monetizationPath,
         questionTemplateType: wizardState.questionTemplateType,
         candidateTemplateType: wizardState.candidateTemplateType,
         inferredGoal: wizardState.inferredGoal,
@@ -1172,6 +1351,13 @@ const persistKgi = async ({ finalDraft, startDate, level }) => {
       candidateKgiNarratives,
       candidateKgiMetrics,
       finalSelectedReason,
+      businessKgiType: wizardState.businessKgiType,
+      businessKgiTypeReason: wizardState.businessKgiTypeReason,
+      ultimateBenefit: wizardState.ultimateBenefit,
+      phase1Goal: wizardState.phase1Goal,
+      phase2Goal: wizardState.phase2Goal,
+      revenueTarget: wizardState.revenueTarget,
+      monetizationPath: wizardState.monetizationPath,
       finalKgiId: kgiDocRef.id,
       completedAt: serverTimestamp()
     });
@@ -1242,6 +1428,13 @@ const ensureCreationSession = async () => {
     missingInfoChecklist: wizardState.interviewProcess.missingInfoChecklist,
     businessGoalType: wizardState.businessGoalType,
     businessGoalTypeReason: wizardState.businessGoalTypeReason,
+    businessKgiType: wizardState.businessKgiType,
+    businessKgiTypeReason: wizardState.businessKgiTypeReason,
+    ultimateBenefit: wizardState.ultimateBenefit,
+    phase1Goal: wizardState.phase1Goal,
+    phase2Goal: wizardState.phase2Goal,
+    revenueTarget: wizardState.revenueTarget,
+    monetizationPath: wizardState.monetizationPath,
     questionTemplateType: wizardState.questionTemplateType,
     candidateTemplateType: wizardState.candidateTemplateType,
     inferredGoal: wizardState.inferredGoal,
@@ -1303,6 +1496,14 @@ startDeepDiveButton.addEventListener("click", async () => {
     wizardState.normalizedIntent = analysis.normalizedIntent;
     wizardState.businessGoalType = analysis.businessGoalType;
     wizardState.businessGoalTypeReason = analysis.businessGoalTypeReason;
+    const initialKgiType = inferBusinessKgiType({ normalized: analysis.normalizedIntent, answers: {} });
+    wizardState.businessKgiType = initialKgiType.businessKgiType;
+    wizardState.businessKgiTypeReason = initialKgiType.reason;
+    wizardState.ultimateBenefit = resolveUltimateBenefit(analysis.normalizedIntent, {});
+    wizardState.phase1Goal = "";
+    wizardState.phase2Goal = "";
+    wizardState.revenueTarget = "";
+    wizardState.monetizationPath = "";
     wizardState.questionTemplateType = analysis.businessGoalType;
     wizardState.candidateTemplateType = analysis.businessGoalType;
     wizardState.inferredGoal = analysis.inferredGoal;
@@ -1465,6 +1666,22 @@ nextQuestionButton.addEventListener("click", async () => {
       renderQuestion();
       return;
     }
+
+    const readiness = buildBusinessReadiness({
+      normalizedIntent: wizardState.normalizedIntent,
+      answers: wizardState.answers
+    });
+    if (readiness.missing.length > 0) {
+      const extraQuestions = buildBusinessClarificationQuestions(readiness).filter((question) => !wizardState.questions.some((existing) => existing.id === question.id));
+      if (extraQuestions.length > 0) {
+        wizardState.questions.push(...extraQuestions.map((question, index) => ({ ...question, order: wizardState.questions.length + index + 1 })));
+        wizardState.currentQuestionIndex += 1;
+        renderQuestion();
+        setStatus("候補作成の前に、収益目標または収益導線をもう少しだけ確認させてください。", false);
+        return;
+      }
+    }
+
     wizardState.interviewProcess.updatedUnderstandingSummary = buildUpdatedUnderstandingSummary();
     understandingSummaryText.innerHTML = wizardState.interviewProcess.updatedUnderstandingSummary.replace(/\n/g, "<br>");
     questionSection.classList.add("hidden");
@@ -1489,6 +1706,23 @@ nextQuestionButton.addEventListener("click", async () => {
 const generateProposalsAfterUnderstandingCheck = async () => {
   wizardState.tags = extractTags();
   wizardState.proposals = generateProposals();
+  const readiness = buildBusinessReadiness({ normalizedIntent: wizardState.normalizedIntent, answers: wizardState.answers });
+  const kgiTypeResult = inferBusinessKgiType({ normalized: wizardState.normalizedIntent, answers: wizardState.answers });
+  const phaseGoals = buildPhaseGoalsByKgiType({
+    businessKgiType: kgiTypeResult.businessKgiType,
+    deadline: wizardState.roughInput.deadline,
+    audience: wizardState.tags.targetAudience,
+    channel: wizardState.tags.channel,
+    monetizationPath: readiness.monetizationPath,
+    revenueTarget: readiness.revenueTarget
+  });
+  wizardState.businessKgiType = kgiTypeResult.businessKgiType;
+  wizardState.businessKgiTypeReason = kgiTypeResult.reason;
+  wizardState.ultimateBenefit = resolveUltimateBenefit(wizardState.normalizedIntent, wizardState.answers);
+  wizardState.phase1Goal = phaseGoals.phase1Goal;
+  wizardState.phase2Goal = phaseGoals.phase2Goal;
+  wizardState.revenueTarget = readiness.revenueTarget;
+  wizardState.monetizationPath = readiness.monetizationPath;
   wizardState.interviewProcess.proposalRationale = buildProposalRationale();
   const fallbackAfterQuestions = fallbackAiWritingResult({
     normalizedIntent: wizardState.normalizedIntent,
@@ -1548,6 +1782,13 @@ const generateProposalsAfterUnderstandingCheck = async () => {
   await updateCreationSession({
     status: "proposal_ready",
     tags: wizardState.tags,
+    businessKgiType: wizardState.businessKgiType,
+    businessKgiTypeReason: wizardState.businessKgiTypeReason,
+    ultimateBenefit: wizardState.ultimateBenefit,
+    phase1Goal: wizardState.phase1Goal,
+    phase2Goal: wizardState.phase2Goal,
+    revenueTarget: wizardState.revenueTarget,
+    monetizationPath: wizardState.monetizationPath,
     generatedCandidates: wizardState.proposals,
     aiWritingResult: wizardState.aiWriting,
     interviewProcess: wizardState.interviewProcess
