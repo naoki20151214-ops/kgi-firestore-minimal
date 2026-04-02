@@ -6,6 +6,11 @@ const roughGoalInput = document.getElementById("roughGoalInput");
 const roughReasonInput = document.getElementById("roughReasonInput");
 const roughDeadlineInput = document.getElementById("roughDeadlineInput");
 const roughCurrentStateInput = document.getElementById("roughCurrentStateInput");
+const businessCategoryInput = document.getElementById("businessCategoryInput");
+const businessCategoryDetailField = document.getElementById("businessCategoryDetailField");
+const businessCategoryDetailInput = document.getElementById("businessCategoryDetailInput");
+const businessKgiTypeInput = document.getElementById("businessKgiTypeInput");
+const outcomeMetricTypeInput = document.getElementById("outcomeMetricTypeInput");
 const startDeepDiveButton = document.getElementById("startDeepDiveButton");
 const roughSection = document.getElementById("roughSection");
 const roughStateChip = document.getElementById("roughStateChip");
@@ -89,6 +94,29 @@ const BUSINESS_KGI_TYPE_LABEL = {
   [BUSINESS_KGI_TYPE.REVENUE_SCALE]: "収益化型"
 };
 
+const BUSINESS_CATEGORY_LABEL = {
+  blog: "ブログ",
+  sns: "SNS発信",
+  youtube: "YouTube",
+  digital_product: "デジタル商品販売",
+  consulting_service: "相談 / 代行 / コンサル",
+  app_tool: "アプリ / ツール",
+  ecommerce: "物販",
+  offline_business: "リアルビジネス / オフライン",
+  other: "その他"
+};
+
+const OUTCOME_METRIC_LABEL = {
+  monthly_revenue: "月の売上",
+  first_sales_count: "初回販売件数",
+  inquiry_count: "問い合わせ件数",
+  lead_or_subscriber_count: "見込み客 / 登録者数",
+  engagement_count: "反応数",
+  product_completion: "商品完成",
+  public_release_completion: "公開完了",
+  other: "その他"
+};
+
 const AI_ASSIST_MODE = "rules-plus-writing";
 
 let db;
@@ -98,8 +126,12 @@ const wizardState = {
   roughInput: null,
   normalizedIntent: null,
   inferredGoal: "",
+  businessCategory: "",
+  businessCategoryLabel: "",
+  businessCategoryDetail: "",
   businessKgiType: BUSINESS_KGI_TYPE.PROJECT_PLUS_REVENUE,
   businessKgiTypeReason: "",
+  outcomeMetricType: "",
   ultimateBenefit: "",
   phase1Goal: "",
   phase2Goal: "",
@@ -265,6 +297,32 @@ const normalizeText = (text) => {
     .replace(/えーあい|ＡＩ/gi, "AI")
     .replace(/([。！!？?])\1+/g, "$1")
     .trim();
+};
+
+const getInitialBusinessCategoryOptions = () => Object.keys(BUSINESS_CATEGORY_LABEL);
+const getOutcomeMetricOptions = () => Object.keys(OUTCOME_METRIC_LABEL);
+
+const mapBusinessCategoryToInterviewContext = (businessCategory) => {
+  const map = {
+    blog: BUSINESS_GOAL_TYPE.MEDIA_PLATFORM_BUILDING,
+    sns: BUSINESS_GOAL_TYPE.AUDIENCE_GROWTH,
+    youtube: BUSINESS_GOAL_TYPE.MEDIA_PLATFORM_BUILDING,
+    digital_product: BUSINESS_GOAL_TYPE.OFFER_BUILDING,
+    consulting_service: BUSINESS_GOAL_TYPE.MONETIZATION_VALIDATION,
+    app_tool: BUSINESS_GOAL_TYPE.PRODUCT_SERVICE_LAUNCH,
+    ecommerce: BUSINESS_GOAL_TYPE.MONETIZATION_VALIDATION,
+    offline_business: BUSINESS_GOAL_TYPE.BUSINESS_OPERATION_IMPROVEMENT,
+    other: BUSINESS_GOAL_TYPE.BUSINESS_OPERATION_IMPROVEMENT
+  };
+  return map[businessCategory] || BUSINESS_GOAL_TYPE.BUSINESS_OPERATION_IMPROVEMENT;
+};
+
+const shouldRequireBusinessCategoryDetail = (businessCategory) => businessCategory === "offline_business" || businessCategory === "other";
+
+const toggleBusinessCategoryDetailField = () => {
+  if (!businessCategoryDetailField) return;
+  const shouldShow = shouldRequireBusinessCategoryDetail(businessCategoryInput?.value || "");
+  businessCategoryDetailField.classList.toggle("hidden", !shouldShow);
 };
 
 const summarizeGoal = (goalText) => {
@@ -538,11 +596,28 @@ const assessFeasibility = (normalized, businessGoalType) => {
 };
 
 const buildDynamicQuestions = (analysis) => {
-  const baseQuestions = buildQuestionsByBusinessGoalType(analysis.businessGoalType);
+  const baseQuestions = buildQuestionsByBusinessGoalType(analysis.businessGoalType, analysis.fixedInputs || {});
   const needDepth = analysis.feasibility.feasibilityLevel !== FEASIBILITY_LEVEL.REALISTIC || analysis.uncertaintyFields.length >= 2;
   const maxQuestions = needDepth ? 6 : 3;
   const selectedQuestions = [];
   const selectedIds = new Set();
+  const businessCategory = analysis.fixedInputs?.businessCategory || "";
+
+  const categoryDrivenQuestionIds = {
+    blog: ["targetAudience", "valueOffer", "monetizationType", "currentAssets", "availableTime"],
+    sns: ["channel", "targetAudience", "valueOffer", "currentAssets", "availableTime"],
+    youtube: ["mediaTheme", "targetAudience", "valueOffer", "currentAssets", "availableTime"],
+    offline_business: ["targetAudience", "valueOffer", "channel", "currentAssets", "availableTime"],
+    other: ["targetAudience", "valueOffer", "channel", "currentAssets", "availableTime"]
+  };
+  const prioritizedIds = categoryDrivenQuestionIds[businessCategory] || [];
+  prioritizedIds.forEach((id) => {
+    const question = baseQuestions.find((item) => item.id === id);
+    if (question && !selectedIds.has(question.id)) {
+      selectedQuestions.push(question);
+      selectedIds.add(question.id);
+    }
+  });
 
   const uncertaintyDrivenQuestionIds = {
     targetAudience: "targetAudience",
@@ -583,17 +658,16 @@ const buildDynamicQuestions = (analysis) => {
     .map((question, index) => ({ ...question, order: index + 1 }));
 };
 
-const buildQuestionsByBusinessGoalType = (businessGoalType) => {
+const buildQuestionsByBusinessGoalType = (businessGoalType, fixedInputs = {}) => {
+  const businessCategoryLabel = BUSINESS_CATEGORY_LABEL[fixedInputs.businessCategory] || fixedInputs.businessCategory || "選択済みカテゴリ";
+  const outcomeMetricLabel = OUTCOME_METRIC_LABEL[fixedInputs.outcomeMetricType] || fixedInputs.outcomeMetricType || "選択済み指標";
   const common = [
-    { id: "scopeIntent", text: "今回の期限では、まず何を達成したいですか？（まず形にする / 形にして初回収益まで出す / すでにあるものを収益化する）", axis: "今回の達成範囲" },
-    { id: "ultimateBenefit", text: "最終的に一番欲しいベネフィットはどれですか？（売上 / 見込み客 / 問い合わせ / 影響力 / 時間の自由）", axis: "最終ベネフィット" },
     { id: "dreamStatement", text: "本当はどうなりたいですか？（叶えたい夢・理想の状態）", axis: "夢・意味" },
     { id: "trueIntent", text: "この目標を達成すると何が変わりますか？", axis: "夢・意味" },
     { id: "whyNow", text: "なぜ今それをやりたいですか？", axis: "夢・意味" },
     { id: "targetAudience", text: "いちばん届けたい相手は誰ですか？", axis: "対象" },
     { id: "valueOffer", text: "その相手に何を渡せたら価値になりますか？", axis: "価値" },
-    { id: "targetOutcomeMetric", text: "最終目標の数字はどれに近いですか？（月売上 / 初回販売件数 / 問い合わせ件数 / アクセス数 / 登録者数）", axis: "最終目標の数字" },
-    { id: "targetOutcomeValue", text: "いつまでに、どのくらいを目指しますか？（例: 2026-07-31までに月5万円）", axis: "最終目標の数字" },
+    { id: "targetOutcomeValue", text: `固定質問で「成果指標: ${outcomeMetricLabel}」「ビジネス種別: ${businessCategoryLabel}」を選びました。いつまでにどの数値を達成したいですか？`, axis: "最終目標の数字" },
     { id: "revenueTarget", text: "今回または次段階で追いたい収益目標は何ですか？（例: 初回販売1件 / 月3万円 / 問い合わせ5件 / 登録20件）", axis: "収益目標" },
     { id: "monetizationPath", text: "どの導線でお金や見込み客につなげますか？（商品販売 / 相談獲得 / 問い合わせ / アフィリエイト / 課金導線）", axis: "収益導線" },
     { id: "progressMetrics", text: "途中の目印はどれに近いですか？（記事数 / 投稿数 / 商品数 / 導線設置数 / 反応件数 / 面談件数）", axis: "途中の判定数字" },
@@ -622,7 +696,7 @@ const buildQuestionsByBusinessGoalType = (businessGoalType) => {
   return [...common, { id: "currentBottleneck", text: "今いちばん詰まっているのは何ですか？", axis: "現在地" }, { id: "improvementMetric", text: "何を改善できたら前進と言えますか？", axis: "成功定義" }];
 };
 
-const analyzeRoughInput = (rawInput) => {
+const analyzeRoughInput = (rawInput, fixedInputs = {}) => {
   const normalized = {
     goal: normalizeText(rawInput.roughGoal),
     reason: normalizeText(rawInput.reason),
@@ -636,7 +710,12 @@ const analyzeRoughInput = (rawInput) => {
   if (!/X|Instagram|YouTube|TikTok|ブログ|メルマガ/.test(normalized.goal + normalized.currentState)) uncertaintyFields.push("channel");
   if (!/週|時間|平日|土日|毎日/.test(normalized.currentState)) uncertaintyFields.push("availableTime");
 
-  const { businessGoalType, businessGoalTypeReason } = inferBusinessGoalType(normalized);
+  const inferredByText = inferBusinessGoalType(normalized);
+  const businessGoalTypeFromCategory = mapBusinessCategoryToInterviewContext(fixedInputs.businessCategory);
+  const businessGoalType = fixedInputs.businessCategory ? businessGoalTypeFromCategory : inferredByText.businessGoalType;
+  const businessGoalTypeReason = fixedInputs.businessCategory
+    ? `固定質問で選択されたビジネス種別「${BUSINESS_CATEGORY_LABEL[fixedInputs.businessCategory] || fixedInputs.businessCategory}」を優先。`
+    : inferredByText.businessGoalTypeReason;
   const inferredGoal = summarizeGoal(normalized.goal);
   const feasibility = assessFeasibility(normalized, businessGoalType);
   const missingInfoChecklist = [
@@ -657,6 +736,7 @@ const analyzeRoughInput = (rawInput) => {
 
   return {
     normalizedIntent: normalized,
+    fixedInputs,
     businessGoalType,
     businessGoalTypeReason,
     inferredGoal,
@@ -704,7 +784,11 @@ const parseMotivationTag = (reasonText) => {
 
 const extractTags = () => {
   const targetAudience = wizardState.answers.targetAudience || wizardState.answers.earlyUser || wizardState.answers.trueIntent || "";
-  const channel = wizardState.answers.channel || wizardState.answers.acquisitionRoute || wizardState.answers.mediaTheme || "";
+  const channel = wizardState.answers.channel
+    || wizardState.answers.acquisitionRoute
+    || wizardState.answers.mediaTheme
+    || BUSINESS_CATEGORY_LABEL[wizardState.businessCategory]
+    || "";
   const monetizationType = wizardState.answers.monetizationType || wizardState.answers.offerType || wizardState.answers.improvementMetric || wizardState.answers.valueOffer || "";
   const availableTime = parseAvailableTimeTag(wizardState.answers.availableTime || wizardState.normalizedIntent?.currentState || "");
   const motivationType = parseMotivationTag(wizardState.answers.whyNow || wizardState.roughInput?.reason || "");
@@ -721,7 +805,10 @@ const extractTags = () => {
 const buildWizardInsights = () => {
   const dreamStatement = wizardState.answers.dreamStatement || wizardState.answers.trueIntent || wizardState.roughInput?.roughGoal || "";
   const whyNow = wizardState.answers.whyNow || wizardState.roughInput?.reason || "";
-  const targetOutcomeMetric = wizardState.answers.targetOutcomeMetric || wizardState.answers.firstWinDefinition || "";
+  const targetOutcomeMetric = wizardState.answers.targetOutcomeMetric
+    || OUTCOME_METRIC_LABEL[wizardState.outcomeMetricType]
+    || wizardState.answers.firstWinDefinition
+    || "";
   const targetOutcomeValue = wizardState.answers.targetOutcomeValue || "";
   const progressMetrics = [wizardState.answers.progressMetrics, wizardState.answers.progressMetricValue, wizardState.answers.firstWinDefinition]
     .filter(Boolean)
@@ -792,7 +879,9 @@ const buildUpdatedUnderstandingSummary = () => {
   const target = wizardState.answers.targetAudience || wizardState.answers.earlyUser || "対象は仮置き";
   const offer = wizardState.answers.valueOffer || wizardState.answers.offerType || wizardState.answers.productOutline || wizardState.inferredGoal;
   const channel = wizardState.answers.channel || wizardState.answers.acquisitionRoute || wizardState.answers.mediaTheme || "導線は仮置き";
-  const targetMetric = wizardState.answers.targetOutcomeMetric || "最終目標指標は仮置き";
+  const targetMetric = wizardState.answers.targetOutcomeMetric
+    || OUTCOME_METRIC_LABEL[wizardState.outcomeMetricType]
+    || "最終目標指標は仮置き";
   const targetMetricValue = wizardState.answers.targetOutcomeValue || "最終目標値は仮置き";
   const progressMetric = wizardState.answers.progressMetrics || wizardState.answers.firstWinDefinition || wizardState.answers.launchDoneDefinition || wizardState.answers.improvementMetric || "途中判定指標は仮置き";
   const progressMetricValue = wizardState.answers.progressMetricValue || "途中判定値は仮置き";
@@ -975,10 +1064,8 @@ const generateProposals = () => {
   const feasibilityLevel = wizardState.feasibility?.feasibilityLevel || FEASIBILITY_LEVEL.STRETCH;
   const insights = buildWizardInsights();
   const readiness = buildBusinessReadiness({ normalizedIntent: wizardState.normalizedIntent, answers: wizardState.answers });
-  const { businessKgiType, reason: businessKgiTypeReason } = inferBusinessKgiType({
-    normalized: wizardState.normalizedIntent,
-    answers: wizardState.answers
-  });
+  const businessKgiType = wizardState.businessKgiType || BUSINESS_KGI_TYPE.PROJECT_PLUS_REVENUE;
+  const businessKgiTypeReason = wizardState.businessKgiTypeReason || "固定質問2の選択を優先";
   const ultimateBenefit = resolveUltimateBenefit(wizardState.normalizedIntent, wizardState.answers);
 
   const levels = ["easy", "normal", "detailed"];
@@ -1317,13 +1404,17 @@ const persistKgi = async ({ finalDraft, startDate, level }) => {
       explanationLevel: level,
       kgiCreationSessionId: wizardState.sessionId,
       kgiCreationData: {
-        flowVersion: "in-app-ai-wizard-v3-rules-plus-writing",
+        flowVersion: "in-app-ai-wizard-v4-fixed-entry-questions",
         aiAssistMode: AI_ASSIST_MODE,
         rawInput: wizardState.roughInput,
         normalizedIntent: wizardState.normalizedIntent,
         businessGoalType: wizardState.businessGoalType,
         businessGoalTypeReason: wizardState.businessGoalTypeReason,
+        businessCategory: wizardState.businessCategory,
+        businessCategoryLabel: wizardState.businessCategoryLabel,
+        businessCategoryDetail: wizardState.businessCategoryDetail,
         businessKgiType: wizardState.businessKgiType,
+        outcomeMetricType: wizardState.outcomeMetricType,
         kgiTypeReason: wizardState.businessKgiTypeReason,
         ultimateBenefit: wizardState.ultimateBenefit,
         phase1Goal: wizardState.phase1Goal,
@@ -1392,6 +1483,10 @@ const persistKgi = async ({ finalDraft, startDate, level }) => {
       finalSelectedReason,
       businessKgiType: wizardState.businessKgiType,
       businessKgiTypeReason: wizardState.businessKgiTypeReason,
+      businessCategory: wizardState.businessCategory,
+      businessCategoryLabel: wizardState.businessCategoryLabel,
+      businessCategoryDetail: wizardState.businessCategoryDetail,
+      outcomeMetricType: wizardState.outcomeMetricType,
       ultimateBenefit: wizardState.ultimateBenefit,
       phase1Goal: wizardState.phase1Goal,
       phase2Goal: wizardState.phase2Goal,
@@ -1411,6 +1506,8 @@ const persistKgi = async ({ finalDraft, startDate, level }) => {
           rawInput: wizardState.roughInput,
           normalizedIntent: wizardState.normalizedIntent,
           businessGoalType: wizardState.businessGoalType,
+          businessCategory: wizardState.businessCategory,
+          businessCategoryDetail: wizardState.businessCategoryDetail,
           targetAudience: wizardState.tags.targetAudience || "",
           channel: wizardState.tags.channel || "",
           monetizationType: wizardState.tags.monetizationType || "",
@@ -1458,7 +1555,7 @@ const ensureCreationSession = async () => {
   if (wizardState.sessionId) return true;
 
   const sessionData = {
-    flowVersion: "in-app-ai-wizard-v3-rules-plus-writing",
+    flowVersion: "in-app-ai-wizard-v4-fixed-entry-questions",
     aiAssistMode: AI_ASSIST_MODE,
     status: "rough_input_received",
     rawInput: wizardState.roughInput,
@@ -1467,7 +1564,11 @@ const ensureCreationSession = async () => {
     missingInfoChecklist: wizardState.interviewProcess.missingInfoChecklist,
     businessGoalType: wizardState.businessGoalType,
     businessGoalTypeReason: wizardState.businessGoalTypeReason,
+    businessCategory: wizardState.businessCategory,
+    businessCategoryLabel: wizardState.businessCategoryLabel,
+    businessCategoryDetail: wizardState.businessCategoryDetail,
     businessKgiType: wizardState.businessKgiType,
+    outcomeMetricType: wizardState.outcomeMetricType,
     businessKgiTypeReason: wizardState.businessKgiTypeReason,
     ultimateBenefit: wizardState.ultimateBenefit,
     phase1Goal: wizardState.phase1Goal,
@@ -1517,6 +1618,28 @@ startDeepDiveButton.addEventListener("click", async () => {
   if (!actionToken) return;
   setButtonBusy(startDeepDiveButton, true, "処理中...");
   try {
+    const businessCategory = (businessCategoryInput?.value || "").trim();
+    const businessKgiType = (businessKgiTypeInput?.value || "").trim();
+    const outcomeMetricType = (outcomeMetricTypeInput?.value || "").trim();
+    const businessCategoryDetail = (businessCategoryDetailInput?.value || "").trim();
+
+    if (!businessCategory || !getInitialBusinessCategoryOptions().includes(businessCategory)) {
+      alert("固定質問1「ビジネスの種類」を選択してください。");
+      return;
+    }
+    if (shouldRequireBusinessCategoryDetail(businessCategory) && !businessCategoryDetail) {
+      alert("「どんな内容かを一言で書いてください」を入力してください。");
+      return;
+    }
+    if (!businessKgiType || !Object.values(BUSINESS_KGI_TYPE).includes(businessKgiType)) {
+      alert("固定質問2「今回の期限でどこまで達成したいか」を選択してください。");
+      return;
+    }
+    if (!outcomeMetricType || !getOutcomeMetricOptions().includes(outcomeMetricType)) {
+      alert("固定質問3「成果は何の数字で判断したいか」を選択してください。");
+      return;
+    }
+
     const roughGoal = (roughGoalInput.value || "").trim();
     const reason = (roughReasonInput.value || "").trim();
     if (!roughGoal || !reason) {
@@ -1528,16 +1651,33 @@ startDeepDiveButton.addEventListener("click", async () => {
       roughGoal,
       reason,
       deadline: roughDeadlineInput.value || "",
-      currentState: (roughCurrentStateInput.value || "").trim()
+      currentState: (roughCurrentStateInput.value || "").trim(),
+      fixedQuestions: {
+        businessCategory,
+        businessCategoryLabel: BUSINESS_CATEGORY_LABEL[businessCategory] || businessCategory,
+        businessCategoryDetail: shouldRequireBusinessCategoryDetail(businessCategory) ? businessCategoryDetail : "",
+        businessKgiType,
+        outcomeMetricType,
+        outcomeMetricLabel: OUTCOME_METRIC_LABEL[outcomeMetricType] || outcomeMetricType
+      }
     };
 
-    const analysis = analyzeRoughInput(wizardState.roughInput);
+    wizardState.businessCategory = businessCategory;
+    wizardState.businessCategoryLabel = BUSINESS_CATEGORY_LABEL[businessCategory] || businessCategory;
+    wizardState.businessCategoryDetail = shouldRequireBusinessCategoryDetail(businessCategory) ? businessCategoryDetail : "";
+    wizardState.businessKgiType = businessKgiType;
+    wizardState.businessKgiTypeReason = "固定質問2の選択を採用";
+    wizardState.outcomeMetricType = outcomeMetricType;
+
+    const analysis = analyzeRoughInput(wizardState.roughInput, {
+      businessCategory,
+      businessCategoryDetail: wizardState.businessCategoryDetail,
+      businessKgiType,
+      outcomeMetricType
+    });
     wizardState.normalizedIntent = analysis.normalizedIntent;
     wizardState.businessGoalType = analysis.businessGoalType;
     wizardState.businessGoalTypeReason = analysis.businessGoalTypeReason;
-    const initialKgiType = inferBusinessKgiType({ normalized: analysis.normalizedIntent, answers: {} });
-    wizardState.businessKgiType = initialKgiType.businessKgiType;
-    wizardState.businessKgiTypeReason = initialKgiType.reason;
     wizardState.ultimateBenefit = resolveUltimateBenefit(analysis.normalizedIntent, {});
     wizardState.phase1Goal = "";
     wizardState.phase2Goal = "";
@@ -1559,7 +1699,12 @@ startDeepDiveButton.addEventListener("click", async () => {
     );
     wizardState.askedQuestions = wizardState.questions;
     wizardState.currentQuestionIndex = 0;
-    wizardState.answers = {};
+    wizardState.answers = {
+      businessCategory: wizardState.businessCategoryLabel,
+      businessCategoryDetail: wizardState.businessCategoryDetail,
+      scopeIntent: wizardState.businessKgiType,
+      targetOutcomeMetric: OUTCOME_METRIC_LABEL[wizardState.outcomeMetricType] || wizardState.outcomeMetricType
+    };
     wizardState.interviewProcess.followUpQuestionLog = [];
     wizardState.interviewProcess.updatedUnderstandingSummary = "";
     wizardState.interviewProcess.proposalRationale = [];
@@ -1581,6 +1726,10 @@ startDeepDiveButton.addEventListener("click", async () => {
           normalizedIntent: wizardState.normalizedIntent,
           businessGoalType: wizardState.businessGoalType,
           businessGoalTypeReason: wizardState.businessGoalTypeReason,
+          businessCategory: wizardState.businessCategory,
+          businessCategoryDetail: wizardState.businessCategoryDetail,
+          businessKgiType: wizardState.businessKgiType,
+          outcomeMetricType: wizardState.outcomeMetricType,
           questionTemplateType: wizardState.questionTemplateType,
           candidateTemplateType: wizardState.candidateTemplateType,
           inferredGoal: wizardState.inferredGoal,
@@ -1750,7 +1899,10 @@ const generateProposalsAfterUnderstandingCheck = async () => {
   wizardState.tags = extractTags();
   wizardState.proposals = generateProposals();
   const readiness = buildBusinessReadiness({ normalizedIntent: wizardState.normalizedIntent, answers: wizardState.answers });
-  const kgiTypeResult = inferBusinessKgiType({ normalized: wizardState.normalizedIntent, answers: wizardState.answers });
+  const kgiTypeResult = {
+    businessKgiType: wizardState.businessKgiType || BUSINESS_KGI_TYPE.PROJECT_PLUS_REVENUE,
+    reason: "固定質問2の選択を優先"
+  };
   const phaseGoals = buildPhaseGoalsByKgiType({
     businessKgiType: kgiTypeResult.businessKgiType,
     deadline: wizardState.roughInput.deadline,
@@ -1787,6 +1939,10 @@ const generateProposalsAfterUnderstandingCheck = async () => {
         recommendedScopeChange: wizardState.feasibility.recommendedScopeChange,
         businessGoalType: wizardState.businessGoalType,
         businessGoalTypeReason: wizardState.businessGoalTypeReason,
+        businessCategory: wizardState.businessCategory,
+        businessCategoryDetail: wizardState.businessCategoryDetail,
+        businessKgiType: wizardState.businessKgiType,
+        outcomeMetricType: wizardState.outcomeMetricType,
         questionTemplateType: wizardState.questionTemplateType,
         candidateTemplateType: wizardState.candidateTemplateType,
         dynamicQuestions: wizardState.dynamicQuestionsBase,
@@ -1825,7 +1981,11 @@ const generateProposalsAfterUnderstandingCheck = async () => {
   await updateCreationSession({
     status: "proposal_ready",
     tags: wizardState.tags,
+    businessCategory: wizardState.businessCategory,
+    businessCategoryLabel: wizardState.businessCategoryLabel,
+    businessCategoryDetail: wizardState.businessCategoryDetail,
     businessKgiType: wizardState.businessKgiType,
+    outcomeMetricType: wizardState.outcomeMetricType,
     businessKgiTypeReason: wizardState.businessKgiTypeReason,
     ultimateBenefit: wizardState.ultimateBenefit,
     phase1Goal: wizardState.phase1Goal,
@@ -1866,6 +2026,10 @@ reviseUnderstandingButton.addEventListener("click", () => {
 saveButton.disabled = true;
 setStatus("Firebase接続を初期化しています...");
 updateWizardBlockFocus();
+toggleBusinessCategoryDetailField();
+businessCategoryInput?.addEventListener("change", () => {
+  toggleBusinessCategoryDetailField();
+});
 
 (async () => {
   try {
