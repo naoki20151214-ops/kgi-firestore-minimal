@@ -1,192 +1,109 @@
 import { collection, addDoc, doc, serverTimestamp, updateDoc } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
 import { getDb } from "./firebase-config.js";
-import { enhanceReadableText } from "./readable-text.js";
 
 const roughGoalInput = document.getElementById("roughGoalInput");
-const roughReasonInput = document.getElementById("roughReasonInput");
 const roughDeadlineInput = document.getElementById("roughDeadlineInput");
-const roughCurrentStateInput = document.getElementById("roughCurrentStateInput");
-const businessCategoryInput = document.getElementById("businessCategoryInput");
-const businessCategoryDetailField = document.getElementById("businessCategoryDetailField");
-const businessCategoryDetailInput = document.getElementById("businessCategoryDetailInput");
-const businessKgiTypeInput = document.getElementById("businessKgiTypeInput");
-const outcomeMetricTypeInput = document.getElementById("outcomeMetricTypeInput");
 const startDeepDiveButton = document.getElementById("startDeepDiveButton");
-const roughSection = document.getElementById("roughSection");
-const roughStateChip = document.getElementById("roughStateChip");
-
-const feasibilitySection = document.getElementById("feasibilitySection");
-const feasibilityStateChip = document.getElementById("feasibilityStateChip");
-const normalizedSummaryText = document.getElementById("normalizedSummaryText");
-const feasibilityLevelText = document.getElementById("feasibilityLevelText");
-const feasibilityReasonsText = document.getElementById("feasibilityReasonsText");
-const feasibilityAltRouteLabel = document.getElementById("feasibilityAltRouteLabel");
-const feasibilityAltRoute = document.getElementById("feasibilityAltRoute");
-const toQuestionsButton = document.getElementById("toQuestionsButton");
 
 const questionSection = document.getElementById("questionSection");
-const questionStateChip = document.getElementById("questionStateChip");
 const questionProgress = document.getElementById("questionProgress");
 const questionText = document.getElementById("questionText");
 const questionAnswerInput = document.getElementById("questionAnswerInput");
 const prevQuestionButton = document.getElementById("prevQuestionButton");
 const nextQuestionButton = document.getElementById("nextQuestionButton");
+const questionOptions = document.getElementById("questionOptions");
+const otherAnswerField = document.getElementById("otherAnswerField");
+const otherAnswerInput = document.getElementById("otherAnswerInput");
 
 const proposalSection = document.getElementById("proposalSection");
-const proposalStateChip = document.getElementById("proposalStateChip");
 const proposalList = document.getElementById("proposalList");
-const understandingCheckSection = document.getElementById("understandingCheckSection");
-const understandingSummaryText = document.getElementById("understandingSummaryText");
-const confirmUnderstandingButton = document.getElementById("confirmUnderstandingButton");
-const reviseUnderstandingButton = document.getElementById("reviseUnderstandingButton");
 const editSection = document.getElementById("editSection");
 const nameInput = document.getElementById("kgiName");
 const goalTextInput = document.getElementById("kgiGoalText");
 const deadlineInput = document.getElementById("kgiDeadline");
 const levelInput = document.getElementById("kgiLevel");
 const saveButton = document.getElementById("saveButton");
-const specificityWarningBox = document.getElementById("specificityWarningBox");
-const specificityCandidateName = document.getElementById("specificityCandidateName");
-const specificityCandidateGoal = document.getElementById("specificityCandidateGoal");
-const specificityCandidateDeadline = document.getElementById("specificityCandidateDeadline");
-const saveWithSpecificityButton = document.getElementById("saveWithSpecificityButton");
-const editSpecificityButton = document.getElementById("editSpecificityButton");
-
+const statusText = document.getElementById("statusText");
 const step1Label = document.getElementById("step1Label");
 const step2Label = document.getElementById("step2Label");
 const step3Label = document.getElementById("step3Label");
 const step4Label = document.getElementById("step4Label");
-const statusText = document.getElementById("statusText");
 
-const renderReadableLongText = (element, text, options = {}) => {
-  if (!element) return;
-  element.textContent = text || "";
-  enhanceReadableText(element, options);
+const wizardState = {
+  sessionId: null,
+  step: 1,
+  upperGoal: "",
+  kgiDeadline: "",
+  rawSuccessStateInput: "",
+  ambiguityPoints: [],
+  followUpQuestions: [],
+  currentQuestionIndex: 0,
+  followUpAnswers: {},
+  clarifiedSuccessState: "",
+  kgiStatement: "",
+  kgiSuccessCriteria: [],
+  nextKgiSuggestion: "",
+  selectedDraft: null
 };
-
-const buildInitialDetailEntryStorageKey = (kgiId) => `kgi-detail-entry:${kgiId}`;
-const DEFAULT_KGI_DURATION_DAYS = 100;
-
-const FEASIBILITY_LEVEL = {
-  REALISTIC: "現実的",
-  STRETCH: "背伸びすれば狙える",
-  HARD: "今の条件だとかなり厳しい"
-};
-
-const BUSINESS_GOAL_TYPE = {
-  AUDIENCE_GROWTH: "audience_growth",
-  MONETIZATION_VALIDATION: "monetization_validation",
-  OFFER_BUILDING: "offer_building",
-  MEDIA_PLATFORM_BUILDING: "media_platform_building",
-  PRODUCT_SERVICE_LAUNCH: "product_service_launch",
-  BUSINESS_OPERATION_IMPROVEMENT: "business_operation_improvement"
-};
-
-const BUSINESS_KGI_TYPE = {
-  PROJECT_BUILD: "project_build",
-  PROJECT_PLUS_REVENUE: "project_plus_revenue",
-  REVENUE_SCALE: "revenue_scale"
-};
-
-const BUSINESS_KGI_TYPE_LABEL = {
-  [BUSINESS_KGI_TYPE.PROJECT_BUILD]: "プロジェクト達成型",
-  [BUSINESS_KGI_TYPE.PROJECT_PLUS_REVENUE]: "複合型",
-  [BUSINESS_KGI_TYPE.REVENUE_SCALE]: "収益化型"
-};
-
-const BUSINESS_CATEGORY_LABEL = {
-  blog: "ブログ",
-  sns: "SNS発信",
-  youtube: "YouTube",
-  digital_product: "デジタル商品販売",
-  consulting_service: "相談 / 代行 / コンサル",
-  app_tool: "アプリ / ツール",
-  ecommerce: "物販",
-  fx_invest: "FX / 株 / 投資",
-  offline_business: "リアルビジネス / オフライン",
-  other: "その他"
-};
-
-const OUTCOME_METRIC_LABEL = {
-  monthly_revenue: "月の売上",
-  first_sales_count: "初回販売件数",
-  inquiry_count: "問い合わせ件数",
-  lead_or_subscriber_count: "見込み客 / 登録者数",
-  engagement_count: "反応数",
-  product_completion: "商品完成",
-  public_release_completion: "公開完了",
-  other: "その他"
-};
-
-const AI_ASSIST_MODE = "rules-plus-writing";
 
 let db;
-const wizardState = {
-  step: 1,
-  sessionId: null,
-  roughInput: null,
-  normalizedIntent: null,
-  inferredGoal: "",
-  businessCategory: "",
-  businessCategoryLabel: "",
-  businessCategoryDetail: "",
-  businessKgiType: BUSINESS_KGI_TYPE.PROJECT_PLUS_REVENUE,
-  businessKgiTypeReason: "",
-  outcomeMetricType: "",
-  ultimateBenefit: "",
-  phase1Goal: "",
-  phase2Goal: "",
-  revenueTarget: "",
-  monetizationPath: "",
-  businessGoalType: "",
-  businessGoalTypeReason: "",
-  questionTemplateType: "",
-  candidateTemplateType: "",
-  uncertaintyFields: [],
-  feasibility: null,
-  questions: [],
-  dynamicQuestionsBase: [],
-  currentQuestionIndex: 0,
-  answers: {},
-  askedQuestions: [],
-  questionTextsById: {},
-  proposals: [],
-  candidateDirections: [],
-  selectedProposalIndex: -1,
-  selectedDraft: null,
-  pendingSpecificityPatch: null,
-  tags: {},
-  aiWriting: {
-    normalizedSummaryText: "",
-    feasibilityReasonText: "",
-    scopeAdjustmentText: "",
-    questionTexts: [],
-    candidateTexts: []
-  },
-  interviewProcess: {
-    initialHypothesis: null,
-    missingInfoChecklist: [],
-    followUpQuestionLog: [],
-    updatedUnderstandingSummary: "",
-    feasibilitySnapshot: null,
-    proposalRationale: []
-  },
-  inFlight: {},
-  actionTokenSeq: {}
-};
 
-const formatDateInputValue = (date) => {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-};
-
-const addDays = (date, days) => {
-  const next = new Date(date);
-  next.setDate(next.getDate() + days);
-  return next;
-};
+const FOLLOW_UP_LIBRARY = [
+  {
+    id: "publish_level",
+    trigger: ["公開", "サイト", "LP", "アプリ", "リリース"],
+    ambiguityLabel: "公開の達成レベル",
+    text: "「公開」とは、どの状態を達成したら成功ですか？",
+    options: [
+      { id: "private_url", label: "URLがあり自分だけ見られる状態" },
+      { id: "public_url", label: "URLがあり第三者が見られる状態" },
+      { id: "domain_public", label: "独自ドメインで第三者が見られる状態" },
+      { id: "public_mobile", label: "一般公開され、スマホでも問題なく見られる状態" },
+      { id: "other", label: "その他" }
+    ]
+  },
+  {
+    id: "monetization_level",
+    trigger: ["収益", "売上", "マネタイズ", "販売", "問い合わせ"],
+    ambiguityLabel: "収益化の達成定義",
+    text: "「収益化」とは、どの状態を達成したら成功ですか？",
+    options: [
+      { id: "route_ready", label: "収益導線が入っている状態" },
+      { id: "first_click", label: "初回クリックが出た状態" },
+      { id: "first_inquiry", label: "初回問い合わせが来た状態" },
+      { id: "first_sale", label: "初回販売が出た状態" },
+      { id: "monthly_target", label: "月売上目標を達成した状態" },
+      { id: "other", label: "その他" }
+    ]
+  },
+  {
+    id: "traffic_level",
+    trigger: ["集客", "アクセス", "PV", "流入", "登録者"],
+    ambiguityLabel: "集客の達成定義",
+    text: "「集客できた」とは、どの状態を達成したら成功ですか？",
+    options: [
+      { id: "first_user", label: "SNSなどから最低1人来た状態" },
+      { id: "daily_one", label: "1日に最低1人来る状態" },
+      { id: "monthly_pv", label: "月間PVが一定数ある状態" },
+      { id: "organic", label: "検索流入が確認できる状態" },
+      { id: "lead", label: "見込み客や登録者が集まった状態" },
+      { id: "other", label: "その他" }
+    ]
+  },
+  {
+    id: "beginner_level",
+    trigger: ["初心者", "わかりやす", "入門", "初学者"],
+    ambiguityLabel: "対象読者レベル",
+    text: "「初心者向け」とは、どの程度を想定しますか？",
+    options: [
+      { id: "no_terms", label: "専門用語なしで読める" },
+      { id: "junior_high", label: "中学生でも大枠が分かる" },
+      { id: "ai_newbie", label: "AIをほぼ知らない人でも読める" },
+      { id: "busy_worker", label: "忙しい社会人がざっくり理解できる" },
+      { id: "other", label: "その他" }
+    ]
+  }
+];
 
 const setStatus = (message, isError = false) => {
   statusText.textContent = message;
@@ -195,1837 +112,329 @@ const setStatus = (message, isError = false) => {
 
 const setStep = (step) => {
   wizardState.step = step;
-  const steps = [step1Label, step2Label, step3Label, step4Label];
-  steps.forEach((label, index) => {
-    const stepNumber = index + 1;
-    label.classList.toggle("active", step === stepNumber);
-    label.classList.toggle("completed", step > stepNumber);
+  [step1Label, step2Label, step3Label, step4Label].forEach((node, index) => {
+    const n = index + 1;
+    node.classList.toggle("active", n === step);
+    node.classList.toggle("completed", n < step);
   });
-  if (typeof updateWizardBlockFocus === "function") {
-    updateWizardBlockFocus();
-  }
 };
 
-const applyBlockState = (section, chip, state, text) => {
-  section.dataset.state = state;
-  chip.textContent = text;
+const pickUpperGoal = (rawText) => {
+  const first = (rawText || "").split(/[。\n]/).map((v) => v.trim()).find(Boolean) || "叶えたい未来を言語化中";
+  return first;
 };
 
-const updateWizardBlockFocus = () => {
-  const isQuestionVisible = !questionSection.classList.contains("hidden");
+const shouldAsk = (question, rawText) => question.trigger.some((keyword) => rawText.includes(keyword));
 
-  if (wizardState.step === 1) {
-    applyBlockState(roughSection, roughStateChip, "current", "入力中");
-    applyBlockState(feasibilitySection, feasibilityStateChip, "future", "これから");
-    applyBlockState(questionSection, questionStateChip, "future", "これから");
-    applyBlockState(proposalSection, proposalStateChip, "future", "これから");
-  } else if (wizardState.step === 2 && !isQuestionVisible) {
-    applyBlockState(roughSection, roughStateChip, "completed", "入力済み");
-    applyBlockState(feasibilitySection, feasibilityStateChip, "current", "確認中");
-    applyBlockState(questionSection, questionStateChip, "future", "これから");
-    applyBlockState(proposalSection, proposalStateChip, "future", "これから");
-  } else if (wizardState.step === 2 && isQuestionVisible) {
-    applyBlockState(roughSection, roughStateChip, "completed", "入力済み");
-    applyBlockState(feasibilitySection, feasibilityStateChip, "completed", "確認済み");
-    applyBlockState(questionSection, questionStateChip, "current", "回答中");
-    applyBlockState(proposalSection, proposalStateChip, "future", "これから");
-  } else if (wizardState.step >= 3) {
-    applyBlockState(roughSection, roughStateChip, "completed", "入力済み");
-    applyBlockState(feasibilitySection, feasibilityStateChip, "completed", "確認済み");
-    applyBlockState(questionSection, questionStateChip, "completed", "回答済み");
-    applyBlockState(proposalSection, proposalStateChip, "current", wizardState.step === 4 ? "保存中" : "選択中");
-  }
-
-  startDeepDiveButton.disabled = wizardState.step > 1 || wizardState.inFlight.startDeepDive;
-  toQuestionsButton.disabled = wizardState.step > 2 || wizardState.inFlight.toQuestions;
+const buildFollowUpQuestions = (rawText) => {
+  const matched = FOLLOW_UP_LIBRARY.filter((q) => shouldAsk(q, rawText));
+  return matched.slice(0, 4);
 };
 
-const beginInFlight = (key) => {
-  if (wizardState.inFlight[key]) return null;
-  wizardState.inFlight[key] = true;
-  wizardState.actionTokenSeq[key] = (wizardState.actionTokenSeq[key] || 0) + 1;
-  return wizardState.actionTokenSeq[key];
+const isCrossDeadlinePhrase = (raw) => /継続|安定|維持|毎月|ずっと|習慣/.test(raw);
+
+const resolveAnswerLabel = (question, answer) => {
+  if (!answer) return "";
+  if (answer.selectedOptionId === "other") return answer.otherText || "その他";
+  return question.options.find((opt) => opt.id === answer.selectedOptionId)?.label || "";
 };
 
-const isLatestToken = (key, token) => wizardState.actionTokenSeq[key] === token;
-const endInFlight = (key) => {
-  wizardState.inFlight[key] = false;
-};
+const buildKgiResult = () => {
+  const deadline = wizardState.kgiDeadline;
+  const answers = wizardState.followUpQuestions.map((question) => ({
+    id: question.id,
+    question: question.text,
+    value: resolveAnswerLabel(question, wizardState.followUpAnswers[question.id])
+  })).filter((v) => v.value);
 
-const setButtonBusy = (button, busy, busyText) => {
-  if (!button) return;
-  if (!button.dataset.defaultText) {
-    button.dataset.defaultText = button.textContent || "";
-  }
-  button.disabled = !!busy;
-  button.textContent = busy ? busyText : (button.dataset.defaultText || "");
-};
+  const clarifiedParts = [wizardState.rawSuccessStateInput, ...answers.map((a) => `${a.question} → ${a.value}`)];
+  wizardState.clarifiedSuccessState = clarifiedParts.join(" / ");
 
-const generateRoadmap = async (kgiData) => {
-  const response = await fetch("/api/generate-roadmap", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      name: kgiData.name ?? "",
-      goalText: kgiData.goalText ?? "",
-      deadline: kgiData.deadline ?? "",
-      level: kgiData.level ?? "normal",
-      context: kgiData.context ?? {}
-    })
-  });
+  const statementAddOn = answers.length > 0 ? `（達成定義: ${answers.map((a) => a.value).join("、")}）` : "";
+  wizardState.kgiStatement = `${deadline}までに、${wizardState.rawSuccessStateInput}${statementAddOn}を達成する。`;
 
-  const responseText = await response.text();
-  const data = responseText ? JSON.parse(responseText) : null;
-  if (!response.ok || !Array.isArray(data?.roadmapPhases)) {
-    throw new Error(data?.error || "ロードマップの生成に失敗しました");
-  }
+  const baseCriteria = [
+    `${deadline}時点で「${wizardState.rawSuccessStateInput}」が第三者にも説明できる形で成立している`,
+    ...answers.map((a) => a.value)
+  ];
+  wizardState.kgiSuccessCriteria = Array.from(new Set(baseCriteria));
 
-  return {
-    roadmapPhases: data.roadmapPhases,
-    kgiDescription: typeof data?.kgiDescription === "string" ? data.kgiDescription.trim() : ""
-  };
-};
-
-const normalizeText = (text) => {
-  if (!text) return "";
-  return text
-    .replace(/[\u3000]/g, " ")
-    .replace(/\s+/g, " ")
-    .replace(/エックス/gi, "X")
-    .replace(/ゆーちゅーぶ|ユーチューブ/gi, "YouTube")
-    .replace(/いんすた|インスタグラム/gi, "Instagram")
-    .replace(/てぃっくとっく|ティックトック/gi, "TikTok")
-    .replace(/えーあい|ＡＩ/gi, "AI")
-    .replace(/([。！!？?])\1+/g, "$1")
-    .trim();
-};
-
-const getInitialBusinessCategoryOptions = () => Object.keys(BUSINESS_CATEGORY_LABEL);
-const getOutcomeMetricOptions = () => Object.keys(OUTCOME_METRIC_LABEL);
-
-const mapBusinessCategoryToInterviewContext = (businessCategory) => {
-  const map = {
-    blog: BUSINESS_GOAL_TYPE.MEDIA_PLATFORM_BUILDING,
-    sns: BUSINESS_GOAL_TYPE.AUDIENCE_GROWTH,
-    youtube: BUSINESS_GOAL_TYPE.MEDIA_PLATFORM_BUILDING,
-    digital_product: BUSINESS_GOAL_TYPE.OFFER_BUILDING,
-    consulting_service: BUSINESS_GOAL_TYPE.MONETIZATION_VALIDATION,
-    app_tool: BUSINESS_GOAL_TYPE.PRODUCT_SERVICE_LAUNCH,
-    ecommerce: BUSINESS_GOAL_TYPE.MONETIZATION_VALIDATION,
-    fx_invest: BUSINESS_GOAL_TYPE.BUSINESS_OPERATION_IMPROVEMENT,
-    offline_business: BUSINESS_GOAL_TYPE.BUSINESS_OPERATION_IMPROVEMENT,
-    other: BUSINESS_GOAL_TYPE.BUSINESS_OPERATION_IMPROVEMENT
-  };
-  return map[businessCategory] || BUSINESS_GOAL_TYPE.BUSINESS_OPERATION_IMPROVEMENT;
-};
-
-const shouldRequireBusinessCategoryDetail = (businessCategory) => businessCategory === "offline_business" || businessCategory === "other";
-
-const toggleBusinessCategoryDetailField = () => {
-  if (!businessCategoryDetailField) return;
-  const shouldShow = shouldRequireBusinessCategoryDetail(businessCategoryInput?.value || "");
-  businessCategoryDetailField.classList.toggle("hidden", !shouldShow);
-};
-
-const summarizeGoal = (goalText) => {
-  if (!goalText) return "目標の方向性をもう少し具体化する";
-  if (goalText.length <= 40) return goalText;
-  return `${goalText.slice(0, 40)}…`;
-};
-
-const daysUntilDeadline = (deadline) => {
-  if (!deadline) return null;
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const target = new Date(deadline);
-  target.setHours(0, 0, 0, 0);
-  const diffMs = target.getTime() - today.getTime();
-  return Math.ceil(diffMs / (1000 * 60 * 60 * 24));
-};
-
-const inferBusinessGoalType = (normalized) => {
-  const text = `${normalized.goal} ${normalized.reason} ${normalized.currentState}`.toLowerCase();
-
-  if (/(fx|トレード|取引|検証|勝率|再現性|運用改善|改善|安定収益|ボトルネック)/i.test(text)) {
-    return {
-      businessGoalType: BUSINESS_GOAL_TYPE.BUSINESS_OPERATION_IMPROVEMENT,
-      businessGoalTypeReason: "既存の実行（例: FX取引・運用）の精度や再現性改善を主目的とする語が多いため。"
-    };
-  }
-
-  if (/(webアプリ|saas|サービス|プロダクト|リリース|公開|β版|ベータ|mvp|初期ユーザー)/i.test(text)) {
-    return {
-      businessGoalType: BUSINESS_GOAL_TYPE.PRODUCT_SERVICE_LAUNCH,
-      businessGoalTypeReason: "新規サービス/プロダクトの公開と初期ユーザー獲得を示す語が中心なため。"
-    };
-  }
-
-  if (/(初回売上|最初の売上|収益化|マネタイズ|売上を作|成果を確認|3か月以内|検証したい|小さくても収益)/i.test(text)) {
-    return {
-      businessGoalType: BUSINESS_GOAL_TYPE.MONETIZATION_VALIDATION,
-      businessGoalTypeReason: "短期で売上発生の可否を確かめる意図が明確なため。"
-    };
-  }
-
-  if (/(商品|オファー|note|教材|相談|代行|サポート内容|何を売る|サービス内容|メニュー)/i.test(text)) {
-    return {
-      businessGoalType: BUSINESS_GOAL_TYPE.OFFER_BUILDING,
-      businessGoalTypeReason: "販売する提供価値（商品/オファー）の定義を主目的としているため。"
-    };
-  }
-
-  if (/(情報サイト|独自ドメイン|メディア|プラットフォーム|土台|発信基盤|オウンドメディア)/i.test(text)) {
-    return {
-      businessGoalType: BUSINESS_GOAL_TYPE.MEDIA_PLATFORM_BUILDING,
-      businessGoalTypeReason: "メディアや発信基盤の構築を優先する意図が読み取れるため。"
-    };
-  }
-
-  if (/(集客|認知|フォロワー|sns発信|ブログ|xで|youtubeで|見込み客との接点|リーチ)/i.test(text)) {
-    return {
-      businessGoalType: BUSINESS_GOAL_TYPE.AUDIENCE_GROWTH,
-      businessGoalTypeReason: "認知拡大・接点増加を主目的とする語が中心なため。"
-    };
-  }
-
-  return {
-    businessGoalType: BUSINESS_GOAL_TYPE.BUSINESS_OPERATION_IMPROVEMENT,
-    businessGoalTypeReason: "明確な型が特定しづらいため、改善指標を置きやすい運用改善型として初期判定。"
-  };
-};
-
-const resolveUltimateBenefit = (normalized, answers = {}) => {
-  const selected = answers.ultimateBenefit || "";
-  if (selected) {
-    if (/売上|収益/.test(selected)) return "revenue";
-    if (/見込み客|問い合わせ|リード|登録/.test(selected)) return "leads";
-    if (/影響力|認知/.test(selected)) return "influence";
-    if (/時間の自由|脱却|自由/.test(selected)) return "freedom";
-  }
-  const text = `${normalized.goal} ${normalized.reason} ${normalized.currentState}`.toLowerCase();
-  if (/(売上|収益|販売|課金|月.?円|マネタイズ)/i.test(text)) return "revenue";
-  if (/(問い合わせ|見込み客|リード|登録|相談)/i.test(text)) return "leads";
-  if (/(影響力|認知|フォロワー|発信力|ブランド)/i.test(text)) return "influence";
-  if (/(時間の自由|自由な時間|本業依存からの脱却)/i.test(text)) return "freedom";
-  return "revenue";
-};
-
-const resolveScopeIntent = (normalized, answers = {}) => {
-  const selected = answers.scopeIntent || "";
-  if (selected) {
-    if (/既存|収益化する|改善/.test(selected)) return "existing_revenue";
-    if (/初回収益|収益まで/.test(selected)) return "build_and_revenue";
-    if (/まず形|土台/.test(selected)) return "build_only";
-  }
-  const text = `${normalized.goal} ${normalized.reason} ${normalized.currentState}`.toLowerCase();
-  if (/(既存|改善|拡大|最適化|テコ入れ|見直し)/i.test(text)) return "existing_revenue";
-  if (/(初回売上|初回販売|初回収益|問い合わせ.*件|検証)/i.test(text)) return "build_and_revenue";
-  return "build_only";
-};
-
-const inferBusinessKgiType = ({ normalized, answers }) => {
-  const scopeIntent = resolveScopeIntent(normalized, answers);
-  const text = `${normalized.goal} ${normalized.currentState} ${answers.currentAssets || ""}`.toLowerCase();
-  const hasExistingAssetSignal = /(すでに|既存|運用中|公開済み|記事\d+|ユーザー\d+|フォロワー\d+)/i.test(text);
-
-  if (scopeIntent === "existing_revenue" || hasExistingAssetSignal) {
-    return {
-      businessKgiType: BUSINESS_KGI_TYPE.REVENUE_SCALE,
-      reason: "既存資産の改善・拡大が中心で、今回の主目的が収益化改善に寄っているため。"
-    };
-  }
-  if (scopeIntent === "build_only") {
-    return {
-      businessKgiType: BUSINESS_KGI_TYPE.PROJECT_BUILD,
-      reason: "今回の期限ではまず土台完成を主目的にしており、収益は次段階として扱うため。"
-    };
-  }
-  return {
-    businessKgiType: BUSINESS_KGI_TYPE.PROJECT_PLUS_REVENUE,
-    reason: "土台構築と初回収益化を同じ期間で狙う意図が確認できるため。"
-  };
-};
-
-const resolveRevenueTarget = (answers = {}) => (
-  answers.revenueTarget
-  || answers.revenueTargetClarification
-  || answers.targetOutcomeValue
-  || answers.targetOutcomeMetric
-  || ""
-).trim();
-
-const resolveMonetizationPath = (answers = {}) => (
-  answers.monetizationPath
-  || answers.monetizationPathClarification
-  || answers.monetizationType
-  || answers.acquisitionRoute
-  || ""
-).trim();
-
-const buildBusinessReadiness = ({ normalizedIntent, answers }) => {
-  const revenueTarget = resolveRevenueTarget(answers);
-  const monetizationPath = resolveMonetizationPath(answers);
-  const text = `${normalizedIntent.goal} ${normalizedIntent.reason} ${normalizedIntent.currentState}`.toLowerCase();
-  const hasEconomicIntentSignal = /(ブログ|発信|商品|アプリ|サービス|コンテンツ|メディア)/i.test(text);
-  const missing = [];
-  const isProjectBuild = wizardState.businessKgiType === BUSINESS_KGI_TYPE.PROJECT_BUILD;
-  if (!revenueTarget && !isProjectBuild) missing.push("revenueTarget");
-  if (!monetizationPath) missing.push("monetizationPath");
-  return { revenueTarget, monetizationPath, hasEconomicIntentSignal, missing };
-};
-
-const assessFeasibility = (normalized, businessGoalType) => {
-  const reasons = [];
-  const constraints = [];
-  let score = 0;
-
-  const deadlineDays = daysUntilDeadline(normalized.deadline);
-  if (typeof deadlineDays === "number") {
-    if (deadlineDays <= 30) {
-      score += 2;
-      reasons.push("期限に対してやることが多く、準備期間がかなり短いです。");
-      constraints.push("期限");
-    } else if (deadlineDays <= 90) {
-      score += 1;
-      reasons.push("期限が近めなので、優先順位を絞る必要があります。");
-      constraints.push("期限");
-    }
-  }
-
-  if (!normalized.currentState) {
-    score += 1;
-    reasons.push("今の経験・実績が読み取りにくいため、安全側の設計が必要です。");
-    constraints.push("経験・能力");
-  } else if (/未経験|初心者|これから|実績なし/.test(normalized.currentState)) {
-    score += 1;
-    reasons.push("今の経験だと、いきなり大きな形にするより段階化したほうが進めやすいです。");
-    constraints.push("経験・能力");
-  }
-
-  if (!/週|時間|平日|土日|毎日/.test(normalized.currentState)) {
-    score += 1;
-    reasons.push("使える時間の情報が少ないため、実行ペースの見積もりが難しいです。");
-    constraints.push("使える時間");
-  }
-
-  const textBundle = `${normalized.goal} ${normalized.currentState}`;
-  if (businessGoalType === BUSINESS_GOAL_TYPE.AUDIENCE_GROWTH) {
-    if (!/人|向け|対象|誰/.test(textBundle)) {
-      score += 1;
-      reasons.push("誰向けに届けるかが曖昧で、発信軸がぶれやすいです。");
-      constraints.push("対象の明確さ");
-    }
-    if (!/X|Instagram|YouTube|TikTok|ブログ|メルマガ/.test(textBundle)) {
-      score += 1;
-      reasons.push("主媒体が未確定で、検証設計が立てにくいです。");
-      constraints.push("媒体選定");
-    }
-  } else if (businessGoalType === BUSINESS_GOAL_TYPE.MONETIZATION_VALIDATION) {
-    if (!/売上|収益|販売|案件|広告|サブスク|単価/.test(textBundle)) {
-      score += 1;
-      reasons.push("最初の売上を何で作るかが未定です。");
-      constraints.push("収益手段");
-    }
-    if (!/導線|LP|オファー|提案|販売/.test(textBundle)) {
-      score += 1;
-      reasons.push("売る導線の情報が不足しており、期限内検証の確度が読みづらいです。");
-      constraints.push("売る導線");
-    }
-  } else if (businessGoalType === BUSINESS_GOAL_TYPE.OFFER_BUILDING) {
-    if (!/商品|オファー|教材|相談|代行|サポート/.test(textBundle)) {
-      score += 1;
-      reasons.push("何を売るかの定義がまだ曖昧です。");
-      constraints.push("提供内容");
-    }
-    if (!/向け|対象|誰/.test(textBundle)) {
-      score += 1;
-      reasons.push("誰に売るかの解像度が不足しています。");
-      constraints.push("ターゲット");
-    }
-  } else if (businessGoalType === BUSINESS_GOAL_TYPE.MEDIA_PLATFORM_BUILDING) {
-    if (!/サイト|ブログ|メディア|プラットフォーム/.test(textBundle)) {
-      score += 1;
-      reasons.push("媒体の形（サイト/メディア等）がまだ具体化できていません。");
-      constraints.push("媒体定義");
-    }
-    if (!/導線|集客|検索|SNS|メルマガ/.test(textBundle)) {
-      score += 1;
-      reasons.push("集客導線の想定が不足しています。");
-      constraints.push("導線設計");
-    }
-  } else if (businessGoalType === BUSINESS_GOAL_TYPE.PRODUCT_SERVICE_LAUNCH) {
-    if (!/mvp|最小|初期|機能|範囲/.test(textBundle)) {
-      score += 1;
-      reasons.push("MVPの範囲が未定で、実装過多になるリスクがあります。");
-      constraints.push("MVP範囲");
-    }
-    if (!/初期ユーザー|利用者|ユーザー|顧客/.test(textBundle)) {
-      score += 1;
-      reasons.push("最初に使ってもらう相手が曖昧です。");
-      constraints.push("初期ユーザー");
-    }
+  if (isCrossDeadlinePhrase(wizardState.rawSuccessStateInput)) {
+    wizardState.nextKgiSuggestion = "今回のKGI達成後に、継続運用の安定化（流入維持・収益安定）を次のKGIとして分けるのがおすすめです。";
   } else {
-    if (!/改善|再現|検証|勝率|CVR|歩留まり|効率|運用/.test(textBundle)) {
-      score += 1;
-      reasons.push("何を改善するかの指標が不明確です。");
-      constraints.push("改善指標");
-    }
-    if (!/詰まり|課題|ボトルネック|弱い/.test(textBundle)) {
-      score += 1;
-      reasons.push("現在のボトルネックが定義されていません。");
-      constraints.push("現状課題");
-    }
+    wizardState.nextKgiSuggestion = "";
   }
-
-  let level = FEASIBILITY_LEVEL.REALISTIC;
-  if (score >= 4) {
-    level = FEASIBILITY_LEVEL.HARD;
-  } else if (score >= 2) {
-    level = FEASIBILITY_LEVEL.STRETCH;
-  }
-
-  const recommendedScopeChange = level === FEASIBILITY_LEVEL.HARD
-    ? "最終成果をそのまま追うより、まずは3か月以内に検証完了できる一段手前の目標へ分解するのがおすすめです。"
-    : level === FEASIBILITY_LEVEL.STRETCH
-      ? "方向性は良いので、対象・手段・週あたり時間を先に固定すると達成確率が上がります。"
-      : "今の条件でも進めやすいので、実行単位（週次アクション）に落とし込んで継続しましょう。";
-
-  return {
-    feasibilityLevel: level,
-    feasibilityReasons: reasons.length > 0 ? reasons : ["現時点の情報では、期限と条件のバランスはおおむね取れています。"],
-    mainConstraints: [...new Set(constraints)],
-    recommendedScopeChange
-  };
-};
-
-const buildDynamicQuestions = (analysis) => {
-  const baseQuestions = buildQuestionsByBusinessGoalType(analysis.businessGoalType, analysis.fixedInputs || {});
-  return baseQuestions.map((question, index) => ({ ...question, order: index + 1 }));
-};
-
-const buildQuestionsByBusinessGoalType = (businessGoalType, fixedInputs = {}) => {
-  const businessCategoryLabel = BUSINESS_CATEGORY_LABEL[fixedInputs.businessCategory] || fixedInputs.businessCategory || "選択済みカテゴリ";
-  const outcomeMetricLabel = OUTCOME_METRIC_LABEL[fixedInputs.outcomeMetricType] || fixedInputs.outcomeMetricType || "選択済み指標";
-  const common = [
-    { id: "concretePlan", text: `固定質問の前提（${businessCategoryLabel} / ${outcomeMetricLabel}）で、今回まず具体的に何を作る・何をやる予定ですか？`, axis: "提供内容" },
-    { id: "targetAudience", text: "それは主に誰に届けたいですか？（最優先の1タイプ）", axis: "対象" },
-    { id: "idealVision", text: "最終的に手に入れたい理想像は何ですか？（少し大きめでOK）", axis: "理想像" },
-    { id: "monetizationPath", text: "最初の収益化は何で行きますか？（アフィリエイト / 商品販売 / 相談 / 広告 など）", axis: "収益導線" },
-    { id: "firstWinDefinition", text: "今回の期限までに、何をもって『前進した』と判断しますか？", axis: "達成条件" },
-    { id: "idealConditionType", text: "今言った理想ラインは絶対条件ですか？それとも理想ですか？", axis: "現実調整" },
-    { id: "currentReleaseLine", text: "今回の期限までに最低どこまでできたら公開して良いですか？", axis: "最低公開ライン" },
-    { id: "availableTime", text: "期限までに使える時間はどれくらいですか？（例: 平日3時間 / 休日30分）", axis: "制約" }
-  ];
-
-  if (businessGoalType === BUSINESS_GOAL_TYPE.AUDIENCE_GROWTH) {
-    return [...common, { id: "channel", text: "主軸にする媒体は何ですか？（例: X + ブログ）", axis: "手段" }];
-  }
-  if (businessGoalType === BUSINESS_GOAL_TYPE.MONETIZATION_VALIDATION) {
-    return [...common, { id: "valueOffer", text: "最初に検証したい提供内容を一言でいうと何ですか？", axis: "提供内容" }];
-  }
-  if (businessGoalType === BUSINESS_GOAL_TYPE.OFFER_BUILDING) {
-    return [...common, { id: "offerType", text: "今回販売可能な形まで持っていく商品は何ですか？", axis: "提供内容" }];
-  }
-  if (businessGoalType === BUSINESS_GOAL_TYPE.MEDIA_PLATFORM_BUILDING) {
-    return [...common, { id: "mediaTheme", text: "どんなテーマ・切り口の媒体にしますか？", axis: "提供内容" }, { id: "acquisitionRoute", text: "公開後の主な集客導線は何ですか？", axis: "手段" }];
-  }
-  if (businessGoalType === BUSINESS_GOAL_TYPE.PRODUCT_SERVICE_LAUNCH) {
-    return [...common, { id: "productOutline", text: "今回の期限で作る最小版の機能は何ですか？", axis: "提供内容" }];
-  }
-  return [...common, { id: "currentBottleneck", text: "今いちばん詰まっている点はどこですか？", axis: "現在地" }];
-};
-
-const analyzeRoughInput = (rawInput, fixedInputs = {}) => {
-  const normalized = {
-    goal: normalizeText(rawInput.roughGoal),
-    reason: normalizeText(rawInput.reason),
-    deadline: rawInput.deadline || "",
-    currentState: normalizeText(rawInput.currentState)
-  };
-
-  const uncertaintyFields = [];
-  if (!/向け|対象|誰/.test(normalized.goal)) uncertaintyFields.push("targetAudience");
-  if (!/売上|収益|販売|案件|広告|サブスク|単価/.test(normalized.goal)) uncertaintyFields.push("monetizationType");
-  if (!/X|Instagram|YouTube|TikTok|ブログ|メルマガ/.test(normalized.goal + normalized.currentState)) uncertaintyFields.push("channel");
-  if (!/週|時間|平日|土日|毎日/.test(normalized.currentState)) uncertaintyFields.push("availableTime");
-
-  const inferredByText = inferBusinessGoalType(normalized);
-  const businessGoalTypeFromCategory = mapBusinessCategoryToInterviewContext(fixedInputs.businessCategory);
-  const businessGoalType = fixedInputs.businessCategory ? businessGoalTypeFromCategory : inferredByText.businessGoalType;
-  const businessGoalTypeReason = fixedInputs.businessCategory
-    ? `固定質問で選択されたビジネス種別「${BUSINESS_CATEGORY_LABEL[fixedInputs.businessCategory] || fixedInputs.businessCategory}」を優先。`
-    : inferredByText.businessGoalTypeReason;
-  const inferredGoal = summarizeGoal(normalized.goal);
-  const feasibility = assessFeasibility(normalized, businessGoalType);
-  const missingInfoChecklist = [
-    { id: "trueIntent", label: "本音・目的", isMissing: normalized.reason.length < 8 },
-    { id: "targetAudience", label: "対象", isMissing: !/向け|対象|誰/.test(normalized.goal) },
-    { id: "valueOffer", label: "提供価値", isMissing: !/何|価値|提供|売る|届け/.test(normalized.goal) },
-    { id: "availableTime", label: "使える時間", isMissing: !/週|時間|平日|土日|毎日/.test(normalized.currentState) },
-    { id: "currentAssets", label: "現在地", isMissing: normalized.currentState.length < 8 },
-    { id: "firstWinDefinition", label: "成功定義", isMissing: !/件|回|人|円|公開|販売|反応/.test(normalized.goal) }
-  ];
-
-  const initialHypothesis = {
-    trueIntent: normalized.reason || "背景が短く、本音は追加確認が必要",
-    target: /向け|対象|誰/.test(normalized.goal) ? "入力から一部推定可能" : "未特定",
-    riskPoints: feasibility.feasibilityReasons,
-    missingInfo: missingInfoChecklist.filter((item) => item.isMissing).map((item) => item.label)
-  };
-
-  return {
-    normalizedIntent: normalized,
-    fixedInputs,
-    businessGoalType,
-    businessGoalTypeReason,
-    inferredGoal,
-    uncertaintyFields,
-    feasibility,
-    initialHypothesis,
-    missingInfoChecklist
-  };
-};
-
-const saveAnswerFromField = () => {
-  const currentQuestion = wizardState.questions[wizardState.currentQuestionIndex];
-  wizardState.answers[currentQuestion.id] = (questionAnswerInput.value || "").trim();
 };
 
 const renderQuestion = () => {
-  const currentQuestion = wizardState.questions[wizardState.currentQuestionIndex];
-  const total = wizardState.questions.length;
-  questionProgress.textContent = `質問 ${wizardState.currentQuestionIndex + 1} / ${total}`;
-  renderReadableLongText(questionText, currentQuestion.text, {
-    lines: 5,
-    formatAsSentenceBlocks: true,
-    fallbackCharacterThreshold: 130
+  const question = wizardState.followUpQuestions[wizardState.currentQuestionIndex];
+  if (!question) return;
+
+  questionProgress.textContent = `質問 ${wizardState.currentQuestionIndex + 1} / ${wizardState.followUpQuestions.length}`;
+  questionText.textContent = question.text;
+  questionAnswerInput.value = "";
+  questionAnswerInput.classList.add("hidden");
+
+  questionOptions.innerHTML = "";
+  const answer = wizardState.followUpAnswers[question.id] || {};
+  question.options.forEach((option) => {
+    const label = document.createElement("label");
+    label.className = "option-row";
+    const input = document.createElement("input");
+    input.type = "radio";
+    input.name = `question-${question.id}`;
+    input.value = option.id;
+    if (answer.selectedOptionId === option.id) input.checked = true;
+    input.addEventListener("change", () => {
+      wizardState.followUpAnswers[question.id] = {
+        selectedOptionId: option.id,
+        selectedOptionLabel: option.label,
+        otherText: option.id === "other" ? (otherAnswerInput.value || "").trim() : ""
+      };
+      otherAnswerField.classList.toggle("hidden", option.id !== "other");
+      if (option.id !== "other") otherAnswerInput.value = "";
+    });
+    const span = document.createElement("span");
+    span.textContent = option.label;
+    label.append(input, span);
+    questionOptions.appendChild(label);
   });
-  questionAnswerInput.value = wizardState.answers[currentQuestion.id] || "";
+
+  const showOther = answer.selectedOptionId === "other";
+  otherAnswerField.classList.toggle("hidden", !showOther);
+  otherAnswerInput.value = answer.otherText || "";
+
   prevQuestionButton.disabled = wizardState.currentQuestionIndex === 0;
-  nextQuestionButton.textContent = wizardState.currentQuestionIndex === total - 1 ? "KGI案を作成" : "次へ";
+  nextQuestionButton.textContent = wizardState.currentQuestionIndex === wizardState.followUpQuestions.length - 1 ? "KGIを作成する" : "次へ";
 };
 
-const parseAvailableTimeTag = (text) => {
-  if (!text) return "unknown";
-  if (/1.?2.?時間|90分|2時間未満|週[1-4]時間/.test(text)) return "low";
-  if (/3.?5.?時間|毎日1時間|平日|週[5-9]時間/.test(text)) return "medium";
-  if (/6.?時間|毎日2時間|フルタイム|週10時間|週1[0-9]時間/.test(text)) return "high";
-  return "medium";
-};
-
-const parseMotivationTag = (reasonText) => {
-  if (!reasonText) return "other";
-  if (/収入|売上|お金|副業|生活/.test(reasonText)) return "income";
-  if (/成長|挑戦|スキル|実績/.test(reasonText)) return "growth";
-  if (/貢献|役立つ|喜ん/.test(reasonText)) return "contribution";
-  return "other";
-};
-
-const extractTags = () => {
-  const targetAudience = wizardState.answers.targetAudience || wizardState.answers.earlyUser || wizardState.answers.trueIntent || "";
-  const channel = wizardState.answers.channel
-    || wizardState.answers.acquisitionRoute
-    || wizardState.answers.mediaTheme
-    || BUSINESS_CATEGORY_LABEL[wizardState.businessCategory]
-    || "";
-  const monetizationType = wizardState.answers.monetizationPath || wizardState.answers.monetizationType || wizardState.answers.offerType || wizardState.answers.improvementMetric || wizardState.answers.valueOffer || "";
-  const availableTime = parseAvailableTimeTag(wizardState.answers.availableTime || wizardState.normalizedIntent?.currentState || "");
-  const motivationType = parseMotivationTag(wizardState.answers.whyNow || wizardState.roughInput?.reason || "");
-
-  return {
-    targetAudience,
-    channel,
-    monetizationType,
-    availableTime,
-    motivationType
-  };
-};
-
-const buildWizardInsights = () => {
-  const dreamStatement = wizardState.answers.idealVision || wizardState.roughInput?.roughGoal || "";
-  const whyNow = wizardState.roughInput?.reason || "";
-  const targetOutcomeMetric = wizardState.answers.targetOutcomeMetric
-    || OUTCOME_METRIC_LABEL[wizardState.outcomeMetricType]
-    || "";
-  const targetOutcomeValue = wizardState.answers.firstWinDefinition || "";
-  const progressMetrics = [wizardState.answers.firstWinDefinition, wizardState.answers.currentReleaseLine]
-    .filter(Boolean)
-    .join(" / ");
-  const constraintSummary = [
-    `使える時間: ${wizardState.answers.availableTime || wizardState.normalizedIntent?.currentState || "未回答"}`,
-    `今あるもの: ${wizardState.answers.currentAssets || "未回答"}`,
-    `まだ無いもの: ${wizardState.answers.missingAssets || "未回答"}`
-  ].join(" | ");
-  const aiInterpretedIntent = buildUpdatedUnderstandingSummary();
-
-  let realismAdjustment = "";
-  if (wizardState.feasibility?.feasibilityLevel === FEASIBILITY_LEVEL.HARD) {
-    realismAdjustment = wizardState.feasibility?.recommendedScopeChange || "期限内で達成可能性を高めるため、初回成果の検証完了を中間ゴールとして設定。";
-  }
-
-  return {
-    dreamStatement,
-    whyNow,
-    targetOutcomeMetric: targetOutcomeValue ? `${targetOutcomeMetric}: ${targetOutcomeValue}` : targetOutcomeMetric,
-    progressMetrics,
-    constraintSummary,
-    aiInterpretedIntent,
-    realismAdjustment,
-    idealVision: wizardState.answers.idealVision || "",
-    currentReleaseLine: wizardState.answers.currentReleaseLine || "",
-    idealConditionType: wizardState.answers.idealConditionType || "",
-    userTrueIntentSummary: wizardState.roughInput?.reason || ""
-  };
-};
-
-const isLowSignalAnswer = (answer) => {
-  if (!answer) return true;
-  if (answer.length < 6) return true;
-  return /わからない|未定|特に|まだ|とりあえず|なし|ない/.test(answer);
-};
-
-const buildAdaptiveFollowUpQuestion = (question, answer) => {
-  if (!question || !isLowSignalAnswer(answer) || question.isFollowUp) return null;
-  return {
-    id: `${question.id}_followup`,
-    text: `もう一歩だけ具体化したいです。「${question.text.replace("？", "")}」を決めるために、最小で何なら今週できそうですか？`,
-    axis: question.axis || "深掘り",
-    isFollowUp: true
-  };
-};
-
-const buildBusinessClarificationQuestions = (readiness) => {
-  const questions = [];
-  if (readiness.missing.includes("revenueTarget")) {
-    questions.push({
-      id: "revenueTargetClarification",
-      text: "このアプリはビジネス目標を作る前提です。今回の成果はどれに近いですか？（初回販売 / 月売上 / 問い合わせ / 見込み客 / まず土台完成）",
-      axis: "収益目標",
-      isFollowUp: true
-    });
-  }
-  if (readiness.missing.includes("monetizationPath")) {
-    questions.push({
-      id: "monetizationPathClarification",
-      text: "どの導線で経済的ベネフィットにつなげますか？（商品販売 / 相談獲得 / 問い合わせ / アフィリエイト / 課金導線）",
-      axis: "収益導線",
-      isFollowUp: true
-    });
-  }
-  return questions;
-};
-
-const buildUpdatedUnderstandingSummary = () => {
-  const dream = wizardState.answers.idealVision || wizardState.roughInput?.roughGoal || "理想像は追加調整中";
-  const intent = wizardState.roughInput?.reason || "背景は追加調整中";
-  const target = wizardState.answers.targetAudience || wizardState.answers.earlyUser || "対象は仮置き";
-  const offer = wizardState.answers.concretePlan || wizardState.answers.valueOffer || wizardState.answers.offerType || wizardState.answers.productOutline || wizardState.inferredGoal;
-  const channel = wizardState.answers.channel || wizardState.answers.acquisitionRoute || wizardState.answers.mediaTheme || "導線は仮置き";
-  const progressMetric = wizardState.answers.firstWinDefinition || "前進条件は仮置き";
-  const releaseLine = wizardState.answers.currentReleaseLine || "最低公開ラインは仮置き";
-  const idealType = wizardState.answers.idealConditionType || "理想/絶対の区分は仮置き";
-  return `やりたいことは「${offer}」を作って届けること。対象は「${target}」、導線は「${channel}」。\n理想像は「${dream}」。今回は「${progressMetric}」を前進条件にし、最低「${releaseLine}」なら公開する。理想ラインの扱いは「${idealType}」。背景には「${intent}」がある。`;
-};
-
-const buildProposalRationale = () => wizardState.proposals.map((proposal) => ({
-  candidateType: proposal.candidateType,
-  headline: proposal.name,
-  reason: proposal.reason,
-  concerns: proposal.concerns,
-  groundedBy: {
-    targetAudience: wizardState.tags.targetAudience || "",
-    channel: wizardState.tags.channel || "",
-    monetizationType: wizardState.tags.monetizationType || "",
-    availableTime: wizardState.answers.availableTime || ""
-  }
-}));
-
-const formatDeadlineLabel = (deadline) => {
-  if (!deadline) return "期限までに";
-  const [year, month, day] = String(deadline).split("-");
-  if (!year || !month || !day) return `${deadline}までに`;
-  return `${Number(month)}月${Number(day)}日までに`;
-};
-
-const buildConcretePlanText = ({ directionId, deadline, audience, channel, monetization, inferredGoal, insights, feasibilityLevel }) => {
-  const deadlineLabel = formatDeadlineLabel(deadline);
-  const audienceLabel = audience || "届けたい相手";
-  const channelLabel = channel || "主な導線";
-  const offerLabel = inferredGoal || monetization || "提供内容";
-
-  const planByDirection = {
-    touchpoint_growth: {
-      title: `${deadlineLabel}${audienceLabel}向けの見込み反応を10件獲得する`,
-      goalText: `${deadline}までに${audienceLabel}向けに${channelLabel}で発信し、コメント・DM・クリックなどの有効反応を合計10件獲得する。`,
-      achievement: `有効反応10件を達成`
-    },
-    consistent_publishing: {
-      title: `${deadlineLabel}${channelLabel}経由で見込み客10件を獲得する`,
-      goalText: `${deadline}までに${audienceLabel}向けの情報発信を${channelLabel}で公開し、見込み客を10件獲得する。`,
-      achievement: `見込み客10件を達成`
-    },
-    funnel_preparation: {
-      title: `${deadlineLabel}${channelLabel}導線から問い合わせ5件を獲得する`,
-      goalText: `${deadline}までに${audienceLabel}向けの集客導線を${channelLabel}で公開し、導線経由の問い合わせまたは登録を5件獲得する。`,
-      achievement: `問い合わせまたは登録5件を達成`
-    },
-    first_sale_validation: {
-      title: `${deadlineLabel}${offerLabel}の初回販売1件を達成する`,
-      goalText: `${deadline}までに${audienceLabel}向けに${offerLabel}を${channelLabel}で販売し、初回販売1件を達成する。`,
-      achievement: `初回販売1件を達成`
-    },
-    small_amount_confirmation: {
-      title: `${deadlineLabel}小さな商品で初回入金1件を確認する`,
-      goalText: `${deadline}までに${audienceLabel}向けの小さな商品を${channelLabel}で販売し、初回入金1件を確認する。`,
-      achievement: `初回入金1件を確認`
-    },
-    offer_response_validation: {
-      title: `${deadlineLabel}${offerLabel}への反応を10件獲得する`,
-      goalText: `${deadline}までに${audienceLabel}向けオファーを${channelLabel}で提示し、いいね・返信・DM・相談申込の反応を合計10件獲得する。`,
-      achievement: `オファー反応10件を達成`
-    },
-    offer_definition: {
-      title: `${deadlineLabel}${audienceLabel}向け商品1件を販売可能な形で完成する`,
-      goalText: `${deadline}までに${audienceLabel}向けに販売する商品を1つ定義し、対象者・提供内容・価格・提供方法を明確にした販売ページを公開する。`,
-      achievement: `販売ページ公開と商品定義完了`
-    },
-    target_fit: {
-      title: `${deadlineLabel}優先顧客像を確定し提案文を1本完成する`,
-      goalText: `${deadline}までに${audienceLabel}の中から優先顧客像を1人に絞り、その人向けの提案文を${channelLabel}用に1本完成させる。`,
-      achievement: `優先顧客像1人と提案文1本を確定`
-    },
-    first_proposal: {
-      title: `${deadlineLabel}見込み客へ初回提案を3件実施する`,
-      goalText: `${deadline}までに${audienceLabel}向けの初回提案資料または案内文を完成させ、${channelLabel}経由で見込み客へ3件提案する。`,
-      achievement: `初回提案3件を達成`
-    },
-    media_foundation: {
-      title: `${deadlineLabel}${channelLabel}で主要コンテンツ3本を公開する`,
-      goalText: `${deadline}までに${audienceLabel}向けの媒体基盤を整え、プロフィール・導入記事・代表コンテンツを含む主要コンテンツ3本を${channelLabel}で公開する。`,
-      achievement: `主要コンテンツ3本を公開`
-    },
-    acquisition_route: {
-      title: `${deadlineLabel}${channelLabel}への流入導線を2本公開する`,
-      goalText: `${deadline}までに${audienceLabel}へ届く流入導線を2本公開し、${channelLabel}への訪問が発生する状態を作る。`,
-      achievement: `流入導線2本の公開を達成`
-    },
-    update_consistency: {
-      title: `${deadlineLabel}${channelLabel}経由で見込み反応を10件獲得する`,
-      goalText: `${deadline}までに${audienceLabel}向けの発信を${channelLabel}で公開し、見込み反応を10件獲得する。`,
-      achievement: `見込み反応10件を達成`
-    },
-    mvp_launch: {
-      title: `${deadlineLabel}最小版サービスを公開し利用開始を達成する`,
-      goalText: `${deadline}までに${audienceLabel}向けの最小版サービス（MVP）を公開し、申込または利用開始を3件達成する。`,
-      achievement: `利用開始3件を達成`
-    },
-    early_user_validation: {
-      title: `${deadlineLabel}初期ユーザー3人の利用完了を達成する`,
-      goalText: `${deadline}までに${audienceLabel}から初期ユーザー3人を獲得し、${channelLabel}経由で利用完了まで到達させる。`,
-      achievement: `初期ユーザー3人の利用完了`
-    },
-    release_readiness: {
-      title: `${deadlineLabel}公開可能な提供体制を完成する`,
-      goalText: `${deadline}までに${audienceLabel}向けの公開に必要な案内文・利用手順・問い合わせ導線を整備し、公開開始できる状態を完成する。`,
-      achievement: `公開開始できる状態を達成`
-    },
-    bottleneck_improvement: {
-      title: `${deadlineLabel}${channelLabel}経由の成果数を前月比20%向上する`,
-      goalText: `${deadline}までに${audienceLabel}向け施策の成果（申込・相談・販売のいずれか）を${channelLabel}経由で前月比20%向上させる。`,
-      achievement: `成果数の前月比20%向上`
-    },
-    reproducibility: {
-      title: `${deadlineLabel}同条件で成果達成を3件積み上げる`,
-      goalText: `${deadline}までに${audienceLabel}向け施策で、同条件の成果達成を3件積み上げる。`,
-      achievement: `同条件での成果達成3件`
-    },
-    validation_habit: {
-      title: `${deadlineLabel}${audienceLabel}向け成果指標を1つ改善する`,
-      goalText: `${deadline}までに${audienceLabel}向け施策の主要成果指標を1つ選び、開始時点より改善した状態を達成する。`,
-      achievement: `主要成果指標1つの改善`
-    }
-  };
-
-  const fallback = {
-    title: `${deadlineLabel}${audienceLabel}向け成果を達成する`,
-    goalText: `${deadline}までに${audienceLabel}向けに${offerLabel}を${channelLabel}で提供し、反応や申込などの成果指標を達成する。`,
-    achievement: `成果指標の達成`
-  };
-
-  const selectedPlan = planByDirection[directionId] || fallback;
-  const dreamHeadline = insights?.dreamStatement
-    ? `${deadlineLabel}${insights.dreamStatement}に近づく成果を出す`
-    : selectedPlan.title;
-  const metricCondition = [
-    `今回: ${selectedPlan.achievement}`,
-    `最終目標: ${insights?.targetOutcomeMetric || "目標指標を設定"}`,
-    `次段階: ${insights?.targetOutcomeValue || wizardState.answers.targetOutcomeValue || "上位目標の数値化"}`
-  ].join(" / ");
-  const realismNote = feasibilityLevel === FEASIBILITY_LEVEL.HARD
-    ? `現実調整: ${insights?.realismAdjustment || "今回は到達可能な最小成果を優先"}。`
-    : "";
-  return {
-    title: selectedPlan.title,
-    dreamHeadline,
-    goalText: `${selectedPlan.goalText}${realismNote ? ` ${realismNote}` : ""}`.trim(),
-    achievement: metricCondition
-  };
-};
-
-const buildPhaseGoalsByKgiType = ({ businessKgiType, deadline, audience, channel, monetizationPath, revenueTarget }) => {
-  const d = deadline || "期限まで";
-  if (businessKgiType === BUSINESS_KGI_TYPE.PROJECT_BUILD) {
-    return {
-      phase1Goal: `${d}までに${audience || "対象顧客"}向けの提供基盤（媒体/商品/導線）を完成し、公開する。`,
-      phase2Goal: `次段階で${monetizationPath || "収益導線"}を使い、${revenueTarget || "初回収益または問い合わせ"}を達成する。`
-    };
-  }
-  if (businessKgiType === BUSINESS_KGI_TYPE.REVENUE_SCALE) {
-    return {
-      phase1Goal: `${d}までに既存導線を強化し、主要成果を前月より向上させる。`,
-      phase2Goal: `${monetizationPath || "既存の収益導線"}で${revenueTarget || "売上・問い合わせ増加"}を達成する。`
-    };
-  }
-  return {
-    phase1Goal: `${d}までに${audience || "対象顧客"}向けの提供基盤（媒体/商品/導線）を完成する。`,
-    phase2Goal: `${monetizationPath || channel || "導線"}で${revenueTarget || "初回販売1件または問い合わせ獲得"}を達成する。`
-  };
-};
-
-const generateProposals = () => {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const deadline = wizardState.roughInput.deadline || formatDateInputValue(addDays(today, DEFAULT_KGI_DURATION_DAYS));
-  const inferredGoal = wizardState.inferredGoal || "継続できる目標を作る";
-  const channel = wizardState.tags.channel || "発信チャネル";
-  const audience = wizardState.tags.targetAudience || "届けたい相手";
-  const monetization = wizardState.tags.monetizationType || "成果化の手段";
-  const feasibilityLevel = wizardState.feasibility?.feasibilityLevel || FEASIBILITY_LEVEL.STRETCH;
-  const insights = buildWizardInsights();
-  const readiness = buildBusinessReadiness({ normalizedIntent: wizardState.normalizedIntent, answers: wizardState.answers });
-  const businessKgiType = wizardState.businessKgiType || BUSINESS_KGI_TYPE.PROJECT_PLUS_REVENUE;
-  const businessKgiTypeReason = wizardState.businessKgiTypeReason || "固定質問2の選択を優先";
-  const ultimateBenefit = resolveUltimateBenefit(wizardState.normalizedIntent, wizardState.answers);
-
-  const levels = ["easy", "normal", "detailed"];
-  const directionBases = wizardState.candidateDirections.length > 0
-    ? wizardState.candidateDirections
-    : buildCandidateDirectionsByBusinessGoalType(wizardState.businessGoalType, feasibilityLevel);
-
-  return directionBases.slice(0, 3).map((direction, index) => {
-    const concretePlan = buildConcretePlanText({
-      directionId: direction.id,
-      deadline,
-      audience,
-      channel,
-      monetization,
-      inferredGoal,
-      insights,
-      feasibilityLevel
-    });
-    const phaseGoals = buildPhaseGoalsByKgiType({
-      businessKgiType,
-      deadline,
-      audience,
-      channel,
-      monetizationPath: readiness.monetizationPath || monetization,
-      revenueTarget: readiness.revenueTarget
-    });
-    const typeLabel = BUSINESS_KGI_TYPE_LABEL[businessKgiType] || "未分類";
-    const idealVision = wizardState.answers.idealVision || wizardState.roughInput?.roughGoal || "理想像を育てる";
-    const concretePlanLabel = wizardState.answers.concretePlan || wizardState.answers.mediaTheme || inferredGoal;
-    const releaseLine = wizardState.answers.currentReleaseLine || "公開して回し始められる状態";
-    const firstWin = wizardState.answers.firstWinDefinition || concretePlan.achievement;
-    const upperGoal = wizardState.roughInput?.reason || `会社に頼りすぎない収入源として${idealVision}を育てる`;
-    const currentKgi = `${deadline}までに${concretePlanLabel}を${channel}で公開し、${releaseLine}を満たした運用土台を完成させる。`;
-    const currentAchievement = [
-      firstWin,
-      `公開ライン: ${releaseLine}`,
-      `収益導線: ${readiness.monetizationPath || monetization}`
-    ].join(" / ");
-    const nextStageGoal = phaseGoals.phase2Goal;
-    const typeAwareName = concretePlan.title;
-    const typeAwareGoalText = currentKgi;
-    return {
-    candidateType: direction.id,
-    directionLabel: direction.title,
-    businessKgiType,
-    businessKgiTypeLabel: typeLabel,
-    businessKgiTypeReason,
-    ultimateBenefit,
-    phase1Goal: phaseGoals.phase1Goal,
-    phase2Goal: phaseGoals.phase2Goal,
-    upperGoal,
-    currentKgi,
-    currentAchievement,
-    nextStageGoal,
-    revenueTarget: readiness.revenueTarget || "",
-    monetizationPath: readiness.monetizationPath || "",
-    name: `${typeAwareName}`,
-    goalText: typeAwareGoalText,
-    narrative: upperGoal,
-    metrics: currentAchievement,
-    deadline,
-    level: levels[index] || "normal",
-    reason: direction.reason,
-    concerns: direction.concern,
-    whyThisKgiFits: `固定3問（${wizardState.businessCategoryLabel} / ${BUSINESS_KGI_TYPE_LABEL[businessKgiType]} / ${OUTCOME_METRIC_LABEL[wizardState.outcomeMetricType] || wizardState.outcomeMetricType}）と、深掘り回答（対象・収益導線・最低公開ライン）を反映しています。`,
-    rejectedIdealCondition: wizardState.answers.idealConditionType || "",
-    realismAdjustmentReason: wizardState.answers.idealConditionType?.includes("理想")
-      ? "理想像を残しつつ、今回は公開可能な土台完成をKGIに置いたため。"
-      : "理想ラインが絶対条件として指定されたため。"
-    };
-  });
-};
-
-const buildCandidateDirectionsByBusinessGoalType = (businessGoalType, feasibilityLevel) => {
-  const scopePrefix = feasibilityLevel === FEASIBILITY_LEVEL.HARD ? "短期検証を優先しつつ" : "";
-  if (businessGoalType === BUSINESS_GOAL_TYPE.AUDIENCE_GROWTH) {
-    return [
-      { id: "touchpoint_growth", title: "接点拡大型", direction: "接点拡大", baseGoalText: `${scopePrefix}届けたい相手への接点を増やす`, reason: "まず認知と接点を作りたい人向け", concern: "売上への接続設計が必要" },
-      { id: "consistent_publishing", title: "継続発信型", direction: "継続発信", baseGoalText: `${scopePrefix}無理なく継続できる発信体制を作る`, reason: "発信習慣を安定させたい人向け", concern: "短期成果は出にくい" },
-      { id: "funnel_preparation", title: "導線整備型", direction: "導線整備", baseGoalText: `${scopePrefix}集客から次アクションへの導線を整える`, reason: "反応を行動に変換したい人向け", concern: "設計作業が増える" }
-    ];
-  }
-  if (businessGoalType === BUSINESS_GOAL_TYPE.MONETIZATION_VALIDATION) {
-    return [
-      { id: "first_sale_validation", title: "初回売上検証型", direction: "初回売上検証", baseGoalText: `${scopePrefix}最初の売上1件を作り検証完了する`, reason: "収益化の可否を早く確認したい人向け", concern: "短期で試行回数が必要" },
-      { id: "small_amount_confirmation", title: "小額成果確認型", direction: "小額成果確認", baseGoalText: `${scopePrefix}小さな金額でも収益発生を確認する`, reason: "低リスクで検証したい人向け", concern: "規模拡大は別設計が必要" },
-      { id: "offer_response_validation", title: "オファー反応検証型", direction: "反応検証", baseGoalText: `${scopePrefix}オファー提示への反応率を測る`, reason: "売れる切り口を見極めたい人向け", concern: "反応が低い時の改善前提" }
-    ];
-  }
-  if (businessGoalType === BUSINESS_GOAL_TYPE.OFFER_BUILDING) {
-    return [
-      { id: "offer_definition", title: "商品明確化型", direction: "商品明確化", baseGoalText: `${scopePrefix}販売する商品内容を定義する`, reason: "提供内容を固めたい人向け", concern: "販売検証は次段階" },
-      { id: "target_fit", title: "ターゲット適合型", direction: "ターゲット適合", baseGoalText: `${scopePrefix}誰向けの商品かを明確にする`, reason: "刺さる顧客像を合わせたい人向け", concern: "提供物の磨き込みが必要" },
-      { id: "first_proposal", title: "初回提案作成型", direction: "初回提案作成", baseGoalText: `${scopePrefix}初回提案用オファーを作成する`, reason: "すぐ提案可能な形を作りたい人向け", concern: "検証行動が必須" }
-    ];
-  }
-  if (businessGoalType === BUSINESS_GOAL_TYPE.MEDIA_PLATFORM_BUILDING) {
-    return [
-      { id: "media_foundation", title: "情報基盤構築型", direction: "基盤構築", baseGoalText: `${scopePrefix}媒体の土台と主要コンテンツを整備する`, reason: "中長期の発信土台を作りたい人向け", concern: "初速が遅くなりやすい" },
-      { id: "acquisition_route", title: "集客導線整備型", direction: "導線整備", baseGoalText: `${scopePrefix}流入導線を設計して運用を開始する`, reason: "集客経路を先に固めたい人向け", concern: "導線ごとの計測設計が必要" },
-      { id: "update_consistency", title: "更新継続型", direction: "更新継続", baseGoalText: `${scopePrefix}更新を継続できる運用を定着させる`, reason: "運用の継続性を重視したい人向け", concern: "短期成果は見えづらい" }
-    ];
-  }
-  if (businessGoalType === BUSINESS_GOAL_TYPE.PRODUCT_SERVICE_LAUNCH) {
-    return [
-      { id: "mvp_launch", title: "MVP公開型", direction: "MVP公開", baseGoalText: `${scopePrefix}最小機能で公開し利用可能状態にする`, reason: "早く公開して学習したい人向け", concern: "品質期待値の調整が必要" },
-      { id: "early_user_validation", title: "初期ユーザー検証型", direction: "初期ユーザー検証", baseGoalText: `${scopePrefix}初期ユーザー利用を獲得して検証する`, reason: "利用実績を先に作りたい人向け", concern: "集客動線が別途必要" },
-      { id: "release_readiness", title: "公開準備完了型", direction: "公開準備", baseGoalText: `${scopePrefix}公開条件を満たす準備を完了する`, reason: "リスクを抑えて公開したい人向け", concern: "公開時期が遅れる可能性" }
-    ];
-  }
-  return [
-    {
-      id: "bottleneck_improvement",
-      title: "ボトルネック改善型",
-      direction: "ボトルネック改善",
-      baseGoalText: `${scopePrefix}詰まりポイントを特定し改善する`,
-      reason: "課題箇所を明確にして進めたい人向け",
-      concern: "現状把握の精度が必要"
-    },
-    {
-      id: "reproducibility",
-      title: "再現性向上型",
-      direction: "再現性向上",
-      baseGoalText: `${scopePrefix}成果が出る手順を再現可能にする`,
-      reason: "安定的な成果を目指す人向け",
-      concern: "検証記録が不可欠"
-    },
-    {
-      id: "validation_habit",
-      title: "検証習慣化型",
-      direction: "検証習慣化",
-      baseGoalText: `${scopePrefix}改善サイクルを週次で回せる状態を作る`,
-      reason: "運用改善を習慣化したい人向け",
-      concern: "短期で大きな変化は出にくい"
-    }
-  ];
-};
-
-const fallbackAiWritingResult = ({ normalizedIntent, feasibility, questions, proposals }) => ({
-  normalizedSummaryText: `やりたいことは「${normalizedIntent.goal || "未入力"}」、背景は「${normalizedIntent.reason || "未入力"}」、期限は「${normalizedIntent.deadline || "未設定"}」として整理しました。`,
-  feasibilityReasonText: (feasibility?.feasibilityReasons || []).join(" "),
-  scopeAdjustmentText: feasibility?.recommendedScopeChange || "",
-  questionTexts: (questions || []).map((question) => ({ id: question.id, text: question.text })),
-  candidateTexts: (proposals || []).map((proposal) => ({
-    title: proposal.name,
-    goalText: proposal.goalText,
-    reasonText: proposal.reason,
-    concernText: proposal.concerns
-  }))
-});
-
-const callAiWritingPolish = async ({ payload }) => {
-  const response = await fetch("/api/polish-kgi-wizard-text", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload)
-  });
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(errorText || "AI文章化APIに失敗しました");
-  }
-  return response.json();
-};
-
-const renderFeasibilityBlock = () => {
-  const normalized = wizardState.normalizedIntent;
-  const feasibility = wizardState.feasibility;
-  if (!normalized || !feasibility) return;
-
-  const summaryText = wizardState.aiWriting.normalizedSummaryText || `やりたいことは「${normalized.goal || "未入力"}」、背景は「${normalized.reason || "未入力"}」、期限は「${normalized.deadline || "未設定"}」です。`;
-  renderReadableLongText(normalizedSummaryText, summaryText, {
-    lines: 5,
-    formatAsSentenceBlocks: true,
-    fallbackCharacterThreshold: 120
-  });
-
-  feasibilityLevelText.textContent = feasibility.feasibilityLevel;
-  const reasonText = wizardState.aiWriting.feasibilityReasonText || feasibility.feasibilityReasons.join(" ");
-  renderReadableLongText(feasibilityReasonsText, reasonText, {
-    lines: 6,
-    formatAsBulletSections: true,
-    fallbackCharacterThreshold: 120
-  });
-
-  const scopeAdjustmentText = wizardState.aiWriting.scopeAdjustmentText || feasibility.recommendedScopeChange;
-  if (feasibility.feasibilityLevel === FEASIBILITY_LEVEL.HARD || scopeAdjustmentText) {
-    feasibilityAltRouteLabel.classList.remove("hidden");
-    feasibilityAltRoute.classList.remove("hidden");
-    renderReadableLongText(feasibilityAltRoute, scopeAdjustmentText, {
-      lines: 4,
-      formatAsSentenceBlocks: true,
-      fallbackCharacterThreshold: 100
-    });
-  } else {
-    feasibilityAltRouteLabel.classList.add("hidden");
-    feasibilityAltRoute.classList.add("hidden");
-    feasibilityAltRoute.textContent = "";
-  }
-};
-
-const renderProposals = () => {
+const renderProposal = () => {
   proposalList.innerHTML = "";
-  wizardState.proposals.forEach((proposal, index) => {
-    const card = document.createElement("article");
-    card.className = `proposal-card${wizardState.selectedProposalIndex === index ? " selected" : ""}`;
-    card.innerHTML = `
-      <h3>${proposal.name}</h3>
-      <p class="proposal-meta"><small><strong>KGIタイプ:</strong> ${proposal.businessKgiTypeLabel || "未設定"}</small></p>
-      <p class="proposal-meta"><small><strong>方向タイプ:</strong> ${proposal.directionLabel || "未設定"}</small></p>
-      <p class="proposal-meta"><strong>上位ゴール:</strong> ${proposal.upperGoal || proposal.narrative || proposal.name}</p>
-      <p class="proposal-meta"><strong>今回のKGI:</strong> ${proposal.currentKgi || proposal.goalText}</p>
-      <p class="proposal-meta"><strong>今回の達成条件:</strong> ${proposal.currentAchievement || proposal.metrics || proposal.goalText}</p>
-      <p class="proposal-meta"><strong>次段階:</strong> ${proposal.nextStageGoal || proposal.phase2Goal || "次段階を設計中"}</p>
-      <p class="proposal-meta"><strong>期限:</strong> ${proposal.deadline}</p>
-      <p class="proposal-meta"><strong>説明レベル:</strong> ${proposal.level}</p>
-      <p class="proposal-meta"><strong>おすすめ理由:</strong> ${proposal.reason}</p>
-      <p class="proposal-meta"><strong>気になる点:</strong> ${proposal.concerns}</p>
-      <p class="proposal-meta"><strong>なぜこのKGIか:</strong> ${proposal.whyThisKgiFits || "回答を元に調整済み"}</p>
-      <button type="button" class="secondary" data-proposal-index="${index}">この案を使う</button>
-    `;
-    proposalList.appendChild(card);
-  });
+  const card = document.createElement("article");
+  card.className = "proposal-card selected";
 
-  proposalList.querySelectorAll("button[data-proposal-index]").forEach((button) => {
-    button.addEventListener("click", () => {
-      if (wizardState.inFlight.selectProposal) return;
-      setButtonBusy(button, true, "反映中...");
-      wizardState.inFlight.selectProposal = true;
-      const index = Number(button.dataset.proposalIndex);
-      wizardState.selectedProposalIndex = index;
-      wizardState.selectedDraft = { ...wizardState.proposals[index] };
-      nameInput.value = wizardState.selectedDraft.name;
-      goalTextInput.value = wizardState.selectedDraft.goalText;
-      deadlineInput.value = wizardState.selectedDraft.deadline;
-      levelInput.value = wizardState.selectedDraft.level;
-      hideSpecificityWarning();
-      editSection.classList.remove("hidden");
-      setStep(4);
-      renderProposals();
-      setStatus("候補を選択しました。必要なら編集して保存してください。", false);
-      wizardState.inFlight.selectProposal = false;
-    });
-  });
-};
+  const criteriaHtml = wizardState.kgiSuccessCriteria.map((item) => `<li>${item}</li>`).join("");
+  const nextKgiHtml = wizardState.nextKgiSuggestion
+    ? `<p class="proposal-meta"><strong>次のKGI候補:</strong> ${wizardState.nextKgiSuggestion}</p>`
+    : "";
 
-const ABSTRACT_LABEL_PATTERN = /^(認知拡大型|収益化優先型|継続重視型|検証優先型|成果直結型|習慣化重視型|方向性)/;
-const CHANNEL_PATTERN = /(X|Instagram|YouTube|TikTok|ブログ|メルマガ|LINE|サイト|note)/i;
-const MONETIZE_PATTERN = /(収益|売上|広告|案件|サブスク|販売|商品|サービス|アフィリエイト|単価)/;
-const DELIVERY_PATTERN = /(記事|投稿|動画|教材|サービス|商品|情報|コンテンツ|発信|提供)/;
-const AUDIENCE_PATTERN = /(向け|対象|初心者|会社員|学生|主婦|経営者|フリーランス|個人事業主|保護者)/;
+  card.innerHTML = `
+    <h3>KGI候補</h3>
+    <p class="proposal-meta"><strong>KGI本体:</strong> ${wizardState.kgiStatement}</p>
+    <p class="proposal-meta"><strong>KGI達成の判定条件:</strong></p>
+    <ul class="proposal-meta">${criteriaHtml}</ul>
+    <p class="proposal-meta"><strong>整理した達成状態:</strong> ${wizardState.clarifiedSuccessState}</p>
+    ${nextKgiHtml}
+  `;
 
-const buildSpecificityPatch = ({ name, goalText, deadline }) => {
-  const audience = wizardState.tags.targetAudience || wizardState.answers.targetAudience || wizardState.normalizedIntent?.goal || "";
-  const channel = wizardState.tags.channel || wizardState.answers.channel || "";
-  const monetization = wizardState.tags.monetizationType || wizardState.answers.monetizationType || "";
-  const baseGoal = wizardState.roughInput?.roughGoal || wizardState.normalizedIntent?.goal || "";
-  const candidateType = wizardState.proposals[wizardState.selectedProposalIndex]?.directionLabel || "未設定";
+  proposalList.appendChild(card);
 
-  const textBundle = `${name} ${goalText}`;
-  const missing = [];
-  if (!AUDIENCE_PATTERN.test(textBundle)) missing.push("誰向けか");
-  if (!DELIVERY_PATTERN.test(textBundle)) missing.push("何を届けるか");
-  if (!CHANNEL_PATTERN.test(textBundle)) missing.push("主な媒体/導線");
-  if (!MONETIZE_PATTERN.test(textBundle)) missing.push("収益化の方向");
-  if (!deadline) missing.push("期限");
-
-  const normalizedDeadline = deadline || wizardState.roughInput?.deadline || formatDateInputValue(addDays(new Date(), DEFAULT_KGI_DURATION_DAYS));
-  const suggestedNameBase = `${audience || "想定顧客"}向け${channel || "発信導線"}と${monetization || "収益化"}の立ち上げ`;
-  const suggestedName = (!name || ABSTRACT_LABEL_PATTERN.test(name))
-    ? suggestedNameBase
-    : name;
-
-  let suggestedGoal = goalText;
-  if (missing.length > 0 || goalText.length < 35) {
-    suggestedGoal = `${normalizedDeadline}までに${audience || "想定顧客"}向けへ${baseGoal || "価値提供内容"}を${channel || "主導線"}で届け、${monetization || "初回収益化"}の検証を完了する。`;
-    suggestedGoal += `（候補タイプ: ${candidateType}）`;
-  }
-
-  return {
-    missing,
-    suggestedName,
-    suggestedGoal,
-    normalizedDeadline
+  const defaultName = `${wizardState.kgiDeadline} KGI`;
+  wizardState.selectedDraft = {
+    name: defaultName,
+    goalText: `${wizardState.kgiStatement}\n\nKGI達成の判定条件:\n- ${wizardState.kgiSuccessCriteria.join("\n- ")}`,
+    deadline: wizardState.kgiDeadline,
+    level: "easy"
   };
-};
 
-const updateCreationSession = async (payload) => {
-  if (!db || !wizardState.sessionId) return;
-  try {
-    await updateDoc(doc(db, "kgiCreationSessions", wizardState.sessionId), {
-      ...payload,
-      updatedAt: serverTimestamp()
-    });
-  } catch (error) {
-    console.error("Failed to update creation session", error);
-  }
-};
-
-const hideSpecificityWarning = () => {
-  wizardState.pendingSpecificityPatch = null;
-  if (!specificityWarningBox) return;
-  specificityWarningBox.classList.add("hidden");
-  if (saveButton) {
-    saveButton.hidden = false;
-    saveButton.disabled = !db;
-  }
-};
-
-const showSpecificityWarning = (specificityPatch) => {
-  wizardState.pendingSpecificityPatch = specificityPatch;
-  if (!specificityWarningBox) return;
-  specificityCandidateName.textContent = `KGI名: ${specificityPatch.suggestedName}`;
-  specificityCandidateGoal.textContent = `ゴール説明: ${specificityPatch.suggestedGoal}`;
-  specificityCandidateDeadline.textContent = `期限: ${specificityPatch.normalizedDeadline}`;
-  specificityWarningBox.classList.remove("hidden");
-  if (saveButton) {
-    saveButton.hidden = true;
-    saveButton.disabled = true;
-  }
-};
-
-const getInputDraft = () => {
-  const name = (nameInput.value || "").trim();
-  const goalText = (goalTextInput.value || "").trim();
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const startDate = formatDateInputValue(today);
-  const deadline = deadlineInput.value || formatDateInputValue(addDays(today, DEFAULT_KGI_DURATION_DAYS));
-  const level = levelInput.value || "normal";
-  return { name, goalText, startDate, deadline, level };
-};
-
-const persistKgi = async ({ finalDraft, startDate, level }) => {
-  setButtonBusy(saveButton, true, "保存中...");
-  setButtonBusy(saveWithSpecificityButton, true, "保存中...");
-  if (editSpecificityButton) editSpecificityButton.disabled = true;
-
-  const selectedOriginal = wizardState.proposals[wizardState.selectedProposalIndex];
-  const selectedCandidateType = selectedOriginal?.directionLabel || "";
-  const editedFields = Object.keys(finalDraft).filter((key) => finalDraft[key] !== selectedOriginal[key]);
-  const insights = buildWizardInsights();
-  const candidateKgiNarratives = wizardState.proposals.map((proposal) => proposal.narrative || proposal.name);
-  const candidateKgiMetrics = wizardState.proposals.map((proposal) => proposal.metrics || proposal.goalText);
-  const finalSelectedReason = `${selectedOriginal?.reason || "理由未設定"} / 編集項目: ${editedFields.join(", ") || "なし"}`;
-
-  try {
-    const createdKgi = {
-      name: finalDraft.name,
-      goalText: finalDraft.goalText,
-      deadline: finalDraft.deadline,
-      startDate,
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-      status: "active",
-      overallProgress: 0,
-      nextActionText: "",
-      nextActionReason: "",
-      roadmapPhases: [],
-      explanationLevel: level,
-      kgiCreationSessionId: wizardState.sessionId,
-      kgiCreationData: {
-        flowVersion: "in-app-ai-wizard-v4-fixed-entry-questions",
-        aiAssistMode: AI_ASSIST_MODE,
-        rawInput: wizardState.roughInput,
-        normalizedIntent: wizardState.normalizedIntent,
-        businessGoalType: wizardState.businessGoalType,
-        businessGoalTypeReason: wizardState.businessGoalTypeReason,
-        businessCategory: wizardState.businessCategory,
-        businessCategoryLabel: wizardState.businessCategoryLabel,
-        businessCategoryDetail: wizardState.businessCategoryDetail,
-        businessKgiType: wizardState.businessKgiType,
-        outcomeMetricType: wizardState.outcomeMetricType,
-        kgiTypeReason: wizardState.businessKgiTypeReason,
-        ultimateBenefit: wizardState.ultimateBenefit,
-        phase1Goal: wizardState.phase1Goal,
-        phase2Goal: wizardState.phase2Goal,
-        revenueTarget: wizardState.revenueTarget,
-        monetizationPath: wizardState.monetizationPath,
-        questionTemplateType: wizardState.questionTemplateType,
-        candidateTemplateType: wizardState.candidateTemplateType,
-        inferredGoal: wizardState.inferredGoal,
-        uncertaintyFields: wizardState.uncertaintyFields,
-        feasibilityLevel: wizardState.feasibility?.feasibilityLevel || "",
-        feasibilityReasons: wizardState.feasibility?.feasibilityReasons || [],
-        mainConstraints: wizardState.feasibility?.mainConstraints || [],
-        recommendedScopeChange: wizardState.feasibility?.recommendedScopeChange || "",
-        dynamicQuestionsBase: wizardState.dynamicQuestionsBase,
-        candidateDirections: wizardState.candidateDirections,
-        normalizedSummaryText: wizardState.aiWriting.normalizedSummaryText || "",
-        feasibilityReasonText: wizardState.aiWriting.feasibilityReasonText || "",
-        scopeAdjustmentText: wizardState.aiWriting.scopeAdjustmentText || "",
-        questionTexts: wizardState.aiWriting.questionTexts || [],
-        candidateTexts: wizardState.aiWriting.candidateTexts || [],
-        askedQuestions: wizardState.questions,
-        userAnswers: wizardState.answers,
-        tags: wizardState.tags,
-        selectedCandidateType,
-        generatedCandidates: wizardState.proposals,
-        selectedCandidateIndex: wizardState.selectedProposalIndex,
-        unselectedCandidates: wizardState.proposals.filter((_candidate, index) => index !== wizardState.selectedProposalIndex),
-        editedFields,
-        finalEdits: {
-          before: selectedOriginal || null,
-          after: finalDraft
-        },
-        proposalRationale: wizardState.interviewProcess.proposalRationale,
-        interviewProcess: wizardState.interviewProcess,
-        dreamStatement: insights.dreamStatement,
-        whyNow: insights.whyNow,
-        targetOutcomeMetric: insights.targetOutcomeMetric,
-        progressMetrics: insights.progressMetrics,
-        constraintSummary: insights.constraintSummary,
-        aiInterpretedIntent: insights.aiInterpretedIntent,
-        realismAdjustment: insights.realismAdjustment,
-        idealVision: insights.idealVision,
-        currentReleaseLine: insights.currentReleaseLine,
-        upperGoal: selectedOriginal?.upperGoal || "",
-        currentKgi: selectedOriginal?.currentKgi || "",
-        currentAchievement: selectedOriginal?.currentAchievement || "",
-        nextStageGoal: selectedOriginal?.nextStageGoal || "",
-        userTrueIntentSummary: insights.userTrueIntentSummary,
-        whyThisKgiFits: selectedOriginal?.whyThisKgiFits || "",
-        rejectedIdealCondition: selectedOriginal?.rejectedIdealCondition || "",
-        realismAdjustmentReason: selectedOriginal?.realismAdjustmentReason || "",
-        candidateKgiNarratives,
-        candidateKgiMetrics,
-        finalSelectedReason,
-        finalKgi: finalDraft
-      }
-    };
-
-    const kgiDocRef = await addDoc(collection(db, "kgis"), createdKgi);
-
-    await updateCreationSession({
-      status: "completed",
-      selectedCandidateIndex: wizardState.selectedProposalIndex,
-      editedFields,
-      finalKgi: finalDraft,
-      dreamStatement: insights.dreamStatement,
-      whyNow: insights.whyNow,
-      targetOutcomeMetric: insights.targetOutcomeMetric,
-      progressMetrics: insights.progressMetrics,
-      constraintSummary: insights.constraintSummary,
-      aiInterpretedIntent: insights.aiInterpretedIntent,
-      realismAdjustment: insights.realismAdjustment,
-      idealVision: insights.idealVision,
-      currentReleaseLine: insights.currentReleaseLine,
-      upperGoal: selectedOriginal?.upperGoal || "",
-      currentKgi: selectedOriginal?.currentKgi || "",
-      currentAchievement: selectedOriginal?.currentAchievement || "",
-      nextStageGoal: selectedOriginal?.nextStageGoal || "",
-      userTrueIntentSummary: insights.userTrueIntentSummary,
-      whyThisKgiFits: selectedOriginal?.whyThisKgiFits || "",
-      rejectedIdealCondition: selectedOriginal?.rejectedIdealCondition || "",
-      realismAdjustmentReason: selectedOriginal?.realismAdjustmentReason || "",
-      candidateKgiNarratives,
-      candidateKgiMetrics,
-      finalSelectedReason,
-      businessKgiType: wizardState.businessKgiType,
-      businessKgiTypeReason: wizardState.businessKgiTypeReason,
-      businessCategory: wizardState.businessCategory,
-      businessCategoryLabel: wizardState.businessCategoryLabel,
-      businessCategoryDetail: wizardState.businessCategoryDetail,
-      outcomeMetricType: wizardState.outcomeMetricType,
-      ultimateBenefit: wizardState.ultimateBenefit,
-      phase1Goal: wizardState.phase1Goal,
-      phase2Goal: wizardState.phase2Goal,
-      revenueTarget: wizardState.revenueTarget,
-      monetizationPath: wizardState.monetizationPath,
-      finalKgiId: kgiDocRef.id,
-      completedAt: serverTimestamp()
-    });
-
-    try {
-      const generated = await generateRoadmap({
-        name: finalDraft.name,
-        goalText: finalDraft.goalText,
-        deadline: finalDraft.deadline,
-        level,
-        context: {
-          rawInput: wizardState.roughInput,
-          normalizedIntent: wizardState.normalizedIntent,
-          businessGoalType: wizardState.businessGoalType,
-          businessCategory: wizardState.businessCategory,
-          businessCategoryDetail: wizardState.businessCategoryDetail,
-          targetAudience: wizardState.tags.targetAudience || "",
-          channel: wizardState.tags.channel || "",
-          monetizationType: wizardState.tags.monetizationType || "",
-          availableTime: wizardState.tags.availableTime || wizardState.answers.availableTime || "",
-          feasibilityReasons: wizardState.feasibility?.feasibilityReasons || [],
-          selectedCandidateType,
-          finalKgi: finalDraft
-        }
-      });
-      if (Array.isArray(generated.roadmapPhases) && generated.roadmapPhases.length > 0) {
-        await updateDoc(doc(db, "kgis", kgiDocRef.id), {
-          roadmapPhases: generated.roadmapPhases,
-          goalText: generated.kgiDescription || finalDraft.goalText,
-          explanationLevel: level,
-          updatedAt: serverTimestamp()
-        });
-      }
-    } catch (roadmapError) {
-      console.error("Failed to generate roadmap", roadmapError);
-    }
-
-    window.sessionStorage.setItem(buildInitialDetailEntryStorageKey(kgiDocRef.id), JSON.stringify({
-      source: "new-kgi",
-      createdAt: Date.now(),
-      roadmapKpiStarted: false
-    }));
-    location.href = `./detail.html?id=${kgiDocRef.id}`;
-  } catch (error) {
-    console.error(error);
-    alert("保存に失敗しました。Firebase設定とルールを確認してください。");
-    setStatus("保存に失敗しました。Firebase設定とルールを確認してください。", true);
-    throw error;
-  } finally {
-    setButtonBusy(saveButton, false);
-    setButtonBusy(saveWithSpecificityButton, false);
-    if (editSpecificityButton) editSpecificityButton.disabled = false;
-  }
+  nameInput.value = wizardState.selectedDraft.name;
+  goalTextInput.value = wizardState.selectedDraft.goalText;
+  deadlineInput.value = wizardState.selectedDraft.deadline;
+  levelInput.value = wizardState.selectedDraft.level;
+  editSection.classList.remove("hidden");
 };
 
 const ensureCreationSession = async () => {
-  if (!db) {
-    alert("Firebase接続を初期化中です。数秒後に再試行してください。");
-    return false;
-  }
+  if (!db) return false;
   if (wizardState.sessionId) return true;
 
-  const sessionData = {
-    flowVersion: "in-app-ai-wizard-v4-fixed-entry-questions",
-    aiAssistMode: AI_ASSIST_MODE,
-    status: "rough_input_received",
-    rawInput: wizardState.roughInput,
-    normalizedIntent: wizardState.normalizedIntent,
-    initialHypothesis: wizardState.interviewProcess.initialHypothesis,
-    missingInfoChecklist: wizardState.interviewProcess.missingInfoChecklist,
-    businessGoalType: wizardState.businessGoalType,
-    businessGoalTypeReason: wizardState.businessGoalTypeReason,
-    businessCategory: wizardState.businessCategory,
-    businessCategoryLabel: wizardState.businessCategoryLabel,
-    businessCategoryDetail: wizardState.businessCategoryDetail,
-    businessKgiType: wizardState.businessKgiType,
-    outcomeMetricType: wizardState.outcomeMetricType,
-    businessKgiTypeReason: wizardState.businessKgiTypeReason,
-    ultimateBenefit: wizardState.ultimateBenefit,
-    phase1Goal: wizardState.phase1Goal,
-    phase2Goal: wizardState.phase2Goal,
-    revenueTarget: wizardState.revenueTarget,
-    monetizationPath: wizardState.monetizationPath,
-    questionTemplateType: wizardState.questionTemplateType,
-    candidateTemplateType: wizardState.candidateTemplateType,
-    inferredGoal: wizardState.inferredGoal,
-    uncertaintyFields: wizardState.uncertaintyFields,
-    feasibilityLevel: wizardState.feasibility?.feasibilityLevel || "",
-    feasibilityReasons: wizardState.feasibility?.feasibilityReasons || [],
-    mainConstraints: wizardState.feasibility?.mainConstraints || [],
-    recommendedScopeChange: wizardState.feasibility?.recommendedScopeChange || "",
-    dynamicQuestionsBase: wizardState.dynamicQuestionsBase,
-    candidateDirections: wizardState.candidateDirections,
-    askedQuestions: wizardState.questions,
-    aiWritingResult: wizardState.aiWriting,
-    userAnswers: {},
-    generatedCandidates: [],
-    selectedCandidateIndex: null,
-    editedFields: [],
-    finalKgi: null,
-    tags: {},
-    dreamStatement: "",
-    whyNow: "",
-    targetOutcomeMetric: "",
-    progressMetrics: "",
-    constraintSummary: "",
-    aiInterpretedIntent: "",
-    realismAdjustment: "",
-    idealVision: "",
-    currentReleaseLine: "",
-    upperGoal: "",
-    currentKgi: "",
-    currentAchievement: "",
-    nextStageGoal: "",
-    userTrueIntentSummary: "",
-    whyThisKgiFits: "",
-    rejectedIdealCondition: "",
-    realismAdjustmentReason: "",
-    candidateKgiNarratives: [],
-    candidateKgiMetrics: [],
-    finalSelectedReason: "",
-    interviewProcess: wizardState.interviewProcess,
+  const data = {
+    flowVersion: "kgi-wizard-v5-essence-first",
     createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp()
+    updatedAt: serverTimestamp(),
+    upperGoal: wizardState.upperGoal,
+    kgiDeadline: wizardState.kgiDeadline,
+    rawSuccessStateInput: wizardState.rawSuccessStateInput,
+    clarifiedSuccessState: "",
+    kgiStatement: "",
+    kgiSuccessCriteria: [],
+    ambiguityPoints: wizardState.ambiguityPoints,
+    followUpQuestions: wizardState.followUpQuestions,
+    followUpAnswers: {},
+    nextKgiSuggestion: ""
   };
-
-  const ref = await addDoc(collection(db, "kgiCreationSessions"), sessionData);
+  const ref = await addDoc(collection(db, "kgiCreationSessions"), data);
   wizardState.sessionId = ref.id;
   return true;
 };
 
+const updateCreationSession = async () => {
+  if (!wizardState.sessionId || !db) return;
+  await updateDoc(doc(db, "kgiCreationSessions", wizardState.sessionId), {
+    updatedAt: serverTimestamp(),
+    upperGoal: wizardState.upperGoal,
+    kgiDeadline: wizardState.kgiDeadline,
+    rawSuccessStateInput: wizardState.rawSuccessStateInput,
+    clarifiedSuccessState: wizardState.clarifiedSuccessState,
+    kgiStatement: wizardState.kgiStatement,
+    kgiSuccessCriteria: wizardState.kgiSuccessCriteria,
+    ambiguityPoints: wizardState.ambiguityPoints,
+    followUpQuestions: wizardState.followUpQuestions,
+    followUpAnswers: wizardState.followUpAnswers,
+    nextKgiSuggestion: wizardState.nextKgiSuggestion
+  });
+};
+
 startDeepDiveButton.addEventListener("click", async () => {
-  const actionToken = beginInFlight("startDeepDive");
-  if (!actionToken) return;
-  setButtonBusy(startDeepDiveButton, true, "処理中...");
-  try {
-    const businessCategory = (businessCategoryInput?.value || "").trim();
-    const businessKgiType = (businessKgiTypeInput?.value || "").trim();
-    const outcomeMetricType = (outcomeMetricTypeInput?.value || "").trim();
-    const businessCategoryDetail = (businessCategoryDetailInput?.value || "").trim();
+  const deadline = (roughDeadlineInput.value || "").trim();
+  const successState = (roughGoalInput.value || "").trim();
 
-    if (!businessCategory || !getInitialBusinessCategoryOptions().includes(businessCategory)) {
-      alert("固定質問1「ビジネスの種類」を選択してください。");
-      return;
-    }
-    if (shouldRequireBusinessCategoryDetail(businessCategory) && !businessCategoryDetail) {
-      alert("「どんな内容かを一言で書いてください」を入力してください。");
-      return;
-    }
-    if (!businessKgiType || !Object.values(BUSINESS_KGI_TYPE).includes(businessKgiType)) {
-      alert("固定質問2「今回の期限でどこまで達成したいか」を選択してください。");
-      return;
-    }
-    if (!outcomeMetricType || !getOutcomeMetricOptions().includes(outcomeMetricType)) {
-      alert("固定質問3「成果は何の数字で判断したいか」を選択してください。");
-      return;
-    }
+  if (!deadline) {
+    alert("1問目: 期限を入力してください。");
+    return;
+  }
+  if (!successState) {
+    alert("2問目: 成功状態を入力してください。");
+    return;
+  }
 
-    const roughGoal = (roughGoalInput.value || "").trim();
-    const reason = (roughReasonInput.value || "").trim();
-    if (!roughGoal || !reason) {
-      alert("「やりたいこと」と「なぜやりたいか」は入力してください。");
-      return;
-    }
+  wizardState.kgiDeadline = deadline;
+  wizardState.rawSuccessStateInput = successState;
+  wizardState.upperGoal = pickUpperGoal(successState);
+  wizardState.followUpQuestions = buildFollowUpQuestions(successState);
+  wizardState.ambiguityPoints = wizardState.followUpQuestions.map((q) => q.ambiguityLabel);
+  wizardState.currentQuestionIndex = 0;
+  wizardState.followUpAnswers = {};
 
-    wizardState.roughInput = {
-      roughGoal,
-      reason,
-      deadline: roughDeadlineInput.value || "",
-      currentState: (roughCurrentStateInput.value || "").trim(),
-      fixedQuestions: {
-        businessCategory,
-        businessCategoryLabel: BUSINESS_CATEGORY_LABEL[businessCategory] || businessCategory,
-        businessCategoryDetail: shouldRequireBusinessCategoryDetail(businessCategory) ? businessCategoryDetail : "",
-        businessKgiType,
-        outcomeMetricType,
-        outcomeMetricLabel: OUTCOME_METRIC_LABEL[outcomeMetricType] || outcomeMetricType
-      }
-    };
+  await ensureCreationSession();
+  await updateCreationSession();
 
-    wizardState.businessCategory = businessCategory;
-    wizardState.businessCategoryLabel = BUSINESS_CATEGORY_LABEL[businessCategory] || businessCategory;
-    wizardState.businessCategoryDetail = shouldRequireBusinessCategoryDetail(businessCategory) ? businessCategoryDetail : "";
-    wizardState.businessKgiType = businessKgiType;
-    wizardState.businessKgiTypeReason = "固定質問2の選択を採用";
-    wizardState.outcomeMetricType = outcomeMetricType;
-
-    const analysis = analyzeRoughInput(wizardState.roughInput, {
-      businessCategory,
-      businessCategoryDetail: wizardState.businessCategoryDetail,
-      businessKgiType,
-      outcomeMetricType
-    });
-    wizardState.normalizedIntent = analysis.normalizedIntent;
-    wizardState.businessGoalType = analysis.businessGoalType;
-    wizardState.businessGoalTypeReason = analysis.businessGoalTypeReason;
-    wizardState.ultimateBenefit = resolveUltimateBenefit(analysis.normalizedIntent, {});
-    wizardState.phase1Goal = "";
-    wizardState.phase2Goal = "";
-    wizardState.revenueTarget = "";
-    wizardState.monetizationPath = "";
-    wizardState.questionTemplateType = analysis.businessGoalType;
-    wizardState.candidateTemplateType = analysis.businessGoalType;
-    wizardState.inferredGoal = analysis.inferredGoal;
-    wizardState.uncertaintyFields = analysis.uncertaintyFields;
-    wizardState.feasibility = analysis.feasibility;
-    wizardState.interviewProcess.initialHypothesis = analysis.initialHypothesis;
-    wizardState.interviewProcess.missingInfoChecklist = analysis.missingInfoChecklist;
-    wizardState.interviewProcess.feasibilitySnapshot = analysis.feasibility;
-    wizardState.questions = buildDynamicQuestions(analysis);
-    wizardState.dynamicQuestionsBase = wizardState.questions.map((question) => ({ ...question }));
-    wizardState.candidateDirections = buildCandidateDirectionsByBusinessGoalType(
-      analysis.businessGoalType,
-      analysis.feasibility.feasibilityLevel
-    );
-    wizardState.askedQuestions = wizardState.questions;
-    wizardState.currentQuestionIndex = 0;
-    wizardState.answers = {
-      businessCategory: wizardState.businessCategoryLabel,
-      businessCategoryDetail: wizardState.businessCategoryDetail,
-      scopeIntent: wizardState.businessKgiType,
-      targetOutcomeMetric: OUTCOME_METRIC_LABEL[wizardState.outcomeMetricType] || wizardState.outcomeMetricType
-    };
-    wizardState.interviewProcess.followUpQuestionLog = [];
-    wizardState.interviewProcess.updatedUnderstandingSummary = "";
-    wizardState.interviewProcess.proposalRationale = [];
-
-    const ready = await ensureCreationSession();
-    if (!ready) return;
-
-    const fallbackWriting = fallbackAiWritingResult({
-      normalizedIntent: wizardState.normalizedIntent,
-      feasibility: wizardState.feasibility,
-      questions: wizardState.questions,
-      proposals: []
-    });
-    wizardState.aiWriting = { ...wizardState.aiWriting, ...fallbackWriting };
-    try {
-      const aiResult = await callAiWritingPolish({
-        payload: {
-          rawInput: wizardState.roughInput,
-          normalizedIntent: wizardState.normalizedIntent,
-          businessGoalType: wizardState.businessGoalType,
-          businessGoalTypeReason: wizardState.businessGoalTypeReason,
-          businessCategory: wizardState.businessCategory,
-          businessCategoryDetail: wizardState.businessCategoryDetail,
-          businessKgiType: wizardState.businessKgiType,
-          outcomeMetricType: wizardState.outcomeMetricType,
-          questionTemplateType: wizardState.questionTemplateType,
-          candidateTemplateType: wizardState.candidateTemplateType,
-          inferredGoal: wizardState.inferredGoal,
-          uncertaintyFields: wizardState.uncertaintyFields,
-          feasibilityLevel: wizardState.feasibility.feasibilityLevel,
-          feasibilityReasons: wizardState.feasibility.feasibilityReasons,
-          mainConstraints: wizardState.feasibility.mainConstraints,
-          recommendedScopeChange: wizardState.feasibility.recommendedScopeChange,
-          dynamicQuestions: wizardState.dynamicQuestionsBase,
-          candidateDirections: wizardState.candidateDirections
-        }
-      });
-      wizardState.aiWriting = { ...wizardState.aiWriting, ...aiResult };
-    } catch (error) {
-      console.warn("AI文章化に失敗したためフォールバック文面を使用します", error);
-    }
-
-    wizardState.questionTextsById = Object.fromEntries(
-      (wizardState.aiWriting.questionTexts || []).map((question) => [question.id, question.text])
-    );
-    wizardState.questions = wizardState.questions.map((question) => ({
-      ...question,
-      text: wizardState.questionTextsById[question.id] || question.text
-    }));
-
-    await updateCreationSession({
-      aiWritingResult: wizardState.aiWriting,
-      dynamicQuestionsBase: wizardState.dynamicQuestionsBase,
-      candidateDirections: wizardState.candidateDirections,
-      initialHypothesis: wizardState.interviewProcess.initialHypothesis,
-      missingInfoChecklist: wizardState.interviewProcess.missingInfoChecklist,
-      interviewProcess: wizardState.interviewProcess
-    });
-
-    if (!isLatestToken("startDeepDive", actionToken)) return;
-    renderFeasibilityBlock();
-    feasibilitySection.classList.remove("hidden");
+  if (wizardState.followUpQuestions.length === 0) {
+    buildKgiResult();
+    await updateCreationSession();
+    proposalSection.classList.remove("hidden");
     questionSection.classList.add("hidden");
-    proposalSection.classList.add("hidden");
-    setStep(2);
-    updateWizardBlockFocus();
-    setStatus("入力内容を整理し、実現可能性チェックを作成しました。", false);
-  } catch (error) {
-    console.error(error);
-    setStatus("入力整理でエラーが発生しました。時間をおいて再試行してください。", true);
-  } finally {
-    endInFlight("startDeepDive");
-    setButtonBusy(startDeepDiveButton, false);
+    renderProposal();
+    setStep(3);
+    setStatus("追加質問なしでKGIを作成しました。", false);
+    return;
   }
-});
 
-toQuestionsButton.addEventListener("click", async () => {
-  const actionToken = beginInFlight("toQuestions");
-  if (!actionToken) return;
-  setButtonBusy(toQuestionsButton, true, "処理中...");
-  try {
-    questionSection.classList.remove("hidden");
-    renderQuestion();
-    await updateCreationSession({
-      status: "questioning",
-      askedQuestions: wizardState.questions
-    });
-    setStep(2);
-    updateWizardBlockFocus();
-    setStatus("不足している点だけ質問します。", false);
-  } finally {
-    if (isLatestToken("toQuestions", actionToken)) {
-      endInFlight("toQuestions");
-      setButtonBusy(toQuestionsButton, false);
-    }
-  }
+  questionSection.classList.remove("hidden");
+  proposalSection.classList.add("hidden");
+  renderQuestion();
+  setStep(2);
+  setStatus("達成状態の解釈ズレを減らすために、追加質問に答えてください。", false);
 });
 
 prevQuestionButton.addEventListener("click", () => {
-  saveAnswerFromField();
   if (wizardState.currentQuestionIndex > 0) {
     wizardState.currentQuestionIndex -= 1;
     renderQuestion();
   }
 });
 
-nextQuestionButton.addEventListener("click", async () => {
-  const actionToken = beginInFlight("nextQuestion");
-  if (!actionToken) return;
-  const lastQuestionIndex = wizardState.questions.length - 1;
-  setButtonBusy(nextQuestionButton, true, wizardState.currentQuestionIndex === lastQuestionIndex ? "候補作成中..." : "処理中...");
-  try {
-    saveAnswerFromField();
-    const currentQuestion = wizardState.questions[wizardState.currentQuestionIndex];
-    const currentAnswer = wizardState.answers[currentQuestion.id] || "";
-    if (!currentAnswer) {
-      alert("この質問に回答してから次へ進んでください。");
-      return;
-    }
-
-    await updateCreationSession({
-      userAnswers: wizardState.answers,
-      deepDiveResponses: wizardState.questions.map((question) => ({
-        questionId: question.id,
-        questionText: question.text,
-        order: question.order,
-        answer: wizardState.answers[question.id] || "",
-        createdAt: new Date().toISOString()
-      }))
-    });
-
-    const isLast = wizardState.currentQuestionIndex === wizardState.questions.length - 1;
-    if (!isLast) {
-      const followUp = buildAdaptiveFollowUpQuestion(currentQuestion, currentAnswer);
-      if (followUp) {
-        const nextIndex = wizardState.currentQuestionIndex + 1;
-        wizardState.questions.splice(nextIndex, 0, { ...followUp, order: nextIndex + 1 });
-        wizardState.questions = wizardState.questions.map((question, index) => ({ ...question, order: index + 1 }));
-        wizardState.interviewProcess.followUpQuestionLog.push({
-          triggeredBy: currentQuestion.id,
-          answer: currentAnswer,
-          followUpQuestionId: followUp.id,
-          followUpQuestionText: followUp.text
-        });
-      }
-      wizardState.currentQuestionIndex += 1;
-      renderQuestion();
-      return;
-    }
-
-    const readiness = buildBusinessReadiness({
-      normalizedIntent: wizardState.normalizedIntent,
-      answers: wizardState.answers
-    });
-    if (readiness.missing.length > 0) {
-      const extraQuestions = buildBusinessClarificationQuestions(readiness).filter((question) => !wizardState.questions.some((existing) => existing.id === question.id));
-      if (extraQuestions.length > 0) {
-        wizardState.questions.push(...extraQuestions.map((question, index) => ({ ...question, order: wizardState.questions.length + index + 1 })));
-        wizardState.currentQuestionIndex += 1;
-        renderQuestion();
-        setStatus("候補作成の前に、収益目標または収益導線をもう少しだけ確認させてください。", false);
-        return;
-      }
-    }
-
-    wizardState.interviewProcess.updatedUnderstandingSummary = buildUpdatedUnderstandingSummary();
-    renderReadableLongText(understandingSummaryText, wizardState.interviewProcess.updatedUnderstandingSummary, {
-      lines: 6,
-      formatAsSentenceBlocks: true,
-      fallbackCharacterThreshold: 120
-    });
-    questionSection.classList.add("hidden");
-    proposalSection.classList.remove("hidden");
-    understandingCheckSection.classList.remove("hidden");
-    proposalList.innerHTML = "";
-    setStep(3);
-    updateWizardBlockFocus();
-    await updateCreationSession({
-      status: "understanding_check",
-      userAnswers: wizardState.answers,
-      interviewProcess: wizardState.interviewProcess
-    });
-    setStatus("候補作成の前に、AIの理解を確認してください。", false);
-    return;
-  } finally {
-    endInFlight("nextQuestion");
-    setButtonBusy(nextQuestionButton, false);
+otherAnswerInput.addEventListener("input", () => {
+  const question = wizardState.followUpQuestions[wizardState.currentQuestionIndex];
+  if (!question) return;
+  const answer = wizardState.followUpAnswers[question.id];
+  if (answer?.selectedOptionId === "other") {
+    answer.otherText = (otherAnswerInput.value || "").trim();
   }
 });
 
-const generateProposalsAfterUnderstandingCheck = async () => {
-  wizardState.tags = extractTags();
-  wizardState.proposals = generateProposals();
-  const readiness = buildBusinessReadiness({ normalizedIntent: wizardState.normalizedIntent, answers: wizardState.answers });
-  const kgiTypeResult = {
-    businessKgiType: wizardState.businessKgiType || BUSINESS_KGI_TYPE.PROJECT_PLUS_REVENUE,
-    reason: "固定質問2の選択を優先"
-  };
-  const phaseGoals = buildPhaseGoalsByKgiType({
-    businessKgiType: kgiTypeResult.businessKgiType,
-    deadline: wizardState.roughInput.deadline,
-    audience: wizardState.tags.targetAudience,
-    channel: wizardState.tags.channel,
-    monetizationPath: readiness.monetizationPath,
-    revenueTarget: readiness.revenueTarget
-  });
-  wizardState.businessKgiType = kgiTypeResult.businessKgiType;
-  wizardState.businessKgiTypeReason = kgiTypeResult.reason;
-  wizardState.ultimateBenefit = resolveUltimateBenefit(wizardState.normalizedIntent, wizardState.answers);
-  wizardState.phase1Goal = phaseGoals.phase1Goal;
-  wizardState.phase2Goal = phaseGoals.phase2Goal;
-  wizardState.revenueTarget = readiness.revenueTarget;
-  wizardState.monetizationPath = readiness.monetizationPath;
-  wizardState.interviewProcess.proposalRationale = buildProposalRationale();
-  const fallbackAfterQuestions = fallbackAiWritingResult({
-    normalizedIntent: wizardState.normalizedIntent,
-    feasibility: wizardState.feasibility,
-    questions: wizardState.questions,
-    proposals: wizardState.proposals
-  });
-  wizardState.aiWriting = { ...wizardState.aiWriting, ...fallbackAfterQuestions };
+nextQuestionButton.addEventListener("click", async () => {
+  const question = wizardState.followUpQuestions[wizardState.currentQuestionIndex];
+  const answer = wizardState.followUpAnswers[question?.id || ""];
+  if (!answer?.selectedOptionId) {
+    alert("選択肢を1つ選んでください。");
+    return;
+  }
+  if (answer.selectedOptionId === "other" && !answer.otherText) {
+    alert("「その他」の内容を短く入力してください。");
+    otherAnswerInput.focus();
+    return;
+  }
+
+  const isLast = wizardState.currentQuestionIndex === wizardState.followUpQuestions.length - 1;
+  if (!isLast) {
+    wizardState.currentQuestionIndex += 1;
+    renderQuestion();
+    return;
+  }
+
+  buildKgiResult();
+  await updateCreationSession();
+  questionSection.classList.add("hidden");
+  proposalSection.classList.remove("hidden");
+  renderProposal();
+  setStep(3);
+  setStatus("KGI本体とKGI達成の判定条件を作成しました。", false);
+});
+
+const persistKgi = async () => {
+  if (!db) {
+    alert("Firebase接続を初期化中です。数秒後に再試行してください。");
+    return;
+  }
+
+  const name = (nameInput.value || "").trim();
+  const goalText = (goalTextInput.value || "").trim();
+  const deadline = (deadlineInput.value || "").trim();
+  const level = (levelInput.value || "normal").trim();
+
+  if (!name || !goalText || !deadline) {
+    alert("KGI名・ゴール説明・期限を入力してください。");
+    return;
+  }
+
+  saveButton.disabled = true;
+  setStep(4);
+  setStatus("保存中です...");
+
   try {
-    const aiResult = await callAiWritingPolish({
-      payload: {
-        rawInput: wizardState.roughInput,
-        normalizedIntent: wizardState.normalizedIntent,
-        inferredGoal: wizardState.inferredGoal,
-        uncertaintyFields: wizardState.uncertaintyFields,
-        feasibilityLevel: wizardState.feasibility.feasibilityLevel,
-        feasibilityReasons: wizardState.feasibility.feasibilityReasons,
-        mainConstraints: wizardState.feasibility.mainConstraints,
-        recommendedScopeChange: wizardState.feasibility.recommendedScopeChange,
-        businessGoalType: wizardState.businessGoalType,
-        businessGoalTypeReason: wizardState.businessGoalTypeReason,
-        businessCategory: wizardState.businessCategory,
-        businessCategoryDetail: wizardState.businessCategoryDetail,
-        businessKgiType: wizardState.businessKgiType,
-        outcomeMetricType: wizardState.outcomeMetricType,
-        questionTemplateType: wizardState.questionTemplateType,
-        candidateTemplateType: wizardState.candidateTemplateType,
-        dynamicQuestions: wizardState.dynamicQuestionsBase,
-        candidateDirections: wizardState.candidateDirections,
-        candidateBases: wizardState.proposals.map((proposal, index) => ({
-          index,
-          title: proposal.name,
-          goalText: proposal.goalText,
-          reasonText: proposal.reason,
-          concernText: proposal.concerns
-        }))
+    const docRef = await addDoc(collection(db, "kgis"), {
+      name,
+      goalText,
+      startDate: new Date().toISOString().slice(0, 10),
+      deadline,
+      explanationLevel: level,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+      creationFlow: "kgi-wizard-v5-essence-first",
+      creationSessionId: wizardState.sessionId,
+      sourceMeta: {
+        upperGoal: wizardState.upperGoal,
+        kgiDeadline: wizardState.kgiDeadline,
+        rawSuccessStateInput: wizardState.rawSuccessStateInput,
+        clarifiedSuccessState: wizardState.clarifiedSuccessState,
+        kgiStatement: wizardState.kgiStatement,
+        kgiSuccessCriteria: wizardState.kgiSuccessCriteria,
+        ambiguityPoints: wizardState.ambiguityPoints,
+        followUpQuestions: wizardState.followUpQuestions,
+        followUpAnswers: wizardState.followUpAnswers,
+        nextKgiSuggestion: wizardState.nextKgiSuggestion
       }
     });
-    wizardState.aiWriting = { ...wizardState.aiWriting, ...aiResult };
+
+    await updateCreationSession();
+    setStatus("保存が完了しました。詳細画面へ移動します。", false);
+    location.href = `./detail.html?id=${docRef.id}`;
   } catch (error) {
-    console.warn("AI文章化(候補)に失敗したためフォールバック文面を使用します", error);
+    console.error(error);
+    setStatus("保存に失敗しました。Firebase設定とルールを確認してください。", true);
+    saveButton.disabled = false;
   }
-  if (Array.isArray(wizardState.aiWriting.candidateTexts) && wizardState.aiWriting.candidateTexts.length > 0) {
-    wizardState.proposals = wizardState.proposals.map((proposal, index) => {
-      const polished = wizardState.aiWriting.candidateTexts[index];
-      if (!polished) return proposal;
-      return {
-        ...proposal,
-        name: polished.title || proposal.name,
-        goalText: polished.goalText || proposal.goalText,
-        reason: polished.reasonText || proposal.reason,
-        concerns: polished.concernText || proposal.concerns
-      };
-    });
-  }
-  proposalSection.classList.remove("hidden");
-  setStep(3);
-  updateWizardBlockFocus();
-  renderProposals();
-
-  await updateCreationSession({
-    status: "proposal_ready",
-    tags: wizardState.tags,
-    businessCategory: wizardState.businessCategory,
-    businessCategoryLabel: wizardState.businessCategoryLabel,
-    businessCategoryDetail: wizardState.businessCategoryDetail,
-    businessKgiType: wizardState.businessKgiType,
-    outcomeMetricType: wizardState.outcomeMetricType,
-    businessKgiTypeReason: wizardState.businessKgiTypeReason,
-    ultimateBenefit: wizardState.ultimateBenefit,
-    phase1Goal: wizardState.phase1Goal,
-    phase2Goal: wizardState.phase2Goal,
-    revenueTarget: wizardState.revenueTarget,
-    monetizationPath: wizardState.monetizationPath,
-    generatedCandidates: wizardState.proposals,
-    aiWritingResult: wizardState.aiWriting,
-    interviewProcess: wizardState.interviewProcess
-  });
-
-  setStatus("KGI候補を作成しました。使いたい案を選んでください。", false);
 };
 
-confirmUnderstandingButton.addEventListener("click", async () => {
-  if (wizardState.inFlight.confirmUnderstanding) return;
-  wizardState.inFlight.confirmUnderstanding = true;
-  setButtonBusy(confirmUnderstandingButton, true, "候補作成中...");
-  try {
-    understandingCheckSection.classList.add("hidden");
-    await generateProposalsAfterUnderstandingCheck();
-  } finally {
-    wizardState.inFlight.confirmUnderstanding = false;
-    setButtonBusy(confirmUnderstandingButton, false);
-  }
-});
-
-reviseUnderstandingButton.addEventListener("click", () => {
-  understandingCheckSection.classList.add("hidden");
-  questionSection.classList.remove("hidden");
-  wizardState.currentQuestionIndex = Math.max(0, wizardState.questions.length - 1);
-  renderQuestion();
-  setStep(2);
-  updateWizardBlockFocus();
-  setStatus("回答を調整してください。調整後にもう一度進むと理解確認が更新されます。", false);
-});
+saveButton.addEventListener("click", persistKgi);
 
 saveButton.disabled = true;
 setStatus("Firebase接続を初期化しています...");
-updateWizardBlockFocus();
-toggleBusinessCategoryDetailField();
-businessCategoryInput?.addEventListener("change", () => {
-  toggleBusinessCategoryDetailField();
-});
 
 (async () => {
   try {
-        db = await getDb();
+    db = await getDb();
     saveButton.disabled = false;
     setStatus("Firebase接続が完了しました。", false);
   } catch (error) {
@@ -2033,87 +442,3 @@ businessCategoryInput?.addEventListener("change", () => {
     setStatus("Firebase接続に失敗しました。設定を確認してください。", true);
   }
 })();
-
-saveButton.addEventListener("click", async () => {
-  const actionToken = beginInFlight("saveKgi");
-  if (!actionToken) return;
-  if (!db) {
-    alert("Firebase接続を初期化中です。数秒後に再試行してください。");
-    endInFlight("saveKgi");
-    return;
-  }
-
-  if (wizardState.selectedProposalIndex < 0) {
-    alert("先にKGI候補を1つ選んでください。");
-    endInFlight("saveKgi");
-    return;
-  }
-
-  const { name, goalText, startDate, deadline, level } = getInputDraft();
-
-  if (!name) {
-    alert("KGI名を入力してください。");
-    endInFlight("saveKgi");
-    return;
-  }
-
-  const specificityPatch = buildSpecificityPatch({ name, goalText, deadline });
-  if (specificityPatch.missing.length > 0) {
-    showSpecificityWarning(specificityPatch);
-    setStatus("補正候補を表示しました。「この補正で保存する」か「自分で直す」を選んでください。", true);
-    endInFlight("saveKgi");
-    return;
-  }
-
-  hideSpecificityWarning();
-  const finalDraft = {
-    name,
-    goalText,
-    deadline,
-    level
-  };
-
-  try {
-    await persistKgi({ finalDraft, startDate, level });
-  } catch (_error) {
-    endInFlight("saveKgi");
-    return;
-  }
-});
-
-saveWithSpecificityButton.addEventListener("click", async () => {
-  const actionToken = beginInFlight("saveKgi");
-  if (!actionToken) return;
-  if (!db) {
-    alert("Firebase接続を初期化中です。数秒後に再試行してください。");
-    endInFlight("saveKgi");
-    return;
-  }
-  if (wizardState.selectedProposalIndex < 0) {
-    alert("先にKGI候補を1つ選んでください。");
-    endInFlight("saveKgi");
-    return;
-  }
-  const { name, goalText, startDate, deadline, level } = getInputDraft();
-  const specificityPatch = wizardState.pendingSpecificityPatch || buildSpecificityPatch({ name, goalText, deadline });
-  const finalDraft = {
-    name: specificityPatch.suggestedName,
-    goalText: specificityPatch.suggestedGoal,
-    deadline: specificityPatch.normalizedDeadline,
-    level
-  };
-
-  hideSpecificityWarning();
-  try {
-    await persistKgi({ finalDraft, startDate, level });
-  } catch (_error) {
-    endInFlight("saveKgi");
-    return;
-  }
-});
-
-editSpecificityButton.addEventListener("click", () => {
-  hideSpecificityWarning();
-  goalTextInput.focus();
-  setStatus("手動で編集できます。編集後は「この内容で保存」を1回押すと保存されます。", false);
-});
