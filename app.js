@@ -1,5 +1,6 @@
 import { collection, addDoc, doc, serverTimestamp, updateDoc } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
 import { getDb } from "./firebase-config.js";
+import { enhanceReadableText } from "./readable-text.js";
 
 const roughGoalInput = document.getElementById("roughGoalInput");
 const roughReasonInput = document.getElementById("roughReasonInput");
@@ -11,9 +12,10 @@ const roughStateChip = document.getElementById("roughStateChip");
 
 const feasibilitySection = document.getElementById("feasibilitySection");
 const feasibilityStateChip = document.getElementById("feasibilityStateChip");
-const normalizedSummary = document.getElementById("normalizedSummary");
+const normalizedSummaryText = document.getElementById("normalizedSummaryText");
 const feasibilityLevelText = document.getElementById("feasibilityLevelText");
-const feasibilityReasons = document.getElementById("feasibilityReasons");
+const feasibilityReasonsText = document.getElementById("feasibilityReasonsText");
+const feasibilityAltRouteLabel = document.getElementById("feasibilityAltRouteLabel");
 const feasibilityAltRoute = document.getElementById("feasibilityAltRoute");
 const toQuestionsButton = document.getElementById("toQuestionsButton");
 
@@ -50,6 +52,12 @@ const step2Label = document.getElementById("step2Label");
 const step3Label = document.getElementById("step3Label");
 const step4Label = document.getElementById("step4Label");
 const statusText = document.getElementById("statusText");
+
+const renderReadableLongText = (element, text, options = {}) => {
+  if (!element) return;
+  element.textContent = text || "";
+  enhanceReadableText(element, options);
+};
 
 const buildInitialDetailEntryStorageKey = (kgiId) => `kgi-detail-entry:${kgiId}`;
 const DEFAULT_KGI_DURATION_DAYS = 100;
@@ -668,7 +676,11 @@ const renderQuestion = () => {
   const currentQuestion = wizardState.questions[wizardState.currentQuestionIndex];
   const total = wizardState.questions.length;
   questionProgress.textContent = `質問 ${wizardState.currentQuestionIndex + 1} / ${total}`;
-  questionText.textContent = currentQuestion.text;
+  renderReadableLongText(questionText, currentQuestion.text, {
+    lines: 5,
+    formatAsSentenceBlocks: true,
+    fallbackCharacterThreshold: 130
+  });
   questionAnswerInput.value = wizardState.answers[currentQuestion.id] || "";
   prevQuestionButton.disabled = wizardState.currentQuestionIndex === 0;
   nextQuestionButton.textContent = wizardState.currentQuestionIndex === total - 1 ? "KGI案を作成" : "次へ";
@@ -1099,17 +1111,31 @@ const renderFeasibilityBlock = () => {
   if (!normalized || !feasibility) return;
 
   const summaryText = wizardState.aiWriting.normalizedSummaryText || `やりたいことは「${normalized.goal || "未入力"}」、背景は「${normalized.reason || "未入力"}」、期限は「${normalized.deadline || "未設定"}」です。`;
-  normalizedSummary.innerHTML = `<li>${summaryText}</li>`;
+  renderReadableLongText(normalizedSummaryText, summaryText, {
+    lines: 5,
+    formatAsSentenceBlocks: true,
+    fallbackCharacterThreshold: 120
+  });
 
   feasibilityLevelText.textContent = feasibility.feasibilityLevel;
   const reasonText = wizardState.aiWriting.feasibilityReasonText || feasibility.feasibilityReasons.join(" ");
-  feasibilityReasons.innerHTML = `<li>${reasonText}</li>`;
+  renderReadableLongText(feasibilityReasonsText, reasonText, {
+    lines: 6,
+    formatAsBulletSections: true,
+    fallbackCharacterThreshold: 120
+  });
 
   const scopeAdjustmentText = wizardState.aiWriting.scopeAdjustmentText || feasibility.recommendedScopeChange;
   if (feasibility.feasibilityLevel === FEASIBILITY_LEVEL.HARD || scopeAdjustmentText) {
+    feasibilityAltRouteLabel.classList.remove("hidden");
     feasibilityAltRoute.classList.remove("hidden");
-    feasibilityAltRoute.textContent = scopeAdjustmentText;
+    renderReadableLongText(feasibilityAltRoute, scopeAdjustmentText, {
+      lines: 4,
+      formatAsSentenceBlocks: true,
+      fallbackCharacterThreshold: 100
+    });
   } else {
+    feasibilityAltRouteLabel.classList.add("hidden");
     feasibilityAltRoute.classList.add("hidden");
     feasibilityAltRoute.textContent = "";
   }
@@ -1683,7 +1709,11 @@ nextQuestionButton.addEventListener("click", async () => {
     }
 
     wizardState.interviewProcess.updatedUnderstandingSummary = buildUpdatedUnderstandingSummary();
-    understandingSummaryText.innerHTML = wizardState.interviewProcess.updatedUnderstandingSummary.replace(/\n/g, "<br>");
+    renderReadableLongText(understandingSummaryText, wizardState.interviewProcess.updatedUnderstandingSummary, {
+      lines: 6,
+      formatAsSentenceBlocks: true,
+      fallbackCharacterThreshold: 120
+    });
     questionSection.classList.add("hidden");
     proposalSection.classList.remove("hidden");
     understandingCheckSection.classList.remove("hidden");
