@@ -135,6 +135,15 @@
       }
       .row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
       .proposal-list { display: grid; gap: 10px; }
+      .understanding-check {
+        border: 1px solid #bfdbfe;
+        background: #eff6ff;
+        border-radius: 12px;
+        padding: 12px;
+        margin-bottom: 12px;
+        display: grid;
+        gap: 8px;
+      }
       .proposal-card {
         border: 1px solid #d1d5db;
         border-radius: 12px;
@@ -267,6 +276,14 @@
       <section id="proposalSection" class="section hidden" data-state="future">
         <h2 class="section-title">4. KGI候補・保存 <span id="proposalStateChip" class="state-chip">これから</span></h2>
         <p class="helper">2〜3案から選び、必要なら軽く編集して保存できます。</p>
+        <div id="understandingCheckSection" class="understanding-check hidden">
+          <p class="proposal-meta"><strong>今の理解では、あなたが目指しているのは:</strong></p>
+          <p id="understandingSummaryText" class="proposal-meta"></p>
+          <div class="row">
+            <button id="reviseUnderstandingButton" class="secondary" type="button">少し違うので回答を直す</button>
+            <button id="confirmUnderstandingButton" type="button">だいたい合っている</button>
+          </div>
+        </div>
         <div id="proposalList" class="proposal-list"></div>
 
         <div id="editSection" class="hidden">
