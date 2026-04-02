@@ -234,7 +234,49 @@
 
       <section id="roughSection" class="section stage-focus-card" data-state="current">
         <h2 class="section-title">1. ざっくり入力 <span id="roughStateChip" class="state-chip">入力中</span></h2>
-        <p class="helper">まずは大枠だけでOKです。ここから質問であなた向けに整えます。</p>
+        <p class="helper">まずは固定の3問で方向性を絞ってから、自由入力と追加質問であなた向けに整えます。</p>
+        <div class="field">
+          <label for="businessCategoryInput">ビジネスの種類</label>
+          <select id="businessCategoryInput">
+            <option value="">選択してください</option>
+            <option value="blog">ブログ</option>
+            <option value="sns">SNS発信</option>
+            <option value="youtube">YouTube</option>
+            <option value="digital_product">デジタル商品販売</option>
+            <option value="consulting_service">相談 / 代行 / コンサル</option>
+            <option value="app_tool">アプリ / ツール</option>
+            <option value="ecommerce">物販</option>
+            <option value="offline_business">リアルビジネス / オフライン</option>
+            <option value="other">その他</option>
+          </select>
+        </div>
+        <div id="businessCategoryDetailField" class="field hidden">
+          <label for="businessCategoryDetailInput">どんな内容かを一言で書いてください</label>
+          <input id="businessCategoryDetailInput" type="text" placeholder="例: 地域密着のパーソナルジム運営" />
+        </div>
+        <div class="field">
+          <label for="businessKgiTypeInput">今回の期限でどこまで達成したいか</label>
+          <select id="businessKgiTypeInput">
+            <option value="">選択してください</option>
+            <option value="project_build">まずは土台を作りたい</option>
+            <option value="project_plus_revenue">土台を作って初回収益まで出したい</option>
+            <option value="revenue_scale">すでにあるものを改善して収益を伸ばしたい</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="outcomeMetricTypeInput">成果は何の数字で判断したいか</label>
+          <select id="outcomeMetricTypeInput">
+            <option value="">選択してください</option>
+            <option value="monthly_revenue">月の売上</option>
+            <option value="first_sales_count">初回販売件数</option>
+            <option value="inquiry_count">問い合わせ件数</option>
+            <option value="lead_or_subscriber_count">見込み客 / 登録者数</option>
+            <option value="engagement_count">反応数</option>
+            <option value="product_completion">商品完成</option>
+            <option value="public_release_completion">公開完了</option>
+            <option value="other">その他</option>
+          </select>
+        </div>
         <div class="field">
           <label for="roughGoalInput">やりたいこと</label>
           <textarea id="roughGoalInput" placeholder="例: 6か月でSNS経由の売上を安定させたい"></textarea>
