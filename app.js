@@ -827,99 +827,120 @@ const buildConcretePlanText = ({ directionId, deadline, audience, channel, monet
 
   const planByDirection = {
     touchpoint_growth: {
-      title: `${deadlineLabel}${audienceLabel}向けに${channelLabel}で発信し、反応を10件集める`,
-      goalText: `${deadline}までに${audienceLabel}向けに${channelLabel}で週3回発信し、コメント・DM・クリックなどの反応を合計10件集める。反応が高いテーマを1つ特定して次月の軸にする。`
+      title: `${deadlineLabel}${audienceLabel}向けの見込み反応を10件獲得する`,
+      goalText: `${deadline}までに${audienceLabel}向けに${channelLabel}で発信し、コメント・DM・クリックなどの有効反応を合計10件獲得する。`,
+      achievement: `有効反応10件を達成`
     },
     consistent_publishing: {
-      title: `${deadlineLabel}${channelLabel}で週3回の発信を8週続ける`,
-      goalText: `${deadline}までに${audienceLabel}向けの発信を${channelLabel}で週3回、8週連続で実施する。投稿フォーマットを1つ決め、継続できる運用手順を作って翌月も回せる状態にする。`
+      title: `${deadlineLabel}${channelLabel}経由で見込み客10件を獲得する`,
+      goalText: `${deadline}までに${audienceLabel}向けの情報発信を${channelLabel}で公開し、見込み客を10件獲得する。`,
+      achievement: `見込み客10件を達成`
     },
     funnel_preparation: {
-      title: `${deadlineLabel}${channelLabel}の集客から問い合わせまでの導線を完成させる`,
-      goalText: `${deadline}までに${audienceLabel}向けの集客導線を${channelLabel}上で整え、プロフィール・案内文・申込リンクを接続する。導線経由で問い合わせまたは登録を5件獲得して機能確認する。`
+      title: `${deadlineLabel}${channelLabel}導線から問い合わせ5件を獲得する`,
+      goalText: `${deadline}までに${audienceLabel}向けの集客導線を${channelLabel}で公開し、導線経由の問い合わせまたは登録を5件獲得する。`,
+      achievement: `問い合わせまたは登録5件を達成`
     },
     first_sale_validation: {
-      title: `${deadlineLabel}${audienceLabel}向けに${offerLabel}を販売し、初回販売1件を作る`,
-      goalText: `${deadline}までに${audienceLabel}向けに${offerLabel}を${channelLabel}で案内し、初回販売1件を達成する。販売までの流れを記録し、次回も同じ手順で実行できる状態にする。`
+      title: `${deadlineLabel}${offerLabel}の初回販売1件を達成する`,
+      goalText: `${deadline}までに${audienceLabel}向けに${offerLabel}を${channelLabel}で販売し、初回販売1件を達成する。`,
+      achievement: `初回販売1件を達成`
     },
     small_amount_confirmation: {
-      title: `${deadlineLabel}小さな商品を1つ販売して収益発生を確認する`,
-      goalText: `${deadline}までに${audienceLabel}向けの小さな商品を1つ作り、${channelLabel}で販売して実際の入金を1件確認する。価格・訴求文・申込導線のどれが効いたかを検証メモに残す。`
+      title: `${deadlineLabel}小さな商品で初回入金1件を確認する`,
+      goalText: `${deadline}までに${audienceLabel}向けの小さな商品を${channelLabel}で販売し、初回入金1件を確認する。`,
+      achievement: `初回入金1件を確認`
     },
     offer_response_validation: {
-      title: `${deadlineLabel}${channelLabel}で提案を出し、見込み客の反応を10件集める`,
-      goalText: `${deadline}までに${audienceLabel}向けオファーを${channelLabel}で提示し、いいね・返信・DM・相談申込を合計10件獲得する。反応率が高い切り口を1つ選び、販売案内文を更新する。`
+      title: `${deadlineLabel}${offerLabel}への反応を10件獲得する`,
+      goalText: `${deadline}までに${audienceLabel}向けオファーを${channelLabel}で提示し、いいね・返信・DM・相談申込の反応を合計10件獲得する。`,
+      achievement: `オファー反応10件を達成`
     },
     offer_definition: {
-      title: `${deadlineLabel}初心者向け商品を1つ作り、販売内容を明文化する`,
-      goalText: `${deadline}までに${audienceLabel}向けに提供する商品を1つ定義し、対象者・提供内容・価格・提供方法を1ページにまとめる。第三者が読んで内容を説明できる状態を達成する。`
+      title: `${deadlineLabel}${audienceLabel}向け商品1件を販売可能な形で完成する`,
+      goalText: `${deadline}までに${audienceLabel}向けに販売する商品を1つ定義し、対象者・提供内容・価格・提供方法を明確にした販売ページを公開する。`,
+      achievement: `販売ページ公開と商品定義完了`
     },
     target_fit: {
-      title: `${deadlineLabel}買ってほしい相手を1人に絞り、提案文を作る`,
-      goalText: `${deadline}までに${audienceLabel}の中から優先顧客像を1人に絞り、その人向けの提案文を${channelLabel}用に1本作成する。ヒアリングまたは投稿反応で適合性を5件確認する。`
+      title: `${deadlineLabel}優先顧客像を確定し提案文を1本完成する`,
+      goalText: `${deadline}までに${audienceLabel}の中から優先顧客像を1人に絞り、その人向けの提案文を${channelLabel}用に1本完成させる。`,
+      achievement: `優先顧客像1人と提案文1本を確定`
     },
     first_proposal: {
-      title: `${deadlineLabel}初回提案を送れる形にし、見込み客へ3件提案する`,
-      goalText: `${deadline}までに${audienceLabel}向けの初回提案資料または案内文を完成させ、${channelLabel}経由で見込み客へ3件送る。返信内容をもとに提案の改善点を3つ抽出する。`
+      title: `${deadlineLabel}見込み客へ初回提案を3件実施する`,
+      goalText: `${deadline}までに${audienceLabel}向けの初回提案資料または案内文を完成させ、${channelLabel}経由で見込み客へ3件提案する。`,
+      achievement: `初回提案3件を達成`
     },
     media_foundation: {
-      title: `${deadlineLabel}${channelLabel}の基盤を整え、主要コンテンツを3本公開する`,
-      goalText: `${deadline}までに${audienceLabel}向けの媒体基盤を整え、プロフィール・導入記事・代表コンテンツを含む3本を${channelLabel}で公開する。初回訪問者が次アクションへ進める構成にする。`
+      title: `${deadlineLabel}${channelLabel}で主要コンテンツ3本を公開する`,
+      goalText: `${deadline}までに${audienceLabel}向けの媒体基盤を整え、プロフィール・導入記事・代表コンテンツを含む主要コンテンツ3本を${channelLabel}で公開する。`,
+      achievement: `主要コンテンツ3本を公開`
     },
     acquisition_route: {
-      title: `${deadlineLabel}流入経路を2本作り、${channelLabel}への訪問を増やす`,
-      goalText: `${deadline}までに${audienceLabel}へ届く流入経路を2本設計し、${channelLabel}へ誘導する投稿または導線を実装する。流入データを取得し、どちらが有効か比較できる状態にする。`
+      title: `${deadlineLabel}${channelLabel}への流入導線を2本公開する`,
+      goalText: `${deadline}までに${audienceLabel}へ届く流入導線を2本公開し、${channelLabel}への訪問が発生する状態を作る。`,
+      achievement: `流入導線2本の公開を達成`
     },
     update_consistency: {
-      title: `${deadlineLabel}${channelLabel}の更新を週2回で8週間継続する`,
-      goalText: `${deadline}までに${audienceLabel}向けの更新を${channelLabel}で週2回、8週間継続する。更新テンプレートと作業時間の目安を決め、継続運用できる手順を固定化する。`
+      title: `${deadlineLabel}${channelLabel}経由で見込み反応を10件獲得する`,
+      goalText: `${deadline}までに${audienceLabel}向けの発信を${channelLabel}で公開し、見込み反応を10件獲得する。`,
+      achievement: `見込み反応10件を達成`
     },
     mvp_launch: {
-      title: `${deadlineLabel}最小版を公開し、利用開始できる状態にする`,
-      goalText: `${deadline}までに${audienceLabel}向けの最小版サービス（MVP）を公開し、申込または利用開始まで完了できる状態にする。初回ユーザー3人の利用ログを取得して改善点を整理する。`
+      title: `${deadlineLabel}最小版サービスを公開し利用開始を達成する`,
+      goalText: `${deadline}までに${audienceLabel}向けの最小版サービス（MVP）を公開し、申込または利用開始を3件達成する。`,
+      achievement: `利用開始3件を達成`
     },
     early_user_validation: {
-      title: `${deadlineLabel}初期ユーザーを3人集めて利用検証を完了する`,
-      goalText: `${deadline}までに${audienceLabel}から初期ユーザー3人を獲得し、${channelLabel}経由で利用検証を実施する。利用後フィードバックを回収し、改善優先順位を決める。`
+      title: `${deadlineLabel}初期ユーザー3人の利用完了を達成する`,
+      goalText: `${deadline}までに${audienceLabel}から初期ユーザー3人を獲得し、${channelLabel}経由で利用完了まで到達させる。`,
+      achievement: `初期ユーザー3人の利用完了`
     },
     release_readiness: {
-      title: `${deadlineLabel}公開前の必須準備を完了し、公開判定を出せる状態にする`,
-      goalText: `${deadline}までに${audienceLabel}向け公開に必要な案内文・利用手順・問い合わせ対応を整備する。チェックリストを完了し、公開可否を判断できる状態にする。`
+      title: `${deadlineLabel}公開可能な提供体制を完成する`,
+      goalText: `${deadline}までに${audienceLabel}向けの公開に必要な案内文・利用手順・問い合わせ導線を整備し、公開開始できる状態を完成する。`,
+      achievement: `公開開始できる状態を達成`
     },
     bottleneck_improvement: {
-      title: `${deadlineLabel}詰まり工程を1つ改善し、成果までの時間を短縮する`,
-      goalText: `${deadline}までに現在の作業で最も詰まる工程を1つ特定し、${channelLabel}での運用手順を改善する。1回あたりの作業時間を20%短縮し、実行記録を4週分残す。`
+      title: `${deadlineLabel}${channelLabel}経由の成果数を前月比20%向上する`,
+      goalText: `${deadline}までに${audienceLabel}向け施策の成果（申込・相談・販売のいずれか）を${channelLabel}経由で前月比20%向上させる。`,
+      achievement: `成果数の前月比20%向上`
     },
     reproducibility: {
-      title: `${deadlineLabel}成果が出た手順をテンプレ化し、同条件で3回再現する`,
-      goalText: `${deadline}までに${audienceLabel}向け施策で成果が出た手順をテンプレート化し、${channelLabel}で同条件の実行を3回行う。結果差分を記録し、再現率を確認する。`
+      title: `${deadlineLabel}同条件で成果達成を3件積み上げる`,
+      goalText: `${deadline}までに${audienceLabel}向け施策で、同条件の成果達成を3件積み上げる。`,
+      achievement: `同条件での成果達成3件`
     },
     validation_habit: {
-      title: `${deadlineLabel}週1回の検証ループを8週続け、改善ログを残す`,
-      goalText: `${deadline}までに${audienceLabel}向けの施策について、${channelLabel}で週1回の実行→振り返り→改善を8週連続で回す。改善ログを8件残し、次に伸ばす指標を1つ決める。`
+      title: `${deadlineLabel}${audienceLabel}向け成果指標を1つ改善する`,
+      goalText: `${deadline}までに${audienceLabel}向け施策の主要成果指標を1つ選び、開始時点より改善した状態を達成する。`,
+      achievement: `主要成果指標1つの改善`
     }
   };
 
   const fallback = {
-    title: `${deadlineLabel}${audienceLabel}向けに${channelLabel}で実行し、前進指標を達成する`,
-    goalText: `${deadline}までに${audienceLabel}向けに${offerLabel}を${channelLabel}で実行し、反応や申込など前進を示す指標を達成する。達成条件と次の改善点を明文化する。`
+    title: `${deadlineLabel}${audienceLabel}向け成果を達成する`,
+    goalText: `${deadline}までに${audienceLabel}向けに${offerLabel}を${channelLabel}で提供し、反応や申込などの成果指標を達成する。`,
+    achievement: `成果指標の達成`
   };
 
   const selectedPlan = planByDirection[directionId] || fallback;
   const dreamHeadline = insights?.dreamStatement
-    ? `${deadlineLabel}${insights.dreamStatement}を形にする`
+    ? `${deadlineLabel}${insights.dreamStatement}に近づく成果を出す`
     : selectedPlan.title;
   const metricCondition = [
+    `今回: ${selectedPlan.achievement}`,
     `最終目標: ${insights?.targetOutcomeMetric || "目標指標を設定"}`,
-    `途中判定: ${insights?.progressMetrics || "途中指標を設定"}`,
-    `前進条件: ${wizardState.answers.firstWinDefinition || wizardState.answers.progressMetricValue || "初回成果の確認"}`
+    `次段階: ${insights?.targetOutcomeValue || wizardState.answers.targetOutcomeValue || "上位目標の数値化"}`
   ].join(" / ");
   const realismNote = feasibilityLevel === FEASIBILITY_LEVEL.HARD
-    ? `現実調整: ${insights?.realismAdjustment || "目標を一段手前に落として検証完了を優先"}。`
+    ? `現実調整: ${insights?.realismAdjustment || "今回は到達可能な最小成果を優先"}。`
     : "";
   return {
-    title: dreamHeadline,
-    goalText: `${selectedPlan.goalText} 達成条件: ${metricCondition}。${realismNote}`.trim()
+    title: selectedPlan.title,
+    dreamHeadline,
+    goalText: `${selectedPlan.goalText}${realismNote ? ` ${realismNote}` : ""}`.trim(),
+    achievement: metricCondition
   };
 };
 
@@ -927,18 +948,18 @@ const buildPhaseGoalsByKgiType = ({ businessKgiType, deadline, audience, channel
   const d = deadline || "期限まで";
   if (businessKgiType === BUSINESS_KGI_TYPE.PROJECT_BUILD) {
     return {
-      phase1Goal: `${d}までに${audience || "対象顧客"}向けの土台（媒体/商品/導線）を完成し、公開できる状態にする。`,
-      phase2Goal: `次段階で${monetizationPath || "収益導線"}を使い、${revenueTarget || "初回収益または問い合わせ"}を検証する。`
+      phase1Goal: `${d}までに${audience || "対象顧客"}向けの提供基盤（媒体/商品/導線）を完成し、公開する。`,
+      phase2Goal: `次段階で${monetizationPath || "収益導線"}を使い、${revenueTarget || "初回収益または問い合わせ"}を達成する。`
     };
   }
   if (businessKgiType === BUSINESS_KGI_TYPE.REVENUE_SCALE) {
     return {
-      phase1Goal: `${d}までに既存導線を改善し、計測と改善サイクルを回せる状態にする。`,
+      phase1Goal: `${d}までに既存導線を強化し、主要成果を前月より向上させる。`,
       phase2Goal: `${monetizationPath || "既存の収益導線"}で${revenueTarget || "売上・問い合わせ増加"}を達成する。`
     };
   }
   return {
-    phase1Goal: `${d}までに${audience || "対象顧客"}向けの土台（媒体/商品/導線）を完成する。`,
+    phase1Goal: `${d}までに${audience || "対象顧客"}向けの提供基盤（媒体/商品/導線）を完成する。`,
     phase2Goal: `${monetizationPath || channel || "導線"}で${revenueTarget || "初回販売1件または問い合わせ獲得"}を達成する。`
   };
 };
@@ -985,12 +1006,8 @@ const generateProposals = () => {
       revenueTarget: readiness.revenueTarget
     });
     const typeLabel = BUSINESS_KGI_TYPE_LABEL[businessKgiType] || "未分類";
-    const typeAwareName = businessKgiType === BUSINESS_KGI_TYPE.PROJECT_BUILD
-      ? `${formatDeadlineLabel(deadline)}収益化の土台になる${audience}向けプロジェクトを完成する`
-      : businessKgiType === BUSINESS_KGI_TYPE.REVENUE_SCALE
-        ? `${formatDeadlineLabel(deadline)}既存プロジェクトの収益化を改善する`
-        : `${formatDeadlineLabel(deadline)}${audience}向けプロジェクトを完成し初回収益まで検証する`;
-    const typeAwareGoalText = `${phaseGoals.phase1Goal} ${phaseGoals.phase2Goal} 達成条件: ${concretePlan.goalText}`;
+    const typeAwareName = concretePlan.title;
+    const typeAwareGoalText = `${concretePlan.goalText} 今回達成: ${phaseGoals.phase1Goal}`;
     return {
     candidateType: direction.id,
     directionLabel: direction.title,
@@ -1004,8 +1021,8 @@ const generateProposals = () => {
     monetizationPath: readiness.monetizationPath || "",
     name: `${typeAwareName}`,
     goalText: typeAwareGoalText,
-    narrative: typeAwareName,
-    metrics: `${phaseGoals.phase1Goal} / ${phaseGoals.phase2Goal}`,
+    narrative: concretePlan.dreamHeadline,
+    metrics: `${concretePlan.achievement} / 次段階: ${phaseGoals.phase2Goal}`,
     deadline,
     level: levels[index] || "normal",
     reason: direction.reason,
@@ -1195,7 +1212,6 @@ const buildSpecificityPatch = ({ name, goalText, deadline }) => {
   const channel = wizardState.tags.channel || wizardState.answers.channel || "";
   const monetization = wizardState.tags.monetizationType || wizardState.answers.monetizationType || "";
   const baseGoal = wizardState.roughInput?.roughGoal || wizardState.normalizedIntent?.goal || "";
-  const availability = wizardState.answers.availableTime || wizardState.normalizedIntent?.currentState || "";
   const candidateType = wizardState.proposals[wizardState.selectedProposalIndex]?.directionLabel || "未設定";
 
   const textBundle = `${name} ${goalText}`;
@@ -1215,9 +1231,6 @@ const buildSpecificityPatch = ({ name, goalText, deadline }) => {
   let suggestedGoal = goalText;
   if (missing.length > 0 || goalText.length < 35) {
     suggestedGoal = `${normalizedDeadline}までに${audience || "想定顧客"}向けへ${baseGoal || "価値提供内容"}を${channel || "主導線"}で届け、${monetization || "初回収益化"}の検証を完了する。`;
-    if (availability) {
-      suggestedGoal += ` 使える時間は${availability}を前提に週次で実行する。`;
-    }
     suggestedGoal += `（候補タイプ: ${candidateType}）`;
   }
 
