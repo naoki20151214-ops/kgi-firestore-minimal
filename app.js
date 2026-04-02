@@ -1,6 +1,5 @@
 import { collection, addDoc, doc, serverTimestamp, updateDoc } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
 import { getDb } from "./firebase-config.js";
-import { getCollectionName, initEnvironmentModeUi } from "./environment-mode.js";
 
 const roughGoalInput = document.getElementById("roughGoalInput");
 const roughReasonInput = document.getElementById("roughReasonInput");
@@ -876,7 +875,7 @@ const buildSpecificityPatch = ({ name, goalText, deadline }) => {
 const updateCreationSession = async (payload) => {
   if (!db || !wizardState.sessionId) return;
   try {
-    await updateDoc(doc(db, getCollectionName("kgiCreationSessions"), wizardState.sessionId), {
+    await updateDoc(doc(db, "kgiCreationSessions", wizardState.sessionId), {
       ...payload,
       updatedAt: serverTimestamp()
     });
@@ -976,7 +975,7 @@ const persistKgi = async ({ finalDraft, startDate, level }) => {
       }
     };
 
-    const kgiDocRef = await addDoc(collection(db, getCollectionName("kgis")), createdKgi);
+    const kgiDocRef = await addDoc(collection(db, "kgis"), createdKgi);
 
     await updateCreationSession({
       status: "completed",
@@ -1007,7 +1006,7 @@ const persistKgi = async ({ finalDraft, startDate, level }) => {
         }
       });
       if (Array.isArray(generated.roadmapPhases) && generated.roadmapPhases.length > 0) {
-        await updateDoc(doc(db, getCollectionName("kgis"), kgiDocRef.id), {
+        await updateDoc(doc(db, "kgis", kgiDocRef.id), {
           roadmapPhases: generated.roadmapPhases,
           goalText: generated.kgiDescription || finalDraft.goalText,
           explanationLevel: level,
@@ -1073,7 +1072,7 @@ const ensureCreationSession = async () => {
     updatedAt: serverTimestamp()
   };
 
-  const ref = await addDoc(collection(db, getCollectionName("kgiCreationSessions")), sessionData);
+  const ref = await addDoc(collection(db, "kgiCreationSessions"), sessionData);
   wizardState.sessionId = ref.id;
   return true;
 };
@@ -1321,8 +1320,7 @@ updateWizardBlockFocus();
 
 (async () => {
   try {
-    initEnvironmentModeUi();
-    db = await getDb();
+        db = await getDb();
     saveButton.disabled = false;
     setStatus("Firebase接続が完了しました。", false);
   } catch (error) {

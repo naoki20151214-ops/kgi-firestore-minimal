@@ -9,7 +9,6 @@ import {
   where
 } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
 import { getDb } from "./firebase-config.js";
-import { getCollectionName, initEnvironmentModeUi } from "./environment-mode.js";
 import { enhanceReadableText } from "./readable-text.js";
 import { decideNowAction, getNowActionImportance } from "./now-action-engine.js";
 
@@ -627,7 +626,7 @@ const renderKpiSummary = ({ total = 0, completed = 0 } = {}) => {
 
 const loadKpiSummary = async (db, kgiId) => {
   try {
-    const kpiSnapshot = await getDocs(query(collection(db, getCollectionName("kpis")), where("kgiId", "==", kgiId)));
+    const kpiSnapshot = await getDocs(query(collection(db, "kpis"), where("kgiId", "==", kgiId)));
     const kpiCountByPhaseId = new Map();
     const kpis = [];
     let total = 0;
@@ -660,7 +659,7 @@ const loadKpiSummary = async (db, kgiId) => {
       completed
     });
     const tasksByKpiId = new Map();
-    const taskSnapshot = await getDocs(query(collection(db, getCollectionName("tasks")), where("kgiId", "==", kgiId)));
+    const taskSnapshot = await getDocs(query(collection(db, "tasks"), where("kgiId", "==", kgiId)));
     taskSnapshot.forEach((taskDoc) => {
       const task = taskDoc.data();
       const kpiId = asDisplayText(task?.kpiId, "");
@@ -755,7 +754,7 @@ const handleArchiveKgiClick = async (event) => {
   setStatus("KGIをアーカイブしています...");
 
   try {
-    await updateDoc(doc(currentDb, getCollectionName("kgis"), currentKgiId), {
+    await updateDoc(doc(currentDb, "kgis", currentKgiId), {
       isArchived: true,
       archivedAt: serverTimestamp(),
       excludedFromNowAction: true,
@@ -816,7 +815,7 @@ const handleRoadmapCreateClick = async (event) => {
       nextData.goalDescription = generated.kgiDescription;
     }
 
-    await updateDoc(doc(currentDb, getCollectionName("kgis"), currentKgiId), nextData);
+    await updateDoc(doc(currentDb, "kgis", currentKgiId), nextData);
     currentKgiData = nextData;
     renderDoc({ kgiId: currentKgiId, data: currentKgiData, kpiContext: currentKpiContext });
     setStatus("ロードマップを作成しました。");
@@ -861,8 +860,7 @@ const init = async () => {
   }
 
   try {
-    initEnvironmentModeUi();
-    const db = await getDb();
+        const db = await getDb();
     currentDb = db;
     currentKgiId = kgiId;
     if (roadmapCreateButtonElement) {
@@ -873,7 +871,7 @@ const init = async () => {
       archiveKgiButtonElement.addEventListener("click", handleArchiveKgiClick, { passive: false });
     }
 
-    const kgiRef = doc(db, getCollectionName("kgis"), kgiId);
+    const kgiRef = doc(db, "kgis", kgiId);
     const kgiSnapshot = await getDoc(kgiRef);
 
     if (!kgiSnapshot.exists()) {
