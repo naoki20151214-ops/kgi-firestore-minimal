@@ -6,6 +6,7 @@
     <title>KGI作成ウィザード</title>
     <link rel="stylesheet" href="./location-nav.css" />
     <link rel="stylesheet" href="./stage-tone.css" />
+    <link rel="stylesheet" href="./readable-text.css" />
     <style>
       :root { color-scheme: light; }
       * { box-sizing: border-box; }
@@ -129,9 +130,21 @@
         border: 1px solid #dbeafe;
         background: #eff6ff;
         border-radius: 10px;
-        padding: 10px;
+        padding: 12px;
         margin-bottom: 10px;
-        line-height: 1.5;
+        line-height: 1.7;
+      }
+      .longform-label {
+        margin: 8px 0 6px;
+        font-size: 0.88rem;
+        font-weight: 700;
+        color: #1f2937;
+      }
+      .longform-block {
+        margin: 0;
+      }
+      .longform-block + .longform-label {
+        margin-top: 12px;
       }
       .row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
       .proposal-list { display: grid; gap: 10px; }
@@ -246,14 +259,15 @@
         <h2 class="section-title">2. 実現可能性チェック <span id="feasibilityStateChip" class="state-chip">これから</span></h2>
         <p class="helper">入力内容を整えたうえで、今の条件で進めやすいかを確認します。</p>
         <div class="question-box">
-          <strong>今の入力を整理すると</strong>
-          <ul id="normalizedSummary"></ul>
+          <p class="longform-label">要点</p>
+          <div id="normalizedSummaryText" class="longform-block"></div>
         </div>
         <div class="question-box">
           <p class="proposal-meta"><strong>評価:</strong> <span id="feasibilityLevelText"></span></p>
-          <strong>理由</strong>
-          <ul id="feasibilityReasons"></ul>
-          <p id="feasibilityAltRoute" class="proposal-meta"></p>
+          <p class="longform-label">理由</p>
+          <div id="feasibilityReasonsText" class="longform-block"></div>
+          <p id="feasibilityAltRouteLabel" class="longform-label hidden">補足</p>
+          <p id="feasibilityAltRoute" class="proposal-meta longform-block hidden"></p>
         </div>
         <button id="toQuestionsButton" type="button">不足している点を追加で答える</button>
       </section>
@@ -262,7 +276,7 @@
         <h2 class="section-title">3. 追加質問 <span id="questionStateChip" class="state-chip">これから</span></h2>
         <p class="helper">この質問に答えると、より自分に合ったKGIになりやすいです。</p>
         <div id="questionProgress" class="q-badge"></div>
-        <div id="questionText" class="question-box"></div>
+        <div id="questionText" class="question-box longform-block"></div>
         <div class="field">
           <label for="questionAnswerInput">あなたの回答</label>
           <textarea id="questionAnswerInput" placeholder="短くても大丈夫です"></textarea>
@@ -278,7 +292,7 @@
         <p class="helper">2〜3案から選び、必要なら軽く編集して保存できます。</p>
         <div id="understandingCheckSection" class="understanding-check hidden">
           <p class="proposal-meta"><strong>今の理解では、あなたが目指しているのは:</strong></p>
-          <p id="understandingSummaryText" class="proposal-meta"></p>
+          <p id="understandingSummaryText" class="proposal-meta longform-block"></p>
           <div class="row">
             <button id="reviseUnderstandingButton" class="secondary" type="button">少し違うので回答を直す</button>
             <button id="confirmUnderstandingButton" type="button">だいたい合っている</button>
