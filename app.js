@@ -102,6 +102,7 @@ const BUSINESS_CATEGORY_LABEL = {
   consulting_service: "相談 / 代行 / コンサル",
   app_tool: "アプリ / ツール",
   ecommerce: "物販",
+  fx_invest: "FX / 株 / 投資",
   offline_business: "リアルビジネス / オフライン",
   other: "その他"
 };
@@ -311,6 +312,7 @@ const mapBusinessCategoryToInterviewContext = (businessCategory) => {
     consulting_service: BUSINESS_GOAL_TYPE.MONETIZATION_VALIDATION,
     app_tool: BUSINESS_GOAL_TYPE.PRODUCT_SERVICE_LAUNCH,
     ecommerce: BUSINESS_GOAL_TYPE.MONETIZATION_VALIDATION,
+    fx_invest: BUSINESS_GOAL_TYPE.BUSINESS_OPERATION_IMPROVEMENT,
     offline_business: BUSINESS_GOAL_TYPE.BUSINESS_OPERATION_IMPROVEMENT,
     other: BUSINESS_GOAL_TYPE.BUSINESS_OPERATION_IMPROVEMENT
   };
@@ -466,7 +468,8 @@ const buildBusinessReadiness = ({ normalizedIntent, answers }) => {
   const text = `${normalizedIntent.goal} ${normalizedIntent.reason} ${normalizedIntent.currentState}`.toLowerCase();
   const hasEconomicIntentSignal = /(ブログ|発信|商品|アプリ|サービス|コンテンツ|メディア)/i.test(text);
   const missing = [];
-  if (!revenueTarget) missing.push("revenueTarget");
+  const isProjectBuild = wizardState.businessKgiType === BUSINESS_KGI_TYPE.PROJECT_BUILD;
+  if (!revenueTarget && !isProjectBuild) missing.push("revenueTarget");
   if (!monetizationPath) missing.push("monetizationPath");
   return { revenueTarget, monetizationPath, hasEconomicIntentSignal, missing };
 };
@@ -597,103 +600,39 @@ const assessFeasibility = (normalized, businessGoalType) => {
 
 const buildDynamicQuestions = (analysis) => {
   const baseQuestions = buildQuestionsByBusinessGoalType(analysis.businessGoalType, analysis.fixedInputs || {});
-  const needDepth = analysis.feasibility.feasibilityLevel !== FEASIBILITY_LEVEL.REALISTIC || analysis.uncertaintyFields.length >= 2;
-  const maxQuestions = needDepth ? 6 : 3;
-  const selectedQuestions = [];
-  const selectedIds = new Set();
-  const businessCategory = analysis.fixedInputs?.businessCategory || "";
-
-  const categoryDrivenQuestionIds = {
-    blog: ["targetAudience", "valueOffer", "monetizationType", "currentAssets", "availableTime"],
-    sns: ["channel", "targetAudience", "valueOffer", "currentAssets", "availableTime"],
-    youtube: ["mediaTheme", "targetAudience", "valueOffer", "currentAssets", "availableTime"],
-    offline_business: ["targetAudience", "valueOffer", "channel", "currentAssets", "availableTime"],
-    other: ["targetAudience", "valueOffer", "channel", "currentAssets", "availableTime"]
-  };
-  const prioritizedIds = categoryDrivenQuestionIds[businessCategory] || [];
-  prioritizedIds.forEach((id) => {
-    const question = baseQuestions.find((item) => item.id === id);
-    if (question && !selectedIds.has(question.id)) {
-      selectedQuestions.push(question);
-      selectedIds.add(question.id);
-    }
-  });
-
-  const uncertaintyDrivenQuestionIds = {
-    targetAudience: "targetAudience",
-    monetizationType: "monetizationType",
-    channel: "channel",
-    availableTime: "availableTime"
-  };
-
-  analysis.uncertaintyFields.forEach((field) => {
-    const questionId = uncertaintyDrivenQuestionIds[field];
-    const question = baseQuestions.find((item) => item.id === questionId);
-    if (question && !selectedIds.has(question.id)) {
-      selectedQuestions.push(question);
-      selectedIds.add(question.id);
-    }
-  });
-
-  const highRiskQuestionIds = ["availableTime", "currentAssets", "firstWinDefinition"];
-  if (analysis.feasibility.feasibilityLevel === FEASIBILITY_LEVEL.HARD) {
-    highRiskQuestionIds.forEach((id) => {
-      const question = baseQuestions.find((item) => item.id === id);
-      if (question && !selectedIds.has(question.id)) {
-        selectedQuestions.push(question);
-        selectedIds.add(question.id);
-      }
-    });
-  }
-
-  baseQuestions.forEach((question) => {
-    if (selectedQuestions.length >= maxQuestions) return;
-    if (selectedIds.has(question.id)) return;
-    selectedQuestions.push(question);
-    selectedIds.add(question.id);
-  });
-
-  return selectedQuestions
-    .slice(0, maxQuestions)
-    .map((question, index) => ({ ...question, order: index + 1 }));
+  return baseQuestions.map((question, index) => ({ ...question, order: index + 1 }));
 };
 
 const buildQuestionsByBusinessGoalType = (businessGoalType, fixedInputs = {}) => {
   const businessCategoryLabel = BUSINESS_CATEGORY_LABEL[fixedInputs.businessCategory] || fixedInputs.businessCategory || "選択済みカテゴリ";
   const outcomeMetricLabel = OUTCOME_METRIC_LABEL[fixedInputs.outcomeMetricType] || fixedInputs.outcomeMetricType || "選択済み指標";
   const common = [
-    { id: "dreamStatement", text: "本当はどうなりたいですか？（叶えたい夢・理想の状態）", axis: "夢・意味" },
-    { id: "trueIntent", text: "この目標を達成すると何が変わりますか？", axis: "夢・意味" },
-    { id: "whyNow", text: "なぜ今それをやりたいですか？", axis: "夢・意味" },
-    { id: "targetAudience", text: "いちばん届けたい相手は誰ですか？", axis: "対象" },
-    { id: "valueOffer", text: "その相手に何を渡せたら価値になりますか？", axis: "価値" },
-    { id: "targetOutcomeValue", text: `固定質問で「成果指標: ${outcomeMetricLabel}」「ビジネス種別: ${businessCategoryLabel}」を選びました。いつまでにどの数値を達成したいですか？`, axis: "最終目標の数字" },
-    { id: "revenueTarget", text: "今回または次段階で追いたい収益目標は何ですか？（例: 初回販売1件 / 月3万円 / 問い合わせ5件 / 登録20件）", axis: "収益目標" },
-    { id: "monetizationPath", text: "どの導線でお金や見込み客につなげますか？（商品販売 / 相談獲得 / 問い合わせ / アフィリエイト / 課金導線）", axis: "収益導線" },
-    { id: "progressMetrics", text: "途中の目印はどれに近いですか？（記事数 / 投稿数 / 商品数 / 導線設置数 / 反応件数 / 面談件数）", axis: "途中の判定数字" },
-    { id: "progressMetricValue", text: "前進と判断する具体値を教えてください（例: 記事10本、反応10件）", axis: "途中の判定数字" },
-    { id: "availableTime", text: "期限までに使える時間はどれくらいですか？", axis: "制約" },
-    { id: "currentAssets", text: "今すでにあるもの（経験・実績・素材）は何ですか？", axis: "現在地" },
-    { id: "missingAssets", text: "逆に、まだ無いものは何ですか？", axis: "制約" },
-    { id: "firstWinDefinition", text: "最初の成功はどの状態なら十分ですか？", axis: "成功定義" }
+    { id: "concretePlan", text: `固定質問の前提（${businessCategoryLabel} / ${outcomeMetricLabel}）で、今回まず具体的に何を作る・何をやる予定ですか？`, axis: "提供内容" },
+    { id: "targetAudience", text: "それは主に誰に届けたいですか？（最優先の1タイプ）", axis: "対象" },
+    { id: "idealVision", text: "最終的に手に入れたい理想像は何ですか？（少し大きめでOK）", axis: "理想像" },
+    { id: "monetizationPath", text: "最初の収益化は何で行きますか？（アフィリエイト / 商品販売 / 相談 / 広告 など）", axis: "収益導線" },
+    { id: "firstWinDefinition", text: "今回の期限までに、何をもって『前進した』と判断しますか？", axis: "達成条件" },
+    { id: "idealConditionType", text: "今言った理想ラインは絶対条件ですか？それとも理想ですか？", axis: "現実調整" },
+    { id: "currentReleaseLine", text: "今回の期限までに最低どこまでできたら公開して良いですか？", axis: "最低公開ライン" },
+    { id: "availableTime", text: "期限までに使える時間はどれくらいですか？（例: 平日3時間 / 休日30分）", axis: "制約" }
   ];
 
   if (businessGoalType === BUSINESS_GOAL_TYPE.AUDIENCE_GROWTH) {
-    return [...common, { id: "channel", text: "どの媒体を主軸にしますか？", axis: "手段" }];
+    return [...common, { id: "channel", text: "主軸にする媒体は何ですか？（例: X + ブログ）", axis: "手段" }];
   }
   if (businessGoalType === BUSINESS_GOAL_TYPE.MONETIZATION_VALIDATION) {
-    return [...common, { id: "monetizationType", text: "最初の収益は何で作りたいですか？", axis: "手段" }, { id: "trialCount", text: "期限までに何回試せそうですか？", axis: "制約" }];
+    return [...common, { id: "valueOffer", text: "最初に検証したい提供内容を一言でいうと何ですか？", axis: "提供内容" }];
   }
   if (businessGoalType === BUSINESS_GOAL_TYPE.OFFER_BUILDING) {
-    return [...common, { id: "offerType", text: "何を売る予定ですか？", axis: "提供内容" }, { id: "offerValue", text: "その価値を一言で言うと何ですか？", axis: "価値" }];
+    return [...common, { id: "offerType", text: "今回販売可能な形まで持っていく商品は何ですか？", axis: "提供内容" }];
   }
   if (businessGoalType === BUSINESS_GOAL_TYPE.MEDIA_PLATFORM_BUILDING) {
-    return [...common, { id: "mediaTheme", text: "どんな情報を届ける媒体ですか？", axis: "提供内容" }, { id: "acquisitionRoute", text: "主な導線は何ですか？", axis: "手段" }, { id: "monetizationType", text: "収益化の方法は何を想定していますか？", axis: "手段" }];
+    return [...common, { id: "mediaTheme", text: "どんなテーマ・切り口の媒体にしますか？", axis: "提供内容" }, { id: "acquisitionRoute", text: "公開後の主な集客導線は何ですか？", axis: "手段" }];
   }
   if (businessGoalType === BUSINESS_GOAL_TYPE.PRODUCT_SERVICE_LAUNCH) {
-    return [...common, { id: "productOutline", text: "何を作りたいですか？", axis: "提供内容" }, { id: "earlyUser", text: "最初の利用者は誰ですか？", axis: "対象" }, { id: "launchDoneDefinition", text: "何をもって公開完了としますか？", axis: "成功定義" }];
+    return [...common, { id: "productOutline", text: "今回の期限で作る最小版の機能は何ですか？", axis: "提供内容" }];
   }
-  return [...common, { id: "currentBottleneck", text: "今いちばん詰まっているのは何ですか？", axis: "現在地" }, { id: "improvementMetric", text: "何を改善できたら前進と言えますか？", axis: "成功定義" }];
+  return [...common, { id: "currentBottleneck", text: "今いちばん詰まっている点はどこですか？", axis: "現在地" }];
 };
 
 const analyzeRoughInput = (rawInput, fixedInputs = {}) => {
@@ -789,7 +728,7 @@ const extractTags = () => {
     || wizardState.answers.mediaTheme
     || BUSINESS_CATEGORY_LABEL[wizardState.businessCategory]
     || "";
-  const monetizationType = wizardState.answers.monetizationType || wizardState.answers.offerType || wizardState.answers.improvementMetric || wizardState.answers.valueOffer || "";
+  const monetizationType = wizardState.answers.monetizationPath || wizardState.answers.monetizationType || wizardState.answers.offerType || wizardState.answers.improvementMetric || wizardState.answers.valueOffer || "";
   const availableTime = parseAvailableTimeTag(wizardState.answers.availableTime || wizardState.normalizedIntent?.currentState || "");
   const motivationType = parseMotivationTag(wizardState.answers.whyNow || wizardState.roughInput?.reason || "");
 
@@ -803,14 +742,13 @@ const extractTags = () => {
 };
 
 const buildWizardInsights = () => {
-  const dreamStatement = wizardState.answers.dreamStatement || wizardState.answers.trueIntent || wizardState.roughInput?.roughGoal || "";
-  const whyNow = wizardState.answers.whyNow || wizardState.roughInput?.reason || "";
+  const dreamStatement = wizardState.answers.idealVision || wizardState.roughInput?.roughGoal || "";
+  const whyNow = wizardState.roughInput?.reason || "";
   const targetOutcomeMetric = wizardState.answers.targetOutcomeMetric
     || OUTCOME_METRIC_LABEL[wizardState.outcomeMetricType]
-    || wizardState.answers.firstWinDefinition
     || "";
-  const targetOutcomeValue = wizardState.answers.targetOutcomeValue || "";
-  const progressMetrics = [wizardState.answers.progressMetrics, wizardState.answers.progressMetricValue, wizardState.answers.firstWinDefinition]
+  const targetOutcomeValue = wizardState.answers.firstWinDefinition || "";
+  const progressMetrics = [wizardState.answers.firstWinDefinition, wizardState.answers.currentReleaseLine]
     .filter(Boolean)
     .join(" / ");
   const constraintSummary = [
@@ -832,7 +770,11 @@ const buildWizardInsights = () => {
     progressMetrics,
     constraintSummary,
     aiInterpretedIntent,
-    realismAdjustment
+    realismAdjustment,
+    idealVision: wizardState.answers.idealVision || "",
+    currentReleaseLine: wizardState.answers.currentReleaseLine || "",
+    idealConditionType: wizardState.answers.idealConditionType || "",
+    userTrueIntentSummary: wizardState.roughInput?.reason || ""
   };
 };
 
@@ -874,18 +816,15 @@ const buildBusinessClarificationQuestions = (readiness) => {
 };
 
 const buildUpdatedUnderstandingSummary = () => {
-  const dream = wizardState.answers.dreamStatement || wizardState.answers.trueIntent || wizardState.roughInput?.roughGoal || "夢は追加調整中";
-  const intent = wizardState.answers.whyNow || wizardState.answers.trueIntent || wizardState.roughInput?.reason || "背景は追加調整中";
+  const dream = wizardState.answers.idealVision || wizardState.roughInput?.roughGoal || "理想像は追加調整中";
+  const intent = wizardState.roughInput?.reason || "背景は追加調整中";
   const target = wizardState.answers.targetAudience || wizardState.answers.earlyUser || "対象は仮置き";
-  const offer = wizardState.answers.valueOffer || wizardState.answers.offerType || wizardState.answers.productOutline || wizardState.inferredGoal;
+  const offer = wizardState.answers.concretePlan || wizardState.answers.valueOffer || wizardState.answers.offerType || wizardState.answers.productOutline || wizardState.inferredGoal;
   const channel = wizardState.answers.channel || wizardState.answers.acquisitionRoute || wizardState.answers.mediaTheme || "導線は仮置き";
-  const targetMetric = wizardState.answers.targetOutcomeMetric
-    || OUTCOME_METRIC_LABEL[wizardState.outcomeMetricType]
-    || "最終目標指標は仮置き";
-  const targetMetricValue = wizardState.answers.targetOutcomeValue || "最終目標値は仮置き";
-  const progressMetric = wizardState.answers.progressMetrics || wizardState.answers.firstWinDefinition || wizardState.answers.launchDoneDefinition || wizardState.answers.improvementMetric || "途中判定指標は仮置き";
-  const progressMetricValue = wizardState.answers.progressMetricValue || "途中判定値は仮置き";
-  return `あなたが本当に目指したいこと: 「${dream}」。背景には「${intent}」がある。\n達成を判断する数字: 最終は「${targetMetric} / ${targetMetricValue}」、途中は「${progressMetric} / ${progressMetricValue}」。対象「${target}」へ「${offer}」を「${channel}」で届ける。`;
+  const progressMetric = wizardState.answers.firstWinDefinition || "前進条件は仮置き";
+  const releaseLine = wizardState.answers.currentReleaseLine || "最低公開ラインは仮置き";
+  const idealType = wizardState.answers.idealConditionType || "理想/絶対の区分は仮置き";
+  return `やりたいことは「${offer}」を作って届けること。対象は「${target}」、導線は「${channel}」。\n理想像は「${dream}」。今回は「${progressMetric}」を前進条件にし、最低「${releaseLine}」なら公開する。理想ラインの扱いは「${idealType}」。背景には「${intent}」がある。`;
 };
 
 const buildProposalRationale = () => wizardState.proposals.map((proposal) => ({
@@ -1093,8 +1032,20 @@ const generateProposals = () => {
       revenueTarget: readiness.revenueTarget
     });
     const typeLabel = BUSINESS_KGI_TYPE_LABEL[businessKgiType] || "未分類";
+    const idealVision = wizardState.answers.idealVision || wizardState.roughInput?.roughGoal || "理想像を育てる";
+    const concretePlanLabel = wizardState.answers.concretePlan || wizardState.answers.mediaTheme || inferredGoal;
+    const releaseLine = wizardState.answers.currentReleaseLine || "公開して回し始められる状態";
+    const firstWin = wizardState.answers.firstWinDefinition || concretePlan.achievement;
+    const upperGoal = wizardState.roughInput?.reason || `会社に頼りすぎない収入源として${idealVision}を育てる`;
+    const currentKgi = `${deadline}までに${concretePlanLabel}を${channel}で公開し、${releaseLine}を満たした運用土台を完成させる。`;
+    const currentAchievement = [
+      firstWin,
+      `公開ライン: ${releaseLine}`,
+      `収益導線: ${readiness.monetizationPath || monetization}`
+    ].join(" / ");
+    const nextStageGoal = phaseGoals.phase2Goal;
     const typeAwareName = concretePlan.title;
-    const typeAwareGoalText = `${concretePlan.goalText} 今回達成: ${phaseGoals.phase1Goal}`;
+    const typeAwareGoalText = currentKgi;
     return {
     candidateType: direction.id,
     directionLabel: direction.title,
@@ -1104,16 +1055,25 @@ const generateProposals = () => {
     ultimateBenefit,
     phase1Goal: phaseGoals.phase1Goal,
     phase2Goal: phaseGoals.phase2Goal,
+    upperGoal,
+    currentKgi,
+    currentAchievement,
+    nextStageGoal,
     revenueTarget: readiness.revenueTarget || "",
     monetizationPath: readiness.monetizationPath || "",
     name: `${typeAwareName}`,
     goalText: typeAwareGoalText,
-    narrative: concretePlan.dreamHeadline,
-    metrics: `${concretePlan.achievement} / 次段階: ${phaseGoals.phase2Goal}`,
+    narrative: upperGoal,
+    metrics: currentAchievement,
     deadline,
     level: levels[index] || "normal",
     reason: direction.reason,
-    concerns: direction.concern
+    concerns: direction.concern,
+    whyThisKgiFits: `固定3問（${wizardState.businessCategoryLabel} / ${BUSINESS_KGI_TYPE_LABEL[businessKgiType]} / ${OUTCOME_METRIC_LABEL[wizardState.outcomeMetricType] || wizardState.outcomeMetricType}）と、深掘り回答（対象・収益導線・最低公開ライン）を反映しています。`,
+    rejectedIdealCondition: wizardState.answers.idealConditionType || "",
+    realismAdjustmentReason: wizardState.answers.idealConditionType?.includes("理想")
+      ? "理想像を残しつつ、今回は公開可能な土台完成をKGIに置いたため。"
+      : "理想ラインが絶対条件として指定されたため。"
     };
   });
 };
@@ -1254,13 +1214,15 @@ const renderProposals = () => {
       <h3>${proposal.name}</h3>
       <p class="proposal-meta"><small><strong>KGIタイプ:</strong> ${proposal.businessKgiTypeLabel || "未設定"}</small></p>
       <p class="proposal-meta"><small><strong>方向タイプ:</strong> ${proposal.directionLabel || "未設定"}</small></p>
-      <p class="proposal-meta"><strong>夢の見出し:</strong> ${proposal.narrative || proposal.name}</p>
-      <p class="proposal-meta"><strong>達成条件:</strong> ${proposal.metrics || proposal.goalText}</p>
-      <p class="proposal-meta"><strong>ゴール説明:</strong> ${proposal.goalText}</p>
+      <p class="proposal-meta"><strong>上位ゴール:</strong> ${proposal.upperGoal || proposal.narrative || proposal.name}</p>
+      <p class="proposal-meta"><strong>今回のKGI:</strong> ${proposal.currentKgi || proposal.goalText}</p>
+      <p class="proposal-meta"><strong>今回の達成条件:</strong> ${proposal.currentAchievement || proposal.metrics || proposal.goalText}</p>
+      <p class="proposal-meta"><strong>次段階:</strong> ${proposal.nextStageGoal || proposal.phase2Goal || "次段階を設計中"}</p>
       <p class="proposal-meta"><strong>期限:</strong> ${proposal.deadline}</p>
       <p class="proposal-meta"><strong>説明レベル:</strong> ${proposal.level}</p>
       <p class="proposal-meta"><strong>おすすめ理由:</strong> ${proposal.reason}</p>
       <p class="proposal-meta"><strong>気になる点:</strong> ${proposal.concerns}</p>
+      <p class="proposal-meta"><strong>なぜこのKGIか:</strong> ${proposal.whyThisKgiFits || "回答を元に調整済み"}</p>
       <button type="button" class="secondary" data-proposal-index="${index}">この案を使う</button>
     `;
     proposalList.appendChild(card);
@@ -1457,6 +1419,16 @@ const persistKgi = async ({ finalDraft, startDate, level }) => {
         constraintSummary: insights.constraintSummary,
         aiInterpretedIntent: insights.aiInterpretedIntent,
         realismAdjustment: insights.realismAdjustment,
+        idealVision: insights.idealVision,
+        currentReleaseLine: insights.currentReleaseLine,
+        upperGoal: selectedOriginal?.upperGoal || "",
+        currentKgi: selectedOriginal?.currentKgi || "",
+        currentAchievement: selectedOriginal?.currentAchievement || "",
+        nextStageGoal: selectedOriginal?.nextStageGoal || "",
+        userTrueIntentSummary: insights.userTrueIntentSummary,
+        whyThisKgiFits: selectedOriginal?.whyThisKgiFits || "",
+        rejectedIdealCondition: selectedOriginal?.rejectedIdealCondition || "",
+        realismAdjustmentReason: selectedOriginal?.realismAdjustmentReason || "",
         candidateKgiNarratives,
         candidateKgiMetrics,
         finalSelectedReason,
@@ -1478,6 +1450,16 @@ const persistKgi = async ({ finalDraft, startDate, level }) => {
       constraintSummary: insights.constraintSummary,
       aiInterpretedIntent: insights.aiInterpretedIntent,
       realismAdjustment: insights.realismAdjustment,
+      idealVision: insights.idealVision,
+      currentReleaseLine: insights.currentReleaseLine,
+      upperGoal: selectedOriginal?.upperGoal || "",
+      currentKgi: selectedOriginal?.currentKgi || "",
+      currentAchievement: selectedOriginal?.currentAchievement || "",
+      nextStageGoal: selectedOriginal?.nextStageGoal || "",
+      userTrueIntentSummary: insights.userTrueIntentSummary,
+      whyThisKgiFits: selectedOriginal?.whyThisKgiFits || "",
+      rejectedIdealCondition: selectedOriginal?.rejectedIdealCondition || "",
+      realismAdjustmentReason: selectedOriginal?.realismAdjustmentReason || "",
       candidateKgiNarratives,
       candidateKgiMetrics,
       finalSelectedReason,
@@ -1600,6 +1582,16 @@ const ensureCreationSession = async () => {
     constraintSummary: "",
     aiInterpretedIntent: "",
     realismAdjustment: "",
+    idealVision: "",
+    currentReleaseLine: "",
+    upperGoal: "",
+    currentKgi: "",
+    currentAchievement: "",
+    nextStageGoal: "",
+    userTrueIntentSummary: "",
+    whyThisKgiFits: "",
+    rejectedIdealCondition: "",
+    realismAdjustmentReason: "",
     candidateKgiNarratives: [],
     candidateKgiMetrics: [],
     finalSelectedReason: "",
