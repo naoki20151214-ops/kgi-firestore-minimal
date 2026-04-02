@@ -168,6 +168,19 @@
       }
       .proposal-card h3 { margin: 0 0 8px; font-size: 1rem; }
       .proposal-meta { margin: 4px 0; font-size: 0.88rem; color: #374151; }
+      .option-list { display: grid; gap: 8px; margin-bottom: 10px; }
+      .option-row {
+        display: grid;
+        grid-template-columns: 18px 1fr;
+        gap: 10px;
+        align-items: start;
+        border: 1px solid #dbeafe;
+        background: #f8fbff;
+        border-radius: 10px;
+        padding: 10px;
+        font-size: 0.92rem;
+      }
+      .option-row input { margin-top: 2px; }
       .hidden { display: none; }
       .hint { margin: 0; font-size: 0.85rem; color: #4b5563; }
       .hint.error { color: #b91c1c; }
@@ -227,103 +240,36 @@
 
       <div class="stepper">
         <div id="step1Label" class="step active">1. 入力</div>
-        <div id="step2Label" class="step">2. チェック/質問</div>
-        <div id="step3Label" class="step">3. 候補</div>
+        <div id="step2Label" class="step">2. 追加質問</div>
+        <div id="step3Label" class="step">3. KGI確認</div>
         <div id="step4Label" class="step">4. 保存</div>
       </div>
 
       <section id="roughSection" class="section stage-focus-card" data-state="current">
-        <h2 class="section-title">1. ざっくり入力 <span id="roughStateChip" class="state-chip">入力中</span></h2>
-        <p class="helper">まずは固定の3問で方向性を絞ってから、自由入力と追加質問であなた向けに整えます。</p>
+        <h2 class="section-title">1. 最初の2問</h2>
+        <p class="helper">最初はこの2問だけです。回答は曖昧でも大丈夫です。</p>
         <div class="field">
-          <label for="businessCategoryInput">ビジネスの種類</label>
-          <select id="businessCategoryInput">
-            <option value="">選択してください</option>
-            <option value="blog">ブログ</option>
-            <option value="sns">SNS発信</option>
-            <option value="youtube">YouTube</option>
-            <option value="digital_product">デジタル商品販売</option>
-            <option value="consulting_service">相談 / 代行 / コンサル</option>
-            <option value="app_tool">アプリ / ツール</option>
-            <option value="ecommerce">物販</option>
-            <option value="fx_invest">FX / 株 / 投資</option>
-            <option value="offline_business">リアルビジネス / オフライン</option>
-            <option value="other">その他</option>
-          </select>
-        </div>
-        <div id="businessCategoryDetailField" class="field hidden">
-          <label for="businessCategoryDetailInput">どんな内容かを一言で書いてください</label>
-          <input id="businessCategoryDetailInput" type="text" placeholder="例: 地域密着のパーソナルジム運営" />
-        </div>
-        <div class="field">
-          <label for="businessKgiTypeInput">今回の期限でどこまで達成したいか</label>
-          <select id="businessKgiTypeInput">
-            <option value="">選択してください</option>
-            <option value="project_build">まずは土台を作りたい</option>
-            <option value="project_plus_revenue">土台を作って初回収益まで出したい</option>
-            <option value="revenue_scale">すでにあるものを改善して収益を伸ばしたい</option>
-          </select>
-        </div>
-        <div class="field">
-          <label for="outcomeMetricTypeInput">成果は何の数字で判断したいか</label>
-          <select id="outcomeMetricTypeInput">
-            <option value="">選択してください</option>
-            <option value="monthly_revenue">月の売上</option>
-            <option value="first_sales_count">初回販売件数</option>
-            <option value="inquiry_count">問い合わせ件数</option>
-            <option value="lead_or_subscriber_count">見込み客 / 登録者数</option>
-            <option value="engagement_count">反応数</option>
-            <option value="product_completion">商品完成</option>
-            <option value="public_release_completion">公開完了</option>
-            <option value="other">その他</option>
-          </select>
-        </div>
-        <div class="field">
-          <label for="roughGoalInput">やりたいこと</label>
-          <textarea id="roughGoalInput" placeholder="例: 6か月でSNS経由の売上を安定させたい"></textarea>
-        </div>
-        <div class="field">
-          <label for="roughReasonInput">なぜやりたいか</label>
-          <textarea id="roughReasonInput" placeholder="例: 本業だけに頼らない収入の柱を作りたい"></textarea>
-        </div>
-        <div class="field">
-          <label for="roughDeadlineInput">期限（任意）</label>
+          <label for="roughDeadlineInput">いつまでに達成したいですか？</label>
           <input id="roughDeadlineInput" type="date" />
         </div>
         <div class="field">
-          <label for="roughCurrentStateInput">今の状況（任意）</label>
-          <textarea id="roughCurrentStateInput" placeholder="例: 投稿は不定期、商品は1つ、フォロワーは300人"></textarea>
+          <label for="roughGoalInput">その期限の時点で、どんな状態なら成功と言えますか？</label>
+          <textarea id="roughGoalInput" placeholder="例: 副業で初回販売を出せる状態にしたい"></textarea>
         </div>
-        <button id="startDeepDiveButton" type="button">質問に進む</button>
-      </section>
-
-
-      <section id="feasibilitySection" class="section hidden" data-state="future">
-        <h2 class="section-title">2. 実現可能性チェック <span id="feasibilityStateChip" class="state-chip">これから</span></h2>
-        <p class="helper">入力内容を整えたうえで、今の条件で進めやすいかを確認します。</p>
-        <div class="question-box">
-          <p class="longform-label">要点</p>
-          <div id="normalizedSummaryText" class="longform-block"></div>
-        </div>
-        <div class="question-box">
-          <p class="proposal-meta"><strong>評価:</strong> <span id="feasibilityLevelText"></span></p>
-          <p class="longform-label">理由</p>
-          <div id="feasibilityReasonsText" class="longform-block"></div>
-          <p id="feasibilityAltRouteLabel" class="longform-label hidden">補足</p>
-          <p id="feasibilityAltRoute" class="proposal-meta longform-block hidden"></p>
-        </div>
-        <button id="toQuestionsButton" type="button">不足している点を追加で答える</button>
+        <button id="startDeepDiveButton" type="button">次へ進む</button>
       </section>
 
       <section id="questionSection" class="section hidden" data-state="future">
-        <h2 class="section-title">3. 追加質問 <span id="questionStateChip" class="state-chip">これから</span></h2>
-        <p class="helper">この質問に答えると、より自分に合ったKGIになりやすいです。</p>
+        <h2 class="section-title">2. 追加質問（解釈ズレを減らす）</h2>
+        <p class="helper">進め方ではなく、達成状態の定義をそろえるための質問だけを1問ずつ出します。</p>
         <div id="questionProgress" class="q-badge"></div>
         <div id="questionText" class="question-box longform-block"></div>
-        <div class="field">
-          <label for="questionAnswerInput">あなたの回答</label>
-          <textarea id="questionAnswerInput" placeholder="短くても大丈夫です"></textarea>
+        <div id="questionOptions" class="option-list"></div>
+        <div id="otherAnswerField" class="field hidden">
+          <label for="otherAnswerInput">その他（短く入力）</label>
+          <input id="otherAnswerInput" type="text" maxlength="80" placeholder="短く入力してください" />
         </div>
+        <textarea id="questionAnswerInput" class="hidden" aria-hidden="true"></textarea>
         <div class="row">
           <button id="prevQuestionButton" class="secondary" type="button">前の質問</button>
           <button id="nextQuestionButton" type="button">次へ</button>
@@ -331,16 +277,9 @@
       </section>
 
       <section id="proposalSection" class="section hidden" data-state="future">
-        <h2 class="section-title">4. KGI候補・保存 <span id="proposalStateChip" class="state-chip">これから</span></h2>
-        <p class="helper">2〜3案から選び、必要なら軽く編集して保存できます。</p>
-        <div id="understandingCheckSection" class="understanding-check hidden">
-          <p class="proposal-meta"><strong>今の理解では、あなたが目指しているのは:</strong></p>
-          <p id="understandingSummaryText" class="proposal-meta longform-block"></p>
-          <div class="row">
-            <button id="reviseUnderstandingButton" class="secondary" type="button">少し違うので回答を直す</button>
-            <button id="confirmUnderstandingButton" type="button">だいたい合っている</button>
-          </div>
-        </div>
+        <h2 class="section-title">3. KGI確認・保存 <span id="proposalStateChip" class="state-chip">これから</span></h2>
+        <p class="helper">KGI本体と、このKGIを達成したと判断する条件を確認して保存します。</p>
+        <div id="understandingCheckSection" class="understanding-check hidden"></div>
         <div id="proposalList" class="proposal-list"></div>
 
         <div id="editSection" class="hidden">
