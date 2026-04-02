@@ -479,11 +479,18 @@ const buildDynamicQuestions = (analysis) => {
 
 const buildQuestionsByBusinessGoalType = (businessGoalType) => {
   const common = [
-    { id: "trueIntent", text: "本当は何が変わると嬉しいですか？", axis: "本音" },
+    { id: "dreamStatement", text: "本当はどうなりたいですか？（叶えたい夢・理想の状態）", axis: "夢・意味" },
+    { id: "trueIntent", text: "この目標を達成すると何が変わりますか？", axis: "夢・意味" },
+    { id: "whyNow", text: "なぜ今それをやりたいですか？", axis: "夢・意味" },
     { id: "targetAudience", text: "いちばん届けたい相手は誰ですか？", axis: "対象" },
     { id: "valueOffer", text: "その相手に何を渡せたら価値になりますか？", axis: "価値" },
+    { id: "targetOutcomeMetric", text: "最終目標の数字はどれに近いですか？（月売上 / 初回販売件数 / 問い合わせ件数 / アクセス数 / 登録者数）", axis: "最終目標の数字" },
+    { id: "targetOutcomeValue", text: "いつまでに、どのくらいを目指しますか？（例: 2026-07-31までに月5万円）", axis: "最終目標の数字" },
+    { id: "progressMetrics", text: "途中の目印はどれに近いですか？（記事数 / 投稿数 / 商品数 / 導線設置数 / 反応件数 / 面談件数）", axis: "途中の判定数字" },
+    { id: "progressMetricValue", text: "前進と判断する具体値を教えてください（例: 記事10本、反応10件）", axis: "途中の判定数字" },
     { id: "availableTime", text: "期限までに使える時間はどれくらいですか？", axis: "制約" },
     { id: "currentAssets", text: "今すでにあるもの（経験・実績・素材）は何ですか？", axis: "現在地" },
+    { id: "missingAssets", text: "逆に、まだ無いものは何ですか？", axis: "制約" },
     { id: "firstWinDefinition", text: "最初の成功はどの状態なら十分ですか？", axis: "成功定義" }
   ];
 
@@ -586,7 +593,7 @@ const extractTags = () => {
   const channel = wizardState.answers.channel || wizardState.answers.acquisitionRoute || wizardState.answers.mediaTheme || "";
   const monetizationType = wizardState.answers.monetizationType || wizardState.answers.offerType || wizardState.answers.improvementMetric || wizardState.answers.valueOffer || "";
   const availableTime = parseAvailableTimeTag(wizardState.answers.availableTime || wizardState.normalizedIntent?.currentState || "");
-  const motivationType = parseMotivationTag(wizardState.roughInput?.reason || "");
+  const motivationType = parseMotivationTag(wizardState.answers.whyNow || wizardState.roughInput?.reason || "");
 
   return {
     targetAudience,
@@ -594,6 +601,37 @@ const extractTags = () => {
     monetizationType,
     availableTime,
     motivationType
+  };
+};
+
+const buildWizardInsights = () => {
+  const dreamStatement = wizardState.answers.dreamStatement || wizardState.answers.trueIntent || wizardState.roughInput?.roughGoal || "";
+  const whyNow = wizardState.answers.whyNow || wizardState.roughInput?.reason || "";
+  const targetOutcomeMetric = wizardState.answers.targetOutcomeMetric || wizardState.answers.firstWinDefinition || "";
+  const targetOutcomeValue = wizardState.answers.targetOutcomeValue || "";
+  const progressMetrics = [wizardState.answers.progressMetrics, wizardState.answers.progressMetricValue, wizardState.answers.firstWinDefinition]
+    .filter(Boolean)
+    .join(" / ");
+  const constraintSummary = [
+    `使える時間: ${wizardState.answers.availableTime || wizardState.normalizedIntent?.currentState || "未回答"}`,
+    `今あるもの: ${wizardState.answers.currentAssets || "未回答"}`,
+    `まだ無いもの: ${wizardState.answers.missingAssets || "未回答"}`
+  ].join(" | ");
+  const aiInterpretedIntent = buildUpdatedUnderstandingSummary();
+
+  let realismAdjustment = "";
+  if (wizardState.feasibility?.feasibilityLevel === FEASIBILITY_LEVEL.HARD) {
+    realismAdjustment = wizardState.feasibility?.recommendedScopeChange || "期限内で達成可能性を高めるため、初回成果の検証完了を中間ゴールとして設定。";
+  }
+
+  return {
+    dreamStatement,
+    whyNow,
+    targetOutcomeMetric: targetOutcomeValue ? `${targetOutcomeMetric}: ${targetOutcomeValue}` : targetOutcomeMetric,
+    progressMetrics,
+    constraintSummary,
+    aiInterpretedIntent,
+    realismAdjustment
   };
 };
 
@@ -614,12 +652,16 @@ const buildAdaptiveFollowUpQuestion = (question, answer) => {
 };
 
 const buildUpdatedUnderstandingSummary = () => {
-  const intent = wizardState.answers.trueIntent || wizardState.roughInput?.reason || "本音は追加調整中";
+  const dream = wizardState.answers.dreamStatement || wizardState.answers.trueIntent || wizardState.roughInput?.roughGoal || "夢は追加調整中";
+  const intent = wizardState.answers.whyNow || wizardState.answers.trueIntent || wizardState.roughInput?.reason || "背景は追加調整中";
   const target = wizardState.answers.targetAudience || wizardState.answers.earlyUser || "対象は仮置き";
   const offer = wizardState.answers.valueOffer || wizardState.answers.offerType || wizardState.answers.productOutline || wizardState.inferredGoal;
   const channel = wizardState.answers.channel || wizardState.answers.acquisitionRoute || wizardState.answers.mediaTheme || "導線は仮置き";
-  const firstWin = wizardState.answers.firstWinDefinition || wizardState.answers.launchDoneDefinition || wizardState.answers.improvementMetric || "初期成功条件は仮置き";
-  return `「${target}」に向けて「${offer}」を「${channel}」で届け、まずは「${firstWin}」を最初の前進として検証したい。背景には「${intent}」がある。`;
+  const targetMetric = wizardState.answers.targetOutcomeMetric || "最終目標指標は仮置き";
+  const targetMetricValue = wizardState.answers.targetOutcomeValue || "最終目標値は仮置き";
+  const progressMetric = wizardState.answers.progressMetrics || wizardState.answers.firstWinDefinition || wizardState.answers.launchDoneDefinition || wizardState.answers.improvementMetric || "途中判定指標は仮置き";
+  const progressMetricValue = wizardState.answers.progressMetricValue || "途中判定値は仮置き";
+  return `あなたが本当に目指したいこと: 「${dream}」。背景には「${intent}」がある。\n達成を判断する数字: 最終は「${targetMetric} / ${targetMetricValue}」、途中は「${progressMetric} / ${progressMetricValue}」。対象「${target}」へ「${offer}」を「${channel}」で届ける。`;
 };
 
 const buildProposalRationale = () => wizardState.proposals.map((proposal) => ({
@@ -642,7 +684,7 @@ const formatDeadlineLabel = (deadline) => {
   return `${Number(month)}月${Number(day)}日までに`;
 };
 
-const buildConcretePlanText = ({ directionId, deadline, audience, channel, monetization, inferredGoal }) => {
+const buildConcretePlanText = ({ directionId, deadline, audience, channel, monetization, inferredGoal, insights, feasibilityLevel }) => {
   const deadlineLabel = formatDeadlineLabel(deadline);
   const audienceLabel = audience || "届けたい相手";
   const channelLabel = channel || "主な導線";
@@ -728,7 +770,22 @@ const buildConcretePlanText = ({ directionId, deadline, audience, channel, monet
     goalText: `${deadline}までに${audienceLabel}向けに${offerLabel}を${channelLabel}で実行し、反応や申込など前進を示す指標を達成する。達成条件と次の改善点を明文化する。`
   };
 
-  return planByDirection[directionId] || fallback;
+  const selectedPlan = planByDirection[directionId] || fallback;
+  const dreamHeadline = insights?.dreamStatement
+    ? `${deadlineLabel}${insights.dreamStatement}を形にする`
+    : selectedPlan.title;
+  const metricCondition = [
+    `最終目標: ${insights?.targetOutcomeMetric || "目標指標を設定"}`,
+    `途中判定: ${insights?.progressMetrics || "途中指標を設定"}`,
+    `前進条件: ${wizardState.answers.firstWinDefinition || wizardState.answers.progressMetricValue || "初回成果の確認"}`
+  ].join(" / ");
+  const realismNote = feasibilityLevel === FEASIBILITY_LEVEL.HARD
+    ? `現実調整: ${insights?.realismAdjustment || "目標を一段手前に落として検証完了を優先"}。`
+    : "";
+  return {
+    title: dreamHeadline,
+    goalText: `${selectedPlan.goalText} 達成条件: ${metricCondition}。${realismNote}`.trim()
+  };
 };
 
 const generateProposals = () => {
@@ -740,6 +797,7 @@ const generateProposals = () => {
   const audience = wizardState.tags.targetAudience || "届けたい相手";
   const monetization = wizardState.tags.monetizationType || "成果化の手段";
   const feasibilityLevel = wizardState.feasibility?.feasibilityLevel || FEASIBILITY_LEVEL.STRETCH;
+  const insights = buildWizardInsights();
 
   const levels = ["easy", "normal", "detailed"];
   const directionBases = wizardState.candidateDirections.length > 0
@@ -753,13 +811,18 @@ const generateProposals = () => {
       audience,
       channel,
       monetization,
-      inferredGoal
+      inferredGoal,
+      insights,
+      feasibilityLevel
     });
+    const completionCondition = concretePlan.goalText.split("達成条件:")[1]?.trim() || concretePlan.goalText;
     return {
     candidateType: direction.id,
     directionLabel: direction.title,
     name: concretePlan.title,
     goalText: concretePlan.goalText,
+    narrative: concretePlan.title,
+    metrics: completionCondition,
     deadline,
     level: levels[index] || "normal",
     reason: direction.reason,
@@ -889,6 +952,8 @@ const renderProposals = () => {
     card.innerHTML = `
       <h3>${proposal.name}</h3>
       <p class="proposal-meta"><small><strong>方向タイプ:</strong> ${proposal.directionLabel || "未設定"}</small></p>
+      <p class="proposal-meta"><strong>夢の見出し:</strong> ${proposal.narrative || proposal.name}</p>
+      <p class="proposal-meta"><strong>達成条件:</strong> ${proposal.metrics || proposal.goalText}</p>
       <p class="proposal-meta"><strong>ゴール説明:</strong> ${proposal.goalText}</p>
       <p class="proposal-meta"><strong>期限:</strong> ${proposal.deadline}</p>
       <p class="proposal-meta"><strong>説明レベル:</strong> ${proposal.level}</p>
@@ -1020,6 +1085,10 @@ const persistKgi = async ({ finalDraft, startDate, level }) => {
   const selectedOriginal = wizardState.proposals[wizardState.selectedProposalIndex];
   const selectedCandidateType = selectedOriginal?.directionLabel || "";
   const editedFields = Object.keys(finalDraft).filter((key) => finalDraft[key] !== selectedOriginal[key]);
+  const insights = buildWizardInsights();
+  const candidateKgiNarratives = wizardState.proposals.map((proposal) => proposal.narrative || proposal.name);
+  const candidateKgiMetrics = wizardState.proposals.map((proposal) => proposal.metrics || proposal.goalText);
+  const finalSelectedReason = `${selectedOriginal?.reason || "理由未設定"} / 編集項目: ${editedFields.join(", ") || "なし"}`;
 
   try {
     const createdKgi = {
@@ -1072,6 +1141,16 @@ const persistKgi = async ({ finalDraft, startDate, level }) => {
         },
         proposalRationale: wizardState.interviewProcess.proposalRationale,
         interviewProcess: wizardState.interviewProcess,
+        dreamStatement: insights.dreamStatement,
+        whyNow: insights.whyNow,
+        targetOutcomeMetric: insights.targetOutcomeMetric,
+        progressMetrics: insights.progressMetrics,
+        constraintSummary: insights.constraintSummary,
+        aiInterpretedIntent: insights.aiInterpretedIntent,
+        realismAdjustment: insights.realismAdjustment,
+        candidateKgiNarratives,
+        candidateKgiMetrics,
+        finalSelectedReason,
         finalKgi: finalDraft
       }
     };
@@ -1083,6 +1162,16 @@ const persistKgi = async ({ finalDraft, startDate, level }) => {
       selectedCandidateIndex: wizardState.selectedProposalIndex,
       editedFields,
       finalKgi: finalDraft,
+      dreamStatement: insights.dreamStatement,
+      whyNow: insights.whyNow,
+      targetOutcomeMetric: insights.targetOutcomeMetric,
+      progressMetrics: insights.progressMetrics,
+      constraintSummary: insights.constraintSummary,
+      aiInterpretedIntent: insights.aiInterpretedIntent,
+      realismAdjustment: insights.realismAdjustment,
+      candidateKgiNarratives,
+      candidateKgiMetrics,
+      finalSelectedReason,
       finalKgiId: kgiDocRef.id,
       completedAt: serverTimestamp()
     });
@@ -1171,6 +1260,16 @@ const ensureCreationSession = async () => {
     editedFields: [],
     finalKgi: null,
     tags: {},
+    dreamStatement: "",
+    whyNow: "",
+    targetOutcomeMetric: "",
+    progressMetrics: "",
+    constraintSummary: "",
+    aiInterpretedIntent: "",
+    realismAdjustment: "",
+    candidateKgiNarratives: [],
+    candidateKgiMetrics: [],
+    finalSelectedReason: "",
     interviewProcess: wizardState.interviewProcess,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp()
@@ -1367,7 +1466,7 @@ nextQuestionButton.addEventListener("click", async () => {
       return;
     }
     wizardState.interviewProcess.updatedUnderstandingSummary = buildUpdatedUnderstandingSummary();
-    understandingSummaryText.textContent = wizardState.interviewProcess.updatedUnderstandingSummary;
+    understandingSummaryText.innerHTML = wizardState.interviewProcess.updatedUnderstandingSummary.replace(/\n/g, "<br>");
     questionSection.classList.add("hidden");
     proposalSection.classList.remove("hidden");
     understandingCheckSection.classList.remove("hidden");
