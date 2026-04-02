@@ -10,7 +10,6 @@ import {
   where
 } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
 import { getDb } from "./firebase-config.js";
-import { getCollectionName, initEnvironmentModeUi } from "./environment-mode.js";
 import { decideNowAction } from "./now-action-engine.js";
 
 const params = new URLSearchParams(window.location.search);
@@ -285,7 +284,7 @@ const formatErrorDetail = (error) => {
 };
 
 const loadKpi = async () => {
-  const kpiSnapshot = await getDoc(doc(db, getCollectionName("kpis"), kpiId));
+  const kpiSnapshot = await getDoc(doc(db, "kpis", kpiId));
   if (!kpiSnapshot.exists()) {
     throw new Error("KPI_NOT_FOUND");
   }
@@ -315,7 +314,7 @@ const loadTasks = async () => {
   console.info("[KPI tasks query] where conditions", tasksDebugState.lastQueryConditions);
 
   try {
-    const taskQuery = query(collection(db, getCollectionName("tasks")), where("kpiId", "==", kpiId));
+    const taskQuery = query(collection(db, "tasks"), where("kpiId", "==", kpiId));
     const taskSnapshot = await getDocs(taskQuery);
     const tasks = taskSnapshot.docs
       .map((taskDoc) => ({ id: taskDoc.id, ...taskDoc.data() }))
@@ -520,7 +519,7 @@ const renderAiTaskCandidates = () => {
 };
 
 const loadKgiContext = async () => {
-  const kgiSnapshot = await getDoc(doc(db, getCollectionName("kgis"), kgiId));
+  const kgiSnapshot = await getDoc(doc(db, "kgis", kgiId));
   if (!kgiSnapshot.exists()) {
     throw new Error("KGI_NOT_FOUND");
   }
@@ -532,7 +531,7 @@ const loadKgiContext = async () => {
     ? asText(currentTargetPhase?.kpiPlanningStatus, "draft")
     : "draft";
 
-  const kpiSnapshot = await getDocs(query(collection(db, getCollectionName("kpis")), where("kgiId", "==", kgiId)));
+  const kpiSnapshot = await getDocs(query(collection(db, "kpis"), where("kgiId", "==", kgiId)));
   allKpisForKgi = kpiSnapshot.docs.map((snapshot) => {
     const data = snapshot.data();
     return {
@@ -567,7 +566,7 @@ const saveAiTaskCandidate = async (index, saveButton) => {
   }
   saveButton.disabled = true;
   try {
-    await addDoc(collection(db, getCollectionName("tasks")), {
+    await addDoc(collection(db, "tasks"), {
       title: asText(candidate.title, "名称未設定タスク"),
       description: asText(candidate.description, ""),
       stage: asText(candidate.stage, "build"),
@@ -695,7 +694,7 @@ const createTask = async () => {
   taskCreateStatus.textContent = "保存中...";
 
   try {
-    await addDoc(collection(db, getCollectionName("tasks")), {
+    await addDoc(collection(db, "tasks"), {
       title,
       description,
       status: "active",
@@ -724,7 +723,7 @@ const completeTask = async (taskId, completeButton) => {
   completeButton.disabled = true;
 
   try {
-    await updateDoc(doc(db, getCollectionName("tasks"), taskId), {
+    await updateDoc(doc(db, "tasks", taskId), {
       status: "completed",
       isCompleted: true,
       updatedAt: serverTimestamp()
@@ -746,8 +745,7 @@ const init = async () => {
   backToPhaseLink.href = `./phase.html?id=${encodeURIComponent(kgiId)}&phaseId=${encodeURIComponent(phaseId)}`;
 
   try {
-    initEnvironmentModeUi();
-    db = await getDb();
+        db = await getDb();
     await loadKpi();
     await loadKgiContext();
   } catch (error) {
