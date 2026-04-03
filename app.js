@@ -27,6 +27,12 @@ const goalTextInput = document.getElementById("kgiGoalText");
 const deadlineInput = document.getElementById("kgiDeadline");
 const levelInput = document.getElementById("kgiLevel");
 const saveButton = document.getElementById("saveButton");
+const saveWithSpecificityButton = document.getElementById("saveWithSpecificityButton");
+const editSpecificityButton = document.getElementById("editSpecificityButton");
+const specificityWarningBox = document.getElementById("specificityWarningBox");
+const specificityCandidateName = document.getElementById("specificityCandidateName");
+const specificityCandidateGoal = document.getElementById("specificityCandidateGoal");
+const specificityCandidateDeadline = document.getElementById("specificityCandidateDeadline");
 const statusText = document.getElementById("statusText");
 const errorRecoveryCard = document.getElementById("errorRecoveryCard");
 const step1Label = document.getElementById("step1Label");
@@ -404,6 +410,7 @@ const ABSTRACT_TERMS = ["状態", "価値", "達成", "意味", "誰に何を"];
 const FOLLOW_UP_DEBUG_PREFIX = "[KGI_FOLLOWUP_DEBUG]";
 let isAdvancingQuestion = false;
 const LOCAL_DRAFT_KEY = "kgi_wizard_draft_v1";
+const BLOCKED_PHRASES = ["未確定", "追加確認中", "公開状態", "主要導線が1本動く", "利用可能な成果物"];
 
 const setStatus = (message, isError = false) => {
   statusText.textContent = message;
@@ -552,6 +559,37 @@ const normalizeGenreKey = (genreLabel = "") => {
   return "other";
 };
 
+const isInvestmentGenreKey = (genreKey = wizardState.genreKey) => genreKey === "investment";
+
+const getSourceDataSections = (sourceData, genreKey = wizardState.genreKey) => {
+  const base = [
+    { label: "あなたが本当に叶えたい未来", value: sourceData.upperGoal },
+    { label: "今回の期限で狙う範囲", value: sourceData.currentKgiScope }
+  ];
+  if (isInvestmentGenreKey(genreKey)) {
+    return [
+      ...base,
+      { label: "成功の定義", value: sourceData.successDefinition },
+      { label: "利益の測り方", value: sourceData.measurementUnit },
+      { label: "対象市場", value: sourceData.targetMarket },
+      { label: "取引スタイル / 裁量かルールベースか", value: sourceData.tradingStyleOrRuleBasis },
+      { label: "安定の定義", value: sourceData.stabilityDefinition },
+      { label: "除外条件", value: (sourceData.excludedFromCurrentKgi || []).join("、") || "特になし" },
+      { label: "次のKGI候補", value: sourceData.nextKgiSuggestion || "特になし" }
+    ];
+  }
+  return [
+    ...base,
+    { label: "今回作るもの", value: sourceData.concreteDeliverable },
+    { label: "想定する読者", value: sourceData.audienceSummary },
+    { label: "どんな価値を届けるか", value: sourceData.valuePromise },
+    { label: "公開してよい最低ライン", value: (sourceData.minimumReleaseBundle || []).join("、") || sourceData.minimumSuccessLine },
+    { label: "理想ライン", value: (sourceData.idealReleaseBundle || []).join("、") || sourceData.idealSuccessLine },
+    { label: "今回は入れないもの", value: (sourceData.excludedFromCurrentKgi || []).join("、") || "特になし" },
+    { label: "次のKGI候補", value: sourceData.nextKgiSuggestion || "特になし" }
+  ];
+};
+
 const getSlotValue = (slot) => {
   const answer = wizardState.followUpAnswers[slot];
   if (!answer?.selectedOptionId) return "";
@@ -562,8 +600,7 @@ const getSlotValue = (slot) => {
 const isSlotFilled = (slot) => {
   const v = getSlotValue(slot);
   if (!v) return false;
-  const ng = ["追加確認中", "情報が必要な個人ユーザー", "主要導線が1本動く", "公開状態", "利用可能な成果物"];
-  return !ng.includes(v);
+  return !BLOCKED_PHRASES.some((phrase) => String(v).includes(phrase));
 };
 
 const recomputeRequiredSlotState = () => {
@@ -902,56 +939,58 @@ const inferProductShape = (serviceTypeLabel = "") => {
   return "情報提供型（仮説）";
 };
 
-const buildSourceDataNarrative = (sourceData) => [
-  `- あなたが本当に叶えたい未来: ${sourceData.upperGoal}`,
-  `- 今回の期限で狙う範囲: ${sourceData.currentKgiScope}`,
-  `- 今回作るもの: ${sourceData.concreteDeliverable}`,
-  `- 想定する読者: ${sourceData.audienceSummary}`,
-  `- どんな価値を届けるか: ${sourceData.valuePromise}`,
-  `- 公開してよい最低ライン: ${(sourceData.minimumReleaseBundle || []).join("、") || sourceData.minimumSuccessLine}`,
-  `- 理想ライン: ${(sourceData.idealReleaseBundle || []).join("、") || sourceData.idealSuccessLine}`,
-  `- 今回は入れないもの: ${(sourceData.excludedFromCurrentKgi || []).join("、") || "特になし"}`,
-  `- 次のKGI候補: ${sourceData.nextKgiSuggestion}`
-].join("\n");
+const buildSourceDataNarrative = (sourceData, genreKey = wizardState.genreKey) => getSourceDataSections(sourceData, genreKey)
+  .map((item) => `- ${item.label}: ${item.value || "未入力"}`)
+  .join("\n");
 
 const ensureRequiredSourceDataFields = (sourceData) => ({
-  upperGoal: sourceData.upperGoal || wizardState.upperGoal || "叶えたい未来を具体化する",
-  currentKgiScope: sourceData.currentKgiScope || `${wizardState.kgiDeadline}までの到達点を定義する`,
-  concreteDeliverable: sourceData.concreteDeliverable || "今回期限で完成・公開する成果物",
-  productShape: sourceData.productShape || "情報提供型（仮説）",
-  contentScope: Array.isArray(sourceData.contentScope) ? sourceData.contentScope : [String(sourceData.contentScope || "内容を具体化中（仮説）")],
-  audienceSummary: sourceData.audienceSummary || "対象は追加回答を踏まえて仮説化",
-  valuePromise: sourceData.valuePromise || "使う人が意思決定しやすくなる価値を提供する",
-  minimumReleaseBundle: Array.isArray(sourceData.minimumReleaseBundle) ? sourceData.minimumReleaseBundle : [String(sourceData.minimumReleaseBundle || "最低達成ラインを満たす")],
-  idealReleaseBundle: Array.isArray(sourceData.idealReleaseBundle) ? sourceData.idealReleaseBundle : [String(sourceData.idealReleaseBundle || "理想ラインは次KGI候補で拡張")],
-  hardRequirements: Array.isArray(sourceData.hardRequirements) ? sourceData.hardRequirements : [String(sourceData.hardRequirements || "期限内で達成判定できる状態")],
-  optionalRequirements: Array.isArray(sourceData.optionalRequirements) ? sourceData.optionalRequirements : [String(sourceData.optionalRequirements || "任意条件なし")],
-  excludedFromCurrentKgi: Array.isArray(sourceData.excludedFromCurrentKgi) ? sourceData.excludedFromCurrentKgi : [String(sourceData.excludedFromCurrentKgi || "特になし")],
-  nextKgiSuggestion: sourceData.nextKgiSuggestion || "今回KGI達成後に次のKGIを正式作成する",
+  upperGoal: sourceData.upperGoal || wizardState.upperGoal || "",
+  currentKgiScope: sourceData.currentKgiScope || `${wizardState.kgiDeadline}までの到達点`,
+  concreteDeliverable: sourceData.concreteDeliverable || "",
+  productShape: sourceData.productShape || "",
+  contentScope: Array.isArray(sourceData.contentScope) ? sourceData.contentScope : [String(sourceData.contentScope || "")].filter(Boolean),
+  audienceSummary: sourceData.audienceSummary || "",
+  valuePromise: sourceData.valuePromise || "",
+  minimumReleaseBundle: Array.isArray(sourceData.minimumReleaseBundle) ? sourceData.minimumReleaseBundle : [String(sourceData.minimumReleaseBundle || "")].filter(Boolean),
+  idealReleaseBundle: Array.isArray(sourceData.idealReleaseBundle) ? sourceData.idealReleaseBundle : [String(sourceData.idealReleaseBundle || "")].filter(Boolean),
+  hardRequirements: Array.isArray(sourceData.hardRequirements) ? sourceData.hardRequirements : [String(sourceData.hardRequirements || "")].filter(Boolean),
+  optionalRequirements: Array.isArray(sourceData.optionalRequirements) ? sourceData.optionalRequirements : [String(sourceData.optionalRequirements || "")].filter(Boolean),
+  excludedFromCurrentKgi: Array.isArray(sourceData.excludedFromCurrentKgi) ? sourceData.excludedFromCurrentKgi : [String(sourceData.excludedFromCurrentKgi || "")].filter(Boolean),
+  nextKgiSuggestion: sourceData.nextKgiSuggestion || "",
   sourceDataNarrative: sourceData.sourceDataNarrative || buildSourceDataNarrative(sourceData)
 });
 
 const buildAiKgiSourceData = () => {
   recomputeRequiredSlotState();
   const required = wizardState.requiredSlotsByGenre || [];
-  const slotValues = Object.fromEntries(required.map((slot) => [slot, getSlotValue(slot) || "未確定"]));
+  const slotValues = Object.fromEntries(required.map((slot) => [slot, getSlotValue(slot) || ""]));
   const sourceData = {
-    upperGoal: wizardState.upperGoal || "未確定",
+    upperGoal: wizardState.upperGoal || "",
     kgiDeadline: wizardState.kgiDeadline,
     currentKgiScope: wizardState.currentKgiScope || `${wizardState.kgiDeadline}時点で達成判定できる範囲`,
     ...slotValues,
-    minimumReleaseBundle: [slotValues.minimumReleaseBundle || slotValues.minimumServiceLaunchLine || slotValues.minimumAchievementLine || "未確定"],
-    idealReleaseBundle: [getSlotValue("idealReleaseBundle") || "未確定"],
-    hardRequirements: [slotValues.hardRequirements || "未確定"],
-    optionalRequirements: [getSlotValue("monetizationPreparation") || "未確定"],
-    excludedFromCurrentKgi: [slotValues.excludedFromCurrentKgi || "未確定"],
-    nextKgiSuggestion: getSlotValue("nextKgiSuggestion") || "今回KGI達成後に次のKGI候補を正式化",
+    minimumReleaseBundle: [slotValues.minimumReleaseBundle || slotValues.minimumServiceLaunchLine || slotValues.minimumAchievementLine || ""].filter(Boolean),
+    idealReleaseBundle: [getSlotValue("idealReleaseBundle") || ""].filter(Boolean),
+    hardRequirements: [slotValues.hardRequirements || ""].filter(Boolean),
+    optionalRequirements: [getSlotValue("monetizationPreparation") || ""].filter(Boolean),
+    excludedFromCurrentKgi: [slotValues.excludedFromCurrentKgi || ""].filter(Boolean),
+    nextKgiSuggestion: getSlotValue("nextKgiSuggestion") || "",
     whyThisStructure: "必須スロットを先に埋めてから、今回範囲と次回範囲を分離したため。"
   };
-  sourceData.concreteDeliverable = sourceData.concreteDeliverable || sourceData.serviceSummary || sourceData.successDefinition || "未確定";
-  sourceData.audienceSummary = sourceData.audienceSummary || sourceData.targetBuyer || sourceData.targetClient || sourceData.targetBehavior || "未確定";
-  sourceData.valuePromise = sourceData.valuePromise || sourceData.stabilityDefinition || "未確定";
-  sourceData.sourceDataNarrative = buildSourceDataNarrative(sourceData);
+  if (isInvestmentGenreKey()) {
+    sourceData.concreteDeliverable = sourceData.successDefinition || sourceData.concreteDeliverable || "";
+    sourceData.audienceSummary = "";
+    sourceData.valuePromise = "";
+    sourceData.minimumReleaseBundle = [];
+    sourceData.idealReleaseBundle = [];
+    sourceData.productShape = "";
+    sourceData.contentScope = [];
+  } else {
+    sourceData.concreteDeliverable = sourceData.concreteDeliverable || sourceData.serviceSummary || "";
+    sourceData.audienceSummary = sourceData.audienceSummary || sourceData.targetBuyer || sourceData.targetClient || sourceData.targetBehavior || "";
+    sourceData.valuePromise = sourceData.valuePromise || "";
+  }
+  sourceData.sourceDataNarrative = buildSourceDataNarrative(sourceData, wizardState.genreKey);
   wizardState.aiKgiSourceData = sourceData;
   wizardState.clarifiedSuccessState = `${wizardState.kgiDeadline}時点の達成条件をsource dataとして整理`;
   wizardState.nextKgiSuggestion = sourceData.nextKgiSuggestion;
@@ -963,25 +1002,71 @@ const buildKgiSourceData = () => {
   buildAiKgiSourceData();
 };
 
+const getQualityGateIssues = () => {
+  const sourceData = wizardState.aiKgiSourceData;
+  const issues = [];
+  if (!sourceData) return ["KGI元データが未生成です"];
+  recomputeRequiredSlotState();
+  if (wizardState.missingRequiredSlots.length > 0) {
+    issues.push(...wizardState.missingRequiredSlots.map((slot) => `${slot} が未充足`));
+  }
+  const textCandidates = [
+    sourceData.sourceDataNarrative,
+    wizardState.kgiStatement,
+    ...(wizardState.kgiSuccessCriteria || []),
+    ...Object.values(sourceData).flatMap((value) => Array.isArray(value) ? value : [value])
+  ].filter(Boolean).map(String);
+  BLOCKED_PHRASES.forEach((phrase) => {
+    if (textCandidates.some((text) => text.includes(phrase))) issues.push(`禁止語句を検知: ${phrase}`);
+  });
+  if (isInvestmentGenreKey()) {
+    const nonInvestmentFields = [sourceData.audienceSummary, sourceData.valuePromise, sourceData.productShape, (sourceData.contentScope || []).join("、"), (sourceData.minimumReleaseBundle || []).join("、")];
+    if (nonInvestmentFields.some((v) => String(v || "").trim())) issues.push("投資型に不適切な公開/読者系項目が混在");
+  }
+  const hasConcreteCriteria = (wizardState.kgiSuccessCriteria || []).every((item) => /\d|期限|市場|単位|ルール|定義/.test(item));
+  if (wizardState.kgiSuccessCriteria.length > 0 && !hasConcreteCriteria) issues.push("判定条件が具体的でない");
+  return Array.from(new Set(issues));
+};
+
+const applyQualityGate = () => {
+  const issues = getQualityGateIssues();
+  if (issues.length === 0) return { pass: true, issues: [] };
+  console.warn("[KGI_QUALITY_GATE] blocked", { issues, genre: wizardState.genreKey });
+  return { pass: false, issues };
+};
+
 const buildKgiStatementAndCriteria = () => {
   const sourceData = wizardState.aiKgiSourceData;
   if (!sourceData) return;
-  const mainDeliverable = sourceData.concreteDeliverable || sourceData.serviceSummary || sourceData.successDefinition || "成果";
-  const minimumLine = (sourceData.minimumReleaseBundle || [])[0] || sourceData.minimumServiceLaunchLine || sourceData.minimumAchievementLine || "未確定";
-  wizardState.kgiStatement = `${sourceData.kgiDeadline}までに、${mainDeliverable}を${minimumLine}の条件で達成し、今回範囲の成功状態を判定可能にする。`;
-  wizardState.kgiSuccessCriteria = [
-    `期限日（${sourceData.kgiDeadline}）時点で達成判定できる`,
-    `必須条件: ${(sourceData.hardRequirements || []).join("、")}`,
-    `最低ライン: ${minimumLine}`,
-    `今回除外: ${(sourceData.excludedFromCurrentKgi || []).join("、")}`
-  ];
+  if (isInvestmentGenreKey()) {
+    wizardState.kgiStatement = `${sourceData.kgiDeadline}までに、${sourceData.targetMarket}の取引において${sourceData.measurementUnit}収支を記録し、${sourceData.successDefinition}を${sourceData.stabilityDefinition}の条件で達成する。`;
+    wizardState.kgiSuccessCriteria = [
+      `期限日（${sourceData.kgiDeadline}）までに達成判定できる`,
+      `月次収支などの測定単位: ${sourceData.measurementUnit}`,
+      `対象市場: ${sourceData.targetMarket}`,
+      `取引スタイル/ルール: ${sourceData.tradingStyleOrRuleBasis}`,
+      `安定の定義: ${sourceData.stabilityDefinition}`,
+      `除外条件: ${(sourceData.excludedFromCurrentKgi || []).join("、") || "特になし"}`
+    ];
+  } else {
+    const mainDeliverable = sourceData.concreteDeliverable || sourceData.serviceSummary || "成果";
+    const minimumLine = (sourceData.minimumReleaseBundle || [])[0] || sourceData.minimumServiceLaunchLine || sourceData.minimumAchievementLine || "";
+    wizardState.kgiStatement = `${sourceData.kgiDeadline}までに、${mainDeliverable}を${minimumLine}の条件で達成し、今回範囲の成功状態を判定可能にする。`;
+    wizardState.kgiSuccessCriteria = [
+      `期限日（${sourceData.kgiDeadline}）時点で達成判定できる`,
+      `必須条件: ${(sourceData.hardRequirements || []).join("、")}`,
+      `最低ライン: ${minimumLine}`,
+      `今回除外: ${(sourceData.excludedFromCurrentKgi || []).join("、") || "特になし"}`
+    ];
+  }
 };
 
 const buildGapAnalysis = () => {
   const missing = wizardState.missingRequiredSlots;
+  const gate = applyQualityGate();
   wizardState.gapAnalysis = {
     alreadyDone: ["KGI元データの主要項目が整理済み"],
-    notDoneYet: missing.length ? missing.map((slot) => `${slot} が未確定`) : ["未確定の必須スロットなし"],
+    notDoneYet: gate.pass ? (missing.length ? missing.map((slot) => `${slot} が未充足`) : ["必須スロットは充足"]) : gate.issues,
     firstBigMountain: "最低ラインを期限内で観測可能にする",
     gapToCloseForCurrentKgi: missing.length ? missing : ["達成判定条件の運用準備"]
   };
@@ -1074,6 +1159,7 @@ const renderProposal = () => {
   const sourceData = wizardState.aiKgiSourceData;
   const genreInfo = wizardState.genreClassification;
   const gap = wizardState.gapAnalysis;
+  const gate = applyQualityGate();
   if (!hasRenderableSourceData()) {
     understandingCheckSection.classList.remove("hidden");
     understandingCheckSection.innerHTML = `
@@ -1097,23 +1183,25 @@ const renderProposal = () => {
     const remainingAmbiguity = (sourceData.ambiguityPointsRemaining || []).length > 0
       ? sourceData.ambiguityPointsRemaining.join("、")
       : "特になし";
+    const sourceSectionsHtml = getSourceDataSections(sourceData, wizardState.genreKey)
+      .map((item) => `<p class="proposal-meta"><strong>${item.label}:</strong> ${item.value || "未入力"}</p>`)
+      .join("");
+    const gateHtml = !gate.pass ? `
+      <div class="proposal-meta error">
+        <p><strong>まだ保存できるKGIではありません</strong></p>
+        <p>次の点が未確定です</p>
+        <ul>${gate.issues.map((issue) => `<li>${issue}</li>`).join("")}</ul>
+        <p>追加質問に戻って埋めてください</p>
+      </div>
+    ` : "";
     understandingCheckSection.innerHTML = `
       <h3>まず確認: 今回のKGIの具体案</h3>
       ${genreInfo ? `<p class="proposal-meta"><strong>AIジャンル判定:</strong> ${genreInfo.primaryGenre}（根拠: ${genreInfo.reason || "文脈判定"}）</p>` : ""}
       ${genreInfo?.multipleKgiDetected ? `<p class="proposal-meta"><strong>KGI分割提案:</strong> ${genreInfo.splitSuggestion || "複数KGIに分ける提案あり"}</p>` : ""}
-      <p class="proposal-meta"><strong>あなたが本当に叶えたい未来:</strong> ${sourceData.upperGoal}</p>
-      <p class="proposal-meta"><strong>今回の期限で狙う範囲:</strong> ${sourceData.currentKgiScope}</p>
-      <p class="proposal-meta"><strong>今回作るもの:</strong> ${sourceData.concreteDeliverable}</p>
-      <p class="proposal-meta"><strong>想定する読者:</strong> ${sourceData.audienceSummary}</p>
-      <p class="proposal-meta"><strong>どんな価値を届けるか:</strong> ${sourceData.valuePromise}</p>
-      <p class="proposal-meta"><strong>公開してよい最低ライン:</strong> ${(sourceData.minimumReleaseBundle || []).join("、") || sourceData.minimumSuccessLine}</p>
-      <p class="proposal-meta"><strong>理想ライン:</strong> ${(sourceData.idealReleaseBundle || []).join("、") || sourceData.idealSuccessLine}</p>
-      <p class="proposal-meta"><strong>今回は入れないもの:</strong> ${(sourceData.excludedFromCurrentKgi || []).join("、") || "特になし"}</p>
-      <p class="proposal-meta"><strong>次のKGI候補:</strong> ${sourceData.nextKgiSuggestion}</p>
+      ${sourceSectionsHtml}
+      ${gateHtml}
       <details>
         <summary>補足を見る</summary>
-        <p class="proposal-meta"><strong>形（productShape）:</strong> ${sourceData.productShape}</p>
-        <p class="proposal-meta"><strong>載せる内容（contentScope）:</strong> ${(sourceData.contentScope || []).join("、")}</p>
         <p class="proposal-meta"><strong>要約（sourceDataNarrative）:</strong><br>${sourceData.sourceDataNarrative.replaceAll("\n", "<br>")}</p>
         <p class="proposal-meta"><strong>曖昧さの残り:</strong> ${remainingAmbiguity}</p>
         <p class="proposal-meta"><strong>この整理にした理由:</strong> ${sourceData.whyThisStructure}</p>
@@ -1143,7 +1231,7 @@ const renderProposal = () => {
     : "";
 
   card.innerHTML = `
-    <h3>KGI候補</h3>
+    <h3>${isInvestmentGenreKey() ? "投資・トレードKGI候補" : "KGI候補"}</h3>
     <p class="proposal-meta"><strong>KGI本体:</strong> ${wizardState.kgiStatement}</p>
     <p class="proposal-meta"><strong>KGI達成の判定条件:</strong></p>
     <ul class="proposal-meta">${criteriaHtml}</ul>
@@ -1171,6 +1259,10 @@ const renderProposal = () => {
   deadlineInput.value = wizardState.selectedDraft.deadline;
   levelInput.value = wizardState.selectedDraft.level;
   editSection.classList.toggle("hidden", !wizardState.sourceDataConfirmed);
+  saveButton.disabled = !wizardState.sourceDataConfirmed || !gate.pass;
+  if (!gate.pass && wizardState.sourceDataConfirmed) {
+    setStatus("まだ情報が足りないため、保存可能なKGIにはなっていません。追加質問へ戻ってください。", true);
+  }
   renderRecoveryCard();
 };
 
@@ -1460,7 +1552,7 @@ nextQuestionButton.addEventListener("click", async () => {
     renderProposal();
     setStep(3);
     const hasMissing = wizardState.missingRequiredSlots.length > 0;
-    setStatus(hasMissing ? "最大質問数に達したため、未確定項目を含む仮KGI元データを作成しました。" : "KGI元データを作成しました。まず内容確認をお願いします。", false);
+    setStatus(hasMissing ? "まだ情報が足りないため、保存可能なKGIにはなっていません。追加質問に戻って埋めてください。" : "KGI元データを作成しました。まず内容確認をお願いします。", hasMissing);
   } catch (error) {
     logFollowUpError("次へ処理中に予期しないエラー", { error: error?.message || String(error) });
     wizardState.lastError = "AIとの通信に失敗しましたが、回答内容は保存されています。";
@@ -1487,8 +1579,16 @@ sourceDataApproveButton?.addEventListener("click", async () => {
   sourceDataApproveButton.disabled = true;
   sourceDataApproveButton.textContent = "処理中...";
   try {
-    wizardState.sourceDataConfirmed = true;
     if (!wizardState.kgiStatement || !wizardState.kgiSuccessCriteria.length) buildKgiStatementAndCriteria();
+    const gate = applyQualityGate();
+    if (!gate.pass) {
+      wizardState.sourceDataConfirmed = false;
+      console.warn("[KGI_QUALITY_GATE] step3 blocked", gate.issues);
+      setStatus(`まだ情報が足りないため、保存可能なKGIにはなっていません。(${gate.issues.join(" / ")})`, true);
+      renderProposal();
+      return;
+    }
+    wizardState.sourceDataConfirmed = true;
     buildGapAnalysis();
     buildKpiDrafts();
     await syncPersistence();
@@ -1531,10 +1631,18 @@ const persistKgi = async () => {
     alert("先にKGI元データを確認して「だいたい合っている」を押してください。");
     return;
   }
+  const gate = applyQualityGate();
+  if (!gate.pass) {
+    console.warn("[KGI_SAVE_BLOCKED] quality gate", gate.issues);
+    setStatus(`まだ保存できるKGIではありません。次の点を埋めてください: ${gate.issues.join(" / ")}`, true);
+    saveButton.disabled = true;
+    return;
+  }
 
   saveButton.disabled = true;
   saveButton.textContent = "処理中...";
   setStep(4);
+  console.info("[KGI_SAVE] start", { sessionId: wizardState.sessionId, genreKey: wizardState.genreKey });
   setStatus("保存中です...");
 
   try {
@@ -1584,10 +1692,12 @@ const persistKgi = async () => {
 
     await syncPersistence();
     clearLocalDraft();
+    console.info("[KGI_SAVE] success", { id: docRef.id });
     setStatus("保存が完了しました。詳細画面へ移動します。", false);
     location.href = `./detail.html?id=${docRef.id}`;
   } catch (error) {
     console.error(error);
+    console.error("[KGI_SAVE] failed", { error: error?.message || String(error) });
     setStatus("保存に失敗しました。Firebase設定とルールを確認してください。", true);
     saveButton.disabled = false;
     saveButton.textContent = "この内容で保存";
@@ -1595,6 +1705,54 @@ const persistKgi = async () => {
 };
 
 saveButton.addEventListener("click", persistKgi);
+
+const applySpecificityCandidate = () => {
+  const candidate = {
+    name: (specificityCandidateName?.textContent || "").trim(),
+    goalText: (specificityCandidateGoal?.textContent || "").trim(),
+    deadline: (specificityCandidateDeadline?.textContent || "").trim()
+  };
+  if (!candidate.goalText) {
+    return {
+      applied: false,
+      reason: "補正候補が見つからないため反映できません。"
+    };
+  }
+  if (candidate.name) nameInput.value = candidate.name;
+  goalTextInput.value = candidate.goalText;
+  if (candidate.deadline && /^\d{4}-\d{2}-\d{2}$/.test(candidate.deadline)) deadlineInput.value = candidate.deadline;
+  return { applied: true };
+};
+
+saveWithSpecificityButton?.addEventListener("click", async () => {
+  console.info("[KGI_SPECIFICITY] button clicked");
+  saveWithSpecificityButton.disabled = true;
+  saveWithSpecificityButton.textContent = "処理中...";
+  try {
+    setStatus("処理中...補正を反映しています。", false);
+    const result = applySpecificityCandidate();
+    if (!result.applied) {
+      console.warn("[KGI_SPECIFICITY] apply failed", { reason: result.reason });
+      setStatus(result.reason, true);
+      return;
+    }
+    console.info("[KGI_SPECIFICITY] apply success");
+    setStatus("補正を反映しました。保存します。", false);
+    await persistKgi();
+  } catch (error) {
+    console.error("[KGI_SPECIFICITY] failed", { error: error?.message || String(error) });
+    setStatus("保存に失敗しました。", true);
+  } finally {
+    saveWithSpecificityButton.disabled = false;
+    saveWithSpecificityButton.textContent = "補正を反映して保存する";
+  }
+});
+
+editSpecificityButton?.addEventListener("click", () => {
+  applySpecificityCandidate();
+  specificityWarningBox?.classList.add("hidden");
+  setStatus("補正案を下の編集欄へ反映しました。内容を確認して保存してください。", false);
+});
 
 saveButton.disabled = true;
 setStatus("Firebase接続を初期化しています...");
@@ -1630,7 +1788,8 @@ const restoreDraftFromLocal = () => {
   try {
     restoreDraftFromLocal();
     db = await getDb();
-    saveButton.disabled = false;
+    const gate = applyQualityGate();
+    saveButton.disabled = !wizardState.sourceDataConfirmed || !gate.pass;
     setStatus("Firebase接続が完了しました。", false);
   } catch (error) {
     console.error(error);
