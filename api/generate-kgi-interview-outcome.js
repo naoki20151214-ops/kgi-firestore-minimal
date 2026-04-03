@@ -1,5 +1,6 @@
 const OPENAI_API_URL = "https://api.openai.com/v1/responses";
 const ROUTE_LOG_PREFIX = "[api/generate-kgi-interview-outcome]";
+const OPENAI_MODEL = "gpt-5-mini";
 
 const sendJson = (res, status, body) => {
   res.statusCode = status;
@@ -35,6 +36,17 @@ const logInfo = (message, detail = {}) => {
 
 const logError = (message, detail = {}) => {
   console.error(`${ROUTE_LOG_PREFIX} ${message}`, detail);
+};
+
+const truncateForLog = (value, maxLength = 1500) => {
+  if (typeof value !== "string") return value;
+  if (value.length <= maxLength) return value;
+  return `${value.slice(0, maxLength)}...(truncated)`;
+};
+
+const deriveOpenAiHttpErrorCode = (status) => {
+  const normalized = Number.isInteger(status) && status > 0 ? status : "unknown";
+  return `openai_http_error_${normalized}`;
 };
 
 const extractOutputText = (responseData) => {
@@ -235,6 +247,7 @@ module.exports = async function handler(req, res) {
 
   logInfo("request accepted", {
     mode,
+    model: OPENAI_MODEL,
     hasDeadline: Boolean(normalizedBody.deadline),
     hasInitialInput: Boolean(String(normalizedBody.initial_input || normalizedBody.rawSuccessStateInput || "").trim()),
     conversationTurns: Array.isArray(normalizedBody.conversation_turns) ? normalizedBody.conversation_turns.length : 0
@@ -251,7 +264,7 @@ module.exports = async function handler(req, res) {
         Authorization: `Bearer ${apiKey}`
       },
       body: JSON.stringify({
-        model: "gpt-5-mini",
+        model: OPENAI_MODEL,
         input: [
           { role: "system", content: [{ type: "input_text", text: selectedPrompt }] },
           { role: "user", content: [{ type: "input_text", text: JSON.stringify(normalizedBody) }] }
@@ -262,7 +275,14 @@ module.exports = async function handler(req, res) {
 
     const rawText = await response.text();
     if (!response.ok) {
-      logError("OpenAI呼び出し失敗", { mode, status: response.status, rawText });
+      const errorCode = deriveOpenAiHttpErrorCode(response.status);
+      logError("OpenAI呼び出し失敗", {
+        mode,
+        model: OPENAI_MODEL,
+        status: response.status,
+        errorCode,
+        rawText: truncateForLog(rawText)
+      });
       return sendJson(res, 502, { error: "Upstream AI request failed", code: "openai_http_error" });
     }
 
