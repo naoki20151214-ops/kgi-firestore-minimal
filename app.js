@@ -1606,6 +1606,7 @@ const updateCreationSession = async () => {
 const runKgiInterviewTurn = async (latestAnswer = null) => {
   const normalizedDeadline = normalizeDeadlineInput(wizardState.kgiDeadline);
   const payload = {
+    mode: "turn",
     deadline: normalizedDeadline,
     initial_input: wizardState.rawSuccessStateInput,
     latest_answer: latestAnswer,
@@ -1620,7 +1621,7 @@ const runKgiInterviewTurn = async (latestAnswer = null) => {
     }
   };
 
-  const response = await fetch("/api/run-kgi-interview-turn", {
+  const response = await fetch("/api/generate-kgi-interview-outcome", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload)
