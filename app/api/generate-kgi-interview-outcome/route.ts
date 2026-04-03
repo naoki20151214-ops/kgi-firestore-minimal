@@ -1,6 +1,27 @@
 import { NextResponse } from "next/server";
 
 const OPENAI_API_URL = "https://api.openai.com/v1/responses";
+const OPENAI_MODEL = "gpt-5-mini";
+
+const logPrefix = "[app/api/generate-kgi-interview-outcome]";
+
+const logInfo = (message: string, detail: Record<string, unknown> = {}) => {
+  console.log(`${logPrefix} ${message}`, detail);
+};
+
+const logError = (message: string, detail: Record<string, unknown> = {}) => {
+  console.error(`${logPrefix} ${message}`, detail);
+};
+
+const truncateForLog = (value: string, maxLength = 1500) => {
+  if (value.length <= maxLength) return value;
+  return `${value.slice(0, maxLength)}...(truncated)`;
+};
+
+const deriveOpenAiHttpErrorCode = (status: number) => {
+  const normalized = Number.isInteger(status) && status > 0 ? status : "unknown";
+  return `openai_http_error_${normalized}`;
+};
 
 const normalizeDeadline = (value: unknown) => {
   const input = String(value || "").trim();
@@ -86,9 +107,15 @@ const OUTCOME_SYSTEM_PROMPT = [
 
 export async function POST(request: Request) {
   const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) return NextResponse.json({ error: "OPENAI_API_KEY is missing", code: "missing_api_key" }, { status: 500 });
+  if (!apiKey) {
+    logError("環境変数未設定", { hasOpenAiApiKey: false });
+    return NextResponse.json({ error: "OPENAI_API_KEY is missing", code: "missing_api_key" }, { status: 500 });
+  }
   const body = await request.json().catch(() => null);
-  if (!body || typeof body !== "object") return NextResponse.json({ error: "Invalid request body", code: "invalid_request_body" }, { status: 400 });
+  if (!body || typeof body !== "object") {
+    logError("不正payload", { bodyType: typeof body });
+    return NextResponse.json({ error: "Invalid request body", code: "invalid_request_body" }, { status: 400 });
+  }
 
   const mode = String((body as any).mode || (body as any).action || "outcome").trim().toLowerCase();
   const isTurnMode = mode === "turn";
@@ -96,13 +123,20 @@ export async function POST(request: Request) {
 
   const selectedSchema = isTurnMode ? TURN_RESPONSE_SCHEMA : OUTCOME_RESPONSE_SCHEMA;
   const selectedPrompt = isTurnMode ? TURN_SYSTEM_PROMPT : OUTCOME_SYSTEM_PROMPT;
+  logInfo("request accepted", {
+    mode,
+    model: OPENAI_MODEL,
+    hasDeadline: Boolean((normalizedBody as any).deadline),
+    hasInitialInput: Boolean(String((normalizedBody as any).initial_input || (normalizedBody as any).rawSuccessStateInput || "").trim()),
+    conversationTurns: Array.isArray((normalizedBody as any).conversation_turns) ? (normalizedBody as any).conversation_turns.length : 0
+  });
 
   try {
     const response = await fetch(OPENAI_API_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
       body: JSON.stringify({
-        model: "gpt-5-mini",
+        model: OPENAI_MODEL,
         input: [
           { role: "system", content: [{ type: "input_text", text: selectedPrompt }] },
           { role: "user", content: [{ type: "input_text", text: JSON.stringify(normalizedBody) }] }
@@ -112,26 +146,48 @@ export async function POST(request: Request) {
     });
 
     const raw = await response.text();
+    if (!response.ok) {
+      const errorCode = deriveOpenAiHttpErrorCode(response.status);
+      logError("OpenAI呼び出し失敗", {
+        mode,
+        model: OPENAI_MODEL,
+        status: response.status,
+        errorCode,
+        rawText: truncateForLog(raw)
+      });
+      return NextResponse.json({ error: "Upstream AI request failed", code: "openai_http_error" }, { status: 502 });
+    }
+
     let responseJson: any;
     try {
       responseJson = JSON.parse(raw);
     } catch {
+      logError("OpenAIレスポンスJSON parse失敗", { mode, model: OPENAI_MODEL, rawText: truncateForLog(raw) });
       return NextResponse.json({ error: "Upstream response parse failed", code: "openai_response_parse_error" }, { status: 502 });
     }
 
     const outputText = extractOutputText(responseJson);
-    const data = outputText ? JSON.parse(outputText) : null;
-    if (!response.ok) return NextResponse.json({ error: "Upstream AI request failed", code: "openai_http_error" }, { status: 502 });
+    let data: any = null;
+    if (outputText) {
+      try {
+        data = JSON.parse(outputText);
+      } catch {
+        logError("OpenAI output_text JSON parse失敗", { mode, model: OPENAI_MODEL, outputText: truncateForLog(outputText) });
+      }
+    }
 
     if (isTurnMode && (!data?.quality_check || !data?.next_question)) {
+      logError("turn schema不足", { parsedKeys: Object.keys(data || {}) });
       return NextResponse.json({ error: "AI output format error", code: "openai_output_schema_error" }, { status: 502 });
     }
     if (!isTurnMode && (!data?.kgiStatement || !data?.aiKgiSourceData)) {
+      logError("outcome schema不足", { parsedKeys: Object.keys(data || {}) });
       return NextResponse.json({ error: "AI output format error", code: "openai_output_schema_error" }, { status: 502 });
     }
 
     return NextResponse.json(data, { status: 200 });
-  } catch (error) {
+  } catch (error: any) {
+    logError("Unexpected server error", { mode, message: error?.message || "unknown" });
     return NextResponse.json({ error: "Unexpected server error", code: "unexpected_server_error", details: (error as Error)?.message || "unknown" }, { status: 500 });
   }
 }
