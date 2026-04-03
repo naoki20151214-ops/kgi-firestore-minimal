@@ -376,6 +376,33 @@ const REQUIRED_SLOT_QUESTION_LIBRARY = [
 const ENHANCED_FOLLOW_UP_LIBRARY = [...ALL_FOLLOW_UP_LIBRARY, ...REQUIRED_SLOT_QUESTION_LIBRARY];
 const FOLLOW_UP_BY_ID = new Map(ENHANCED_FOLLOW_UP_LIBRARY.map((question) => [question.id, question]));
 const FOLLOW_UP_SLOT_DEFINITIONS = Array.from(FOLLOW_UP_BY_ID.keys());
+const SLOT_LABELS = {
+  concreteDeliverable: "今回作るもの",
+  productShape: "作るものの形",
+  contentScope: "含める内容",
+  audienceSummary: "想定する読者",
+  valuePromise: "届ける価値",
+  publishDefinition: "公開の定義",
+  minimumReleaseBundle: "公開の最低ライン",
+  hardRequirements: "今回必須の条件",
+  excludedFromCurrentKgi: "今回は入れないもの",
+  targetBuyer: "想定購入者",
+  salesMethod: "販売方法",
+  publishOrSalesDefinition: "販売開始の定義",
+  serviceSummary: "今回のサービス概要",
+  targetClient: "対象クライアント",
+  offerScope: "提供範囲",
+  applicationDefinition: "申込可能の定義",
+  minimumServiceLaunchLine: "受注開始の最低ライン",
+  successDefinition: "成功の定義",
+  measurementUnit: "判定の単位",
+  targetMarket: "対象市場",
+  tradingStyleOrRuleBasis: "取引スタイル/ルール基準",
+  stabilityDefinition: "安定の定義",
+  targetBehavior: "対象行動",
+  continuityDefinition: "継続の定義",
+  minimumAchievementLine: "最低達成ライン"
+};
 const QUESTION_RULES = {
   service_type: { requiredContext: [], specificityLevel: "specific", priority: 1 },
   domain: { requiredContext: ["service_type"], specificityLevel: "specific", priority: 2 },
@@ -409,12 +436,63 @@ const CONTEXT_BY_QUESTION_ID = {
 const ABSTRACT_TERMS = ["状態", "価値", "達成", "意味", "誰に何を"];
 const FOLLOW_UP_DEBUG_PREFIX = "[KGI_FOLLOWUP_DEBUG]";
 let isAdvancingQuestion = false;
-const LOCAL_DRAFT_KEY = "kgi_wizard_draft_v1";
+const SESSION_LOG_PREFIX = "[KGI_SESSION]";
+const LOCAL_DRAFT_PREFIX = "kgi_wizard_draft_v2:";
+const LOCAL_DRAFT_LATEST_KEY = "kgi_wizard_draft_latest_v2";
+const DRAFT_RESTORE_TTL_MS = 1000 * 60 * 60 * 24;
 const BLOCKED_PHRASES = ["未確定", "追加確認中", "公開状態", "主要導線が1本動く", "利用可能な成果物"];
+const INITIAL_WIZARD_STATE = structuredClone(wizardState);
 
 const setStatus = (message, isError = false) => {
   statusText.textContent = message;
   statusText.classList.toggle("error", isError);
+};
+
+const logSessionInfo = (message, detail = {}) => {
+  console.info(`${SESSION_LOG_PREFIX} ${message}`, detail);
+};
+
+const getSessionFingerprint = (deadline = wizardState.kgiDeadline, rawInput = wizardState.rawSuccessStateInput) => {
+  const normalizedDeadline = String(deadline || "").trim();
+  const normalizedRawInput = String(rawInput || "").trim().replace(/\s+/g, " ");
+  return `${normalizedDeadline}::${normalizedRawInput}`;
+};
+
+const getDraftStorageKey = () => `${LOCAL_DRAFT_PREFIX}${wizardState.sessionId || getSessionFingerprint() || "anonymous"}`;
+
+const resetWizardSessionState = () => {
+  const preservedStatus = statusText?.textContent || "";
+  Object.assign(wizardState, structuredClone(INITIAL_WIZARD_STATE));
+  questionSection?.classList.add("hidden");
+  proposalSection?.classList.add("hidden");
+  understandingCheckSection?.classList.add("hidden");
+  proposalList?.classList.add("hidden");
+  editSection?.classList.add("hidden");
+  if (statusText) setStatus(preservedStatus || "入力待ちです。", false);
+  logSessionInfo("session reset complete");
+};
+
+const normalizeOptionLabel = (label = "") => String(label || "")
+  .replace(/納品物|成果物/g, "作るもの")
+  .replace(/具体的成果/g, "変化")
+  .replace(/利用可能な状態/g, "使える状態")
+  .replace(/判定可能にする/g, "達成と言える状態にする")
+  .trim();
+
+const normalizeQuestionCopy = (rawText = "") => {
+  const text = String(rawText || "").trim();
+  if (!text) return "";
+  return text
+    .replace("最終的にどの形の具体的な納品物（成果物）を求めますか？", "今回、最終的に何を完成させたいですか？")
+    .replace("この20本の記事群で読者にどんな具体的成果を約束しますか？", "このサイトを読んだ人に、どんな状態になってほしいですか？")
+    .replace(/納品物|成果物/g, "作るもの")
+    .replace(/約束しますか/g, "目指しますか")
+    .replace(/具体的成果/g, "変化")
+    .replace(/利用可能な状態/g, "使える状態")
+    .replace(/判定可能にする/g, "達成と言える状態にする")
+    .replace(/最終的にどの形の具体的な/g, "最終的にどんな")
+    .replace(/\s+/g, " ")
+    .trim();
 };
 
 const getPersistableWizardSnapshot = () => ({
@@ -445,22 +523,33 @@ const getPersistableWizardSnapshot = () => ({
   clarifiedSuccessState: wizardState.clarifiedSuccessState,
   nextKgiSuggestion: wizardState.nextKgiSuggestion,
   gapAnalysis: wizardState.gapAnalysis,
-  kpiDrafts: wizardState.kpiDrafts
+  kpiDrafts: wizardState.kpiDrafts,
+  interviewNotes: wizardState.interviewNotes
 });
 
 const persistDraftToLocal = () => {
   try {
-    localStorage.setItem(LOCAL_DRAFT_KEY, JSON.stringify({
+    const key = getDraftStorageKey();
+    localStorage.setItem(key, JSON.stringify({
       updatedAt: new Date().toISOString(),
+      draftKey: key,
+      sessionFingerprint: getSessionFingerprint(),
+      kgiDeadline: wizardState.kgiDeadline,
+      rawSuccessStateInput: wizardState.rawSuccessStateInput,
       payload: getPersistableWizardSnapshot()
     }));
+    localStorage.setItem(LOCAL_DRAFT_LATEST_KEY, key);
   } catch (error) {
     console.warn("localStorage保存に失敗", error);
   }
 };
 
 const clearLocalDraft = () => {
-  try { localStorage.removeItem(LOCAL_DRAFT_KEY); } catch (_) {}
+  try {
+    const key = localStorage.getItem(LOCAL_DRAFT_LATEST_KEY);
+    if (key) localStorage.removeItem(key);
+    localStorage.removeItem(LOCAL_DRAFT_LATEST_KEY);
+  } catch (_) {}
 };
 
 const syncPersistence = async () => {
@@ -741,9 +830,9 @@ const getQuestionRecord = (questionId) => {
   if (historyItem?.followUpQuestionText && Array.isArray(historyItem.followUpOptionsSnapshot)) {
     return {
       id: historyItem.id,
-      text: historyItem.followUpQuestionText,
+      text: normalizeQuestionCopy(historyItem.followUpQuestionText),
       helpText: historyItem.followUpHelpText || "",
-      options: historyItem.followUpOptionsSnapshot,
+      options: historyItem.followUpOptionsSnapshot.map((option) => ({ ...option, label: normalizeOptionLabel(option.label) })),
       allowOtherText: historyItem.allowOtherText !== false
     };
   }
@@ -751,9 +840,9 @@ const getQuestionRecord = (questionId) => {
   if (!fallback) return null;
   return {
     id: fallback.id,
-    text: fallback.text,
+    text: normalizeQuestionCopy(fallback.text),
     helpText: "",
-    options: fallback.options,
+    options: fallback.options.map((option) => ({ ...option, label: normalizeOptionLabel(option.label) })),
     allowOtherText: true
   };
 };
@@ -840,11 +929,11 @@ const generateFollowUpQuestion = async (nextSlot) => {
   }
   return {
     slot: data.slot,
-    questionText: (data.question_text || "").trim(),
+    questionText: normalizeQuestionCopy((data.question_text || "").trim()),
     helpText: (data.help_text || "").trim(),
     options: data.options.map((opt) => ({
       id: String(opt.id || "").trim(),
-      label: String(opt.label || "").trim()
+      label: normalizeOptionLabel(String(opt.label || "").trim())
     })).filter((opt) => opt.id && opt.label),
     allowOtherText: data.allow_other_text !== false
   };
@@ -858,9 +947,9 @@ const buildFallbackQuestionRecord = (slot) => {
     ambiguityLabel: fallback.ambiguityLabel || slot,
     followUpGeneratedBy: "fallback_logic",
     followUpSlot: slot,
-    followUpQuestionText: fallback.text,
+    followUpQuestionText: normalizeQuestionCopy(fallback.text),
     followUpHelpText: "",
-    followUpOptionsSnapshot: fallback.options,
+    followUpOptionsSnapshot: fallback.options.map((option) => ({ ...option, label: normalizeOptionLabel(option.label) })),
     allowOtherText: true
   };
 };
@@ -1008,7 +1097,7 @@ const getQualityGateIssues = () => {
   if (!sourceData) return ["KGI元データが未生成です"];
   recomputeRequiredSlotState();
   if (wizardState.missingRequiredSlots.length > 0) {
-    issues.push(...wizardState.missingRequiredSlots.map((slot) => `${slot} が未充足`));
+    issues.push(...wizardState.missingRequiredSlots.map((slot) => `${SLOT_LABELS[slot] || slot}が未確定です`));
   }
   const textCandidates = [
     sourceData.sourceDataNarrative,
@@ -1025,6 +1114,9 @@ const getQualityGateIssues = () => {
   }
   const hasConcreteCriteria = (wizardState.kgiSuccessCriteria || []).every((item) => /\d|期限|市場|単位|ルール|定義/.test(item));
   if (wizardState.kgiSuccessCriteria.length > 0 && !hasConcreteCriteria) issues.push("判定条件が具体的でない");
+  if (!sourceData.minimumReleaseBundle?.length && !sourceData.minimumServiceLaunchLine && !sourceData.minimumAchievementLine) {
+    issues.push("最低ラインが曖昧");
+  }
   return Array.from(new Set(issues));
 };
 
@@ -1075,6 +1167,28 @@ const buildGapAnalysis = () => {
 const buildKpiDrafts = () => {
   const gaps = wizardState.gapAnalysis?.gapToCloseForCurrentKgi || [];
   wizardState.kpiDrafts = gaps.map((gap) => `${gap} の充足率を週次で記録する`);
+};
+
+const updateSpecificityButtonState = () => {
+  const gate = applyQualityGate();
+  if (!saveWithSpecificityButton) return;
+  saveWithSpecificityButton.textContent = gate.pass ? "この補正を反映して保存" : "この補正を編集欄に反映";
+};
+
+const moveToMissingSlotQuestion = async () => {
+  recomputeRequiredSlotState();
+  const firstMissingSlot = wizardState.missingRequiredSlots[0];
+  if (!firstMissingSlot) return false;
+  const existingIndex = wizardState.followUpQuestionHistory.findIndex((item) => item.id === firstMissingSlot);
+  if (existingIndex >= 0) {
+    wizardState.currentQuestionIndex = existingIndex;
+    return true;
+  }
+  const questionRecord = await createQuestionRecordForSlot(firstMissingSlot, SLOT_LABELS[firstMissingSlot] || firstMissingSlot);
+  if (!questionRecord) return false;
+  wizardState.followUpQuestionHistory.push(questionRecord);
+  wizardState.currentQuestionIndex = wizardState.followUpQuestionHistory.length - 1;
+  return true;
 };
 
 const renderQuestion = () => {
@@ -1134,7 +1248,7 @@ const renderQuestion = () => {
       badge.textContent = "推奨";
       const note = document.createElement("p");
       note.className = "option-recommended-note";
-      note.textContent = "この目標ならこれが現実的です。";
+      note.textContent = option.recommendReason || "この目標なら、まずはここからが現実的です。";
       wrapper.append(badge, note);
     }
     label.append(input, wrapper);
@@ -1177,7 +1291,7 @@ const renderProposal = () => {
     renderRecoveryCard();
     return;
   }
-  sourceDataApproveButton.disabled = false;
+  sourceDataApproveButton.disabled = !gate.pass;
   if (sourceData) {
     understandingCheckSection.classList.remove("hidden");
     const remainingAmbiguity = (sourceData.ambiguityPointsRemaining || []).length > 0
@@ -1191,7 +1305,10 @@ const renderProposal = () => {
         <p><strong>まだ保存できるKGIではありません</strong></p>
         <p>次の点が未確定です</p>
         <ul>${gate.issues.map((issue) => `<li>${issue}</li>`).join("")}</ul>
-        <p>追加質問に戻って埋めてください</p>
+        <div class="proposal-actions-inline">
+          <button id="goToMissingSlotButton" type="button">不足している質問に進む</button>
+          <button id="reviewQuestionsButton" class="secondary" type="button">内容全体を見直すために質問一覧へ戻る</button>
+        </div>
       </div>
     ` : "";
     understandingCheckSection.innerHTML = `
@@ -1261,8 +1378,26 @@ const renderProposal = () => {
   editSection.classList.toggle("hidden", !wizardState.sourceDataConfirmed);
   saveButton.disabled = !wizardState.sourceDataConfirmed || !gate.pass;
   if (!gate.pass && wizardState.sourceDataConfirmed) {
-    setStatus("まだ情報が足りないため、保存可能なKGIにはなっていません。追加質問へ戻ってください。", true);
+    setStatus("まだ情報が足りないため、保存可能なKGIにはなっていません。不足している質問へ進んでください。", true);
   }
+  updateSpecificityButtonState();
+  understandingCheckSection.querySelector("#goToMissingSlotButton")?.addEventListener("click", async () => {
+    const moved = await moveToMissingSlotQuestion();
+    if (!moved) {
+      setStatus("不足質問の表示に失敗しました。もう一度お試しください。", true);
+      return;
+    }
+    proposalSection.classList.add("hidden");
+    questionSection.classList.remove("hidden");
+    sourceDataApproveButton.disabled = true;
+    renderQuestion();
+    setStep(2);
+    await syncPersistence();
+    setStatus("不足している項目の質問に戻りました。ここを埋めれば保存に進めます。", false);
+  });
+  understandingCheckSection.querySelector("#reviewQuestionsButton")?.addEventListener("click", () => {
+    sourceDataBackButton?.click();
+  });
   renderRecoveryCard();
 };
 
@@ -1363,11 +1498,14 @@ startDeepDiveButton.addEventListener("click", async () => {
   startDeepDiveButton.disabled = true;
   startDeepDiveButton.textContent = "処理中...";
   try {
+    clearLocalDraft();
+    resetWizardSessionState();
     wizardState.lastError = null;
     wizardState.pendingAction = null;
     wizardState.kgiDeadline = deadline;
     wizardState.rawSuccessStateInput = successState;
     wizardState.upperGoal = pickUpperGoal(successState);
+    logSessionInfo("new session started", { fingerprint: getSessionFingerprint(deadline, successState) });
     setStatus("AIがジャンル判定中です...", false);
     const genre = await classifyKgiGenre();
     const genreKey = normalizeGenreKey(genre?.primaryGenre || "");
@@ -1381,21 +1519,7 @@ startDeepDiveButton.addEventListener("click", async () => {
     wizardState.ambiguityPoints = wizardState.ambiguityPointsRemaining.map((point) => point.label);
     wizardState.maxFollowUpQuestions = Math.max(wizardState.minimumQuestionCountForGenre + 2, wizardState.requiredSlotsByGenre.length + 1);
     wizardState.currentQuestionIndex = 0;
-    wizardState.followUpAnswers = {};
-    wizardState.followUpQuestionHistory = [];
-    wizardState.followUpAnswerHistory = [];
-    wizardState.followUpStopReason = "";
-    wizardState.sourceDataConfirmed = false;
-    wizardState.sourceDataEdited = false;
-    wizardState.aiKgiSourceData = null;
-    wizardState.kgiStatement = "";
-    wizardState.kgiSuccessCriteria = [];
-    wizardState.gapAnalysis = null;
-    wizardState.kpiDrafts = [];
-    wizardState.filledSlots = [];
     wizardState.missingRequiredSlots = [...wizardState.requiredSlotsByGenre];
-    wizardState.followUpCount = 0;
-    wizardState.sourceDataReady = false;
 
     const firstQuestionPoint = chooseNextQuestion();
     if (firstQuestionPoint) {
@@ -1586,6 +1710,7 @@ sourceDataApproveButton?.addEventListener("click", async () => {
       console.warn("[KGI_QUALITY_GATE] step3 blocked", gate.issues);
       setStatus(`まだ情報が足りないため、保存可能なKGIにはなっていません。(${gate.issues.join(" / ")})`, true);
       renderProposal();
+      await syncPersistence();
       return;
     }
     wizardState.sourceDataConfirmed = true;
@@ -1595,7 +1720,7 @@ sourceDataApproveButton?.addEventListener("click", async () => {
     renderProposal();
     setStatus("KGI元データを反映して、KGI本体→達成条件→差分整理→KPI下書きを順番に生成しました。", false);
   } finally {
-    sourceDataApproveButton.disabled = false;
+    sourceDataApproveButton.disabled = !applyQualityGate().pass;
     sourceDataApproveButton.textContent = "だいたい合っている";
   }
 });
@@ -1726,6 +1851,7 @@ const applySpecificityCandidate = () => {
 
 saveWithSpecificityButton?.addEventListener("click", async () => {
   console.info("[KGI_SPECIFICITY] button clicked");
+  const gate = applyQualityGate();
   saveWithSpecificityButton.disabled = true;
   saveWithSpecificityButton.textContent = "処理中...";
   try {
@@ -1737,6 +1863,11 @@ saveWithSpecificityButton?.addEventListener("click", async () => {
       return;
     }
     console.info("[KGI_SPECIFICITY] apply success");
+    setStatus("補正を反映しました。", false);
+    if (!gate.pass) {
+      setStatus("補正を反映しました。内容を確認して不足項目を埋めてください。", false);
+      return;
+    }
     setStatus("補正を反映しました。保存します。", false);
     await persistKgi();
   } catch (error) {
@@ -1744,7 +1875,7 @@ saveWithSpecificityButton?.addEventListener("click", async () => {
     setStatus("保存に失敗しました。", true);
   } finally {
     saveWithSpecificityButton.disabled = false;
-    saveWithSpecificityButton.textContent = "補正を反映して保存する";
+    updateSpecificityButtonState();
   }
 });
 
@@ -1759,12 +1890,32 @@ setStatus("Firebase接続を初期化しています...");
 
 const restoreDraftFromLocal = () => {
   try {
-    const raw = localStorage.getItem(LOCAL_DRAFT_KEY);
+    const latestKey = localStorage.getItem(LOCAL_DRAFT_LATEST_KEY);
+    if (!latestKey) return;
+    const raw = localStorage.getItem(latestKey);
     if (!raw) return;
     const parsed = JSON.parse(raw);
     const draft = parsed?.payload;
     if (!draft) return;
+    const updatedAt = Date.parse(parsed?.updatedAt || "");
+    const expired = Number.isFinite(updatedAt) ? (Date.now() - updatedAt > DRAFT_RESTORE_TTL_MS) : true;
+    const currentFingerprint = getSessionFingerprint(
+      (roughDeadlineInput?.value || "").trim(),
+      (roughGoalInput?.value || "").trim()
+    );
+    const draftFingerprint = parsed?.sessionFingerprint || getSessionFingerprint(parsed?.kgiDeadline, parsed?.rawSuccessStateInput);
+    const hasMatchingInput = Boolean(currentFingerprint && draftFingerprint && currentFingerprint === draftFingerprint && !currentFingerprint.endsWith("::"));
+    if (expired || !hasMatchingInput) {
+      logSessionInfo("draft ignored due to input mismatch", {
+        latestKey,
+        expired,
+        currentFingerprint,
+        draftFingerprint
+      });
+      return;
+    }
     Object.assign(wizardState, draft);
+    logSessionInfo("restoring draft", { latestKey, sessionId: wizardState.sessionId });
     if (wizardState.kgiDeadline) roughDeadlineInput.value = wizardState.kgiDeadline;
     if (wizardState.rawSuccessStateInput) roughGoalInput.value = wizardState.rawSuccessStateInput;
     if (wizardState.step >= 2 && wizardState.followUpQuestionHistory.length > 0) {
@@ -1790,6 +1941,7 @@ const restoreDraftFromLocal = () => {
     db = await getDb();
     const gate = applyQualityGate();
     saveButton.disabled = !wizardState.sourceDataConfirmed || !gate.pass;
+    updateSpecificityButtonState();
     setStatus("Firebase接続が完了しました。", false);
   } catch (error) {
     console.error(error);
