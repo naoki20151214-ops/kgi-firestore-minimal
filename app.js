@@ -66,12 +66,6 @@ const wizardState = {
   sourceDataEdited: false,
   selectedDraft: null,
   genreClassification: null,
-  kgiSplitDecision: null,
-  currentUnderstanding: null,
-  qualityCheck: null,
-  draftOutput: null,
-  nextQuestion: null,
-  conversationTurns: [],
   genreKey: "other",
   currentKgiScope: "",
   requiredSlotsByGenre: [],
@@ -468,18 +462,8 @@ const logSessionInfo = (message, detail = {}) => {
   console.info(`${SESSION_LOG_PREFIX} ${message}`, detail);
 };
 
-const normalizeDeadlineInput = (value = "") => {
-  const raw = String(value || "").trim();
-  if (!raw) return "";
-  const unified = raw.replace(/[/.]/g, "-").replace(/年/g, "-").replace(/月/g, "-").replace(/日/g, "");
-  const match = unified.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
-  if (!match) return raw;
-  const [, year, month, day] = match;
-  return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
-};
-
 const getSessionFingerprint = (deadline = wizardState.kgiDeadline, rawInput = wizardState.rawSuccessStateInput) => {
-  const normalizedDeadline = normalizeDeadlineInput(deadline);
+  const normalizedDeadline = String(deadline || "").trim();
   const normalizedRawInput = String(rawInput || "").trim().replace(/\s+/g, " ");
   return `${normalizedDeadline}::${normalizedRawInput}`;
 };
@@ -536,12 +520,6 @@ const getPersistableWizardSnapshot = () => ({
   sourceDataConfirmed: wizardState.sourceDataConfirmed,
   sourceDataEdited: wizardState.sourceDataEdited,
   genreClassification: wizardState.genreClassification,
-  kgiSplitDecision: wizardState.kgiSplitDecision,
-  currentUnderstanding: wizardState.currentUnderstanding,
-  qualityCheck: wizardState.qualityCheck,
-  draftOutput: wizardState.draftOutput,
-  nextQuestion: wizardState.nextQuestion,
-  conversationTurns: wizardState.conversationTurns,
   genreKey: wizardState.genreKey,
   currentKgiScope: wizardState.currentKgiScope,
   requiredSlotsByGenre: wizardState.requiredSlotsByGenre,
@@ -1130,22 +1108,39 @@ const buildKgiSourceData = () => {
 };
 
 const getQualityGateIssues = () => {
-  if (wizardState.qualityCheck) {
-    return (wizardState.qualityCheck.missing_points || []).map((point) => `${point.label}: ${point.reason}`);
+  const sourceData = wizardState.aiKgiSourceData;
+  const issues = [];
+  if (!sourceData) return ["KGI元データが未生成です"];
+  recomputeRequiredSlotState();
+  if (wizardState.missingRequiredSlots.length > 0) {
+    issues.push(...wizardState.missingRequiredSlots.map((slot) => `${SLOT_LABELS[slot] || slot}が未確定です`));
   }
-  return [];
+  const textCandidates = [
+    sourceData.sourceDataNarrative,
+    wizardState.kgiStatement,
+    ...(wizardState.kgiSuccessCriteria || []),
+    ...Object.values(sourceData).flatMap((value) => Array.isArray(value) ? value : [value])
+  ].filter(Boolean).map(String);
+  BLOCKED_PHRASES.forEach((phrase) => {
+    if (textCandidates.some((text) => text.includes(phrase))) issues.push(`禁止語句を検知: ${phrase}`);
+  });
+  if (isInvestmentGenreKey()) {
+    const nonInvestmentFields = [sourceData.audienceSummary, sourceData.valuePromise, sourceData.productShape, (sourceData.contentScope || []).join("、"), (sourceData.minimumReleaseBundle || []).join("、")];
+    if (nonInvestmentFields.some((v) => String(v || "").trim())) issues.push("投資型に不適切な公開/読者系項目が混在");
+  }
+  const hasConcreteCriteria = (wizardState.kgiSuccessCriteria || []).every((item) => /\d|期限|市場|単位|ルール|定義/.test(item));
+  if (wizardState.kgiSuccessCriteria.length > 0 && !hasConcreteCriteria) issues.push("判定条件が具体的でない");
+  if (!sourceData.minimumReleaseBundle?.length && !sourceData.minimumServiceLaunchLine && !sourceData.minimumAchievementLine) {
+    issues.push("最低ラインが曖昧");
+  }
+  return Array.from(new Set(issues));
 };
 
 const applyQualityGate = () => {
-  if (wizardState.qualityCheck) {
-    return {
-      pass: wizardState.qualityCheck.is_ready_for_save === true,
-      displayReady: wizardState.qualityCheck.is_ready_for_display === true,
-      issues: getQualityGateIssues()
-    };
-  }
   const issues = getQualityGateIssues();
-  return { pass: issues.length === 0, displayReady: issues.length === 0, issues };
+  if (issues.length === 0) return { pass: true, issues: [] };
+  console.warn("[KGI_QUALITY_GATE] blocked", { issues, genre: wizardState.genreKey });
+  return { pass: false, issues };
 };
 
 const buildKgiStatementAndCriteria = () => {
@@ -1399,14 +1394,11 @@ const renderProposal = () => {
   const gap = wizardState.gapAnalysis;
   const gate = applyQualityGate();
   if (!hasRenderableSourceData()) {
-    const cu = wizardState.currentUnderstanding || {};
     understandingCheckSection.classList.remove("hidden");
     understandingCheckSection.innerHTML = `
-      <h3>今こう理解しています</h3>
-      <p class="proposal-meta"><strong>今回の範囲:</strong> ${cu.current_kgi_scope || "整理中"}</p>
-      <p class="proposal-meta"><strong>作るもの:</strong> ${cu.concrete_deliverable || "整理中"}</p>
-      <p class="proposal-meta"><strong>不足点:</strong> ${gate.issues.join(" / ") || "なし"}</p>
-      <p class="proposal-meta">まだ表示品質に届いていないため、KGI案カードは出していません。</p>
+      <h3>KGI元データの生成に失敗しました</h3>
+      <p class="proposal-meta">KGI元データの生成に失敗しましたが、回答内容は保存されています。</p>
+      <p class="proposal-meta">ステップ2に戻って再試行してください。</p>
     `;
     proposalList.innerHTML = "";
     proposalList.classList.add("hidden");
@@ -1531,7 +1523,7 @@ const ensureCreationSession = async () => {
   if (wizardState.sessionId) return true;
 
   const data = {
-    flowVersion: "kgi-wizard-v6-ai-interview-turn",
+    flowVersion: "kgi-wizard-v5-essence-first",
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
     upperGoal: wizardState.upperGoal,
@@ -1541,6 +1533,10 @@ const ensureCreationSession = async () => {
     aiKgiSourceData: null,
     kgiStatement: "",
     kgiSuccessCriteria: [],
+    ambiguityPoints: wizardState.ambiguityPoints,
+    ambiguityPointsInitial: wizardState.ambiguityPointsInitial.map((point) => point.label),
+    ambiguityPointsResolved: wizardState.ambiguityPointsResolved.map((point) => point.label),
+    ambiguityPointsRemaining: wizardState.ambiguityPointsRemaining.map((point) => point.label),
     followUpQuestions: wizardState.followUpQuestionHistory,
     followUpQuestionHistory: wizardState.followUpQuestionHistory,
     followUpAnswers: {},
@@ -1548,20 +1544,18 @@ const ensureCreationSession = async () => {
     followUpStopReason: wizardState.followUpStopReason,
     nextKgiSuggestion: "",
     genreClassification: wizardState.genreClassification,
-    kgiSplitDecision: wizardState.kgiSplitDecision,
-    currentUnderstanding: wizardState.currentUnderstanding,
-    qualityCheck: wizardState.qualityCheck,
-    draftOutput: wizardState.draftOutput,
-    nextQuestion: wizardState.nextQuestion,
-    conversationTurns: wizardState.conversationTurns,
     gapAnalysis: wizardState.gapAnalysis,
     kpiDrafts: wizardState.kpiDrafts,
     interviewNotes: wizardState.interviewNotes,
     sourceDataConfirmed: wizardState.sourceDataConfirmed,
     sourceDataEdited: wizardState.sourceDataEdited,
     currentKgiScope: wizardState.currentKgiScope,
-    sourceDataReady: wizardState.sourceDataReady,
-    sourceDataReadyForSave: wizardState.qualityCheck?.is_ready_for_save === true
+    requiredSlotsByGenre: wizardState.requiredSlotsByGenre,
+    filledSlots: wizardState.filledSlots,
+    missingRequiredSlots: wizardState.missingRequiredSlots,
+    minimumQuestionCountForGenre: wizardState.minimumQuestionCountForGenre,
+    followUpCount: wizardState.followUpCount,
+    sourceDataReady: wizardState.sourceDataReady
   };
   const ref = await addDoc(collection(db, "kgiCreationSessions"), data);
   wizardState.sessionId = ref.id;
@@ -1579,6 +1573,10 @@ const updateCreationSession = async () => {
     aiKgiSourceData: wizardState.aiKgiSourceData,
     kgiStatement: wizardState.kgiStatement,
     kgiSuccessCriteria: wizardState.kgiSuccessCriteria,
+    ambiguityPoints: wizardState.ambiguityPoints,
+    ambiguityPointsInitial: wizardState.ambiguityPointsInitial.map((point) => point.label),
+    ambiguityPointsResolved: wizardState.ambiguityPointsResolved.map((point) => point.label),
+    ambiguityPointsRemaining: wizardState.ambiguityPointsRemaining.map((point) => point.label),
     followUpQuestions: wizardState.followUpQuestionHistory,
     followUpQuestionHistory: wizardState.followUpQuestionHistory,
     followUpAnswers: wizardState.followUpAnswers,
@@ -1586,168 +1584,95 @@ const updateCreationSession = async () => {
     followUpStopReason: wizardState.followUpStopReason,
     nextKgiSuggestion: wizardState.nextKgiSuggestion,
     genreClassification: wizardState.genreClassification,
-    kgiSplitDecision: wizardState.kgiSplitDecision,
-    currentUnderstanding: wizardState.currentUnderstanding,
-    qualityCheck: wizardState.qualityCheck,
-    draftOutput: wizardState.draftOutput,
-    nextQuestion: wizardState.nextQuestion,
-    conversationTurns: wizardState.conversationTurns,
     gapAnalysis: wizardState.gapAnalysis,
     kpiDrafts: wizardState.kpiDrafts,
     interviewNotes: wizardState.interviewNotes,
     sourceDataConfirmed: wizardState.sourceDataConfirmed,
     sourceDataEdited: wizardState.sourceDataEdited,
     currentKgiScope: wizardState.currentKgiScope,
-    sourceDataReady: wizardState.sourceDataReady,
-    sourceDataReadyForSave: wizardState.qualityCheck?.is_ready_for_save === true
+    requiredSlotsByGenre: wizardState.requiredSlotsByGenre,
+    filledSlots: wizardState.filledSlots,
+    missingRequiredSlots: wizardState.missingRequiredSlots,
+    minimumQuestionCountForGenre: wizardState.minimumQuestionCountForGenre,
+    followUpCount: wizardState.followUpCount,
+    sourceDataReady: wizardState.sourceDataReady
   });
-};
-
-const runKgiInterviewTurn = async (latestAnswer = null) => {
-  const normalizedDeadline = normalizeDeadlineInput(wizardState.kgiDeadline);
-  const payload = {
-    mode: "turn",
-    deadline: normalizedDeadline,
-    initial_input: wizardState.rawSuccessStateInput,
-    latest_answer: latestAnswer,
-    conversation_turns: wizardState.conversationTurns,
-    current_state: {
-      genre_classification: wizardState.genreClassification,
-      kgi_split_decision: wizardState.kgiSplitDecision,
-      current_understanding: wizardState.currentUnderstanding,
-      quality_check: wizardState.qualityCheck,
-      draft_output: wizardState.draftOutput,
-      next_question: wizardState.nextQuestion
-    }
-  };
-
-  const response = await fetch("/api/generate-kgi-interview-outcome", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload)
-  });
-  const data = await response.json().catch(() => null);
-  if (!response.ok) {
-    console.error("[KGI_INTERVIEW] run turn api failed", {
-      status: response.status,
-      error: data?.error || "unknown_error",
-      code: data?.code || "",
-      detail: data?.details || null
-    });
-    throw new Error(data?.code || data?.error || "run_turn_api_error");
-  }
-  if (!data?.quality_check) {
-    console.error("[KGI_INTERVIEW] run turn api schema mismatch", { data });
-    throw new Error("run_turn_api_error");
-  }
-  return data;
-};
-
-const applyInterviewTurnResult = (turnResult, latestAnswer = null) => {
-  wizardState.genreClassification = {
-    primaryGenre: turnResult.genre_classification?.genre || "その他",
-    reason: turnResult.genre_classification?.reason || "",
-    confidence: "medium"
-  };
-  wizardState.genreKey = normalizeGenreKey(wizardState.genreClassification.primaryGenre);
-  wizardState.kgiSplitDecision = turnResult.kgi_split_decision || null;
-  wizardState.currentUnderstanding = turnResult.current_understanding || null;
-  wizardState.qualityCheck = turnResult.quality_check || null;
-  wizardState.draftOutput = turnResult.draft_output || null;
-  wizardState.nextQuestion = turnResult.next_question || null;
-
-  if (latestAnswer) wizardState.conversationTurns.push({ answer: latestAnswer, turnResult });
-  else wizardState.conversationTurns = [{ answer: null, turnResult }];
-
-  const cu = turnResult.current_understanding || {};
-  wizardState.aiKgiSourceData = {
-    upperGoal: cu.upper_goal || wizardState.upperGoal,
-    kgiDeadline: wizardState.kgiDeadline,
-    currentKgiScope: cu.current_kgi_scope || "",
-    concreteDeliverable: cu.concrete_deliverable || "",
-    audienceSummary: cu.audience_summary || "",
-    valuePromise: cu.value_promise || "",
-    minimumReleaseBundle: [cu.minimum_line || ""].filter(Boolean),
-    hardRequirements: Array.isArray(cu.hard_requirements) ? cu.hard_requirements : [],
-    excludedFromCurrentKgi: Array.isArray(cu.excluded_from_current_kgi) ? cu.excluded_from_current_kgi : [],
-    nextKgiSuggestion: turnResult.kgi_split_decision?.next_kgi_candidate || ""
-  };
-
-  wizardState.currentKgiScope = wizardState.aiKgiSourceData.currentKgiScope;
-  wizardState.kgiStatement = turnResult.draft_output?.kgi_statement || "";
-  wizardState.kgiSuccessCriteria = turnResult.draft_output?.kgi_success_criteria || [];
-  wizardState.gapAnalysis = turnResult.draft_output?.gap_analysis ? {
-    alreadyDone: turnResult.draft_output.gap_analysis.already_done || [],
-    notDoneYet: turnResult.draft_output.gap_analysis.not_done_yet || [],
-    firstBigMountain: turnResult.draft_output.gap_analysis.first_big_mountain || "",
-    gapToCloseForCurrentKgi: turnResult.draft_output.gap_analysis.gap_to_fill || []
-  } : null;
-  wizardState.kpiDrafts = turnResult.draft_output?.kpi_drafts || [];
-  wizardState.clarifiedSuccessState = "今こう理解しています（AIが毎ターン更新）";
-  wizardState.nextKgiSuggestion = wizardState.aiKgiSourceData.nextKgiSuggestion;
-  wizardState.sourceDataReady = turnResult.quality_check?.is_ready_for_display === true;
-
-  const missing = Array.isArray(turnResult.quality_check?.missing_points) ? turnResult.quality_check.missing_points : [];
-  wizardState.missingRequiredSlots = missing.map((item) => item.id).filter(Boolean);
-
-  if (turnResult.next_question?.should_ask) {
-    const slot = turnResult.next_question.slot || `slot_${Date.now()}`;
-    const record = {
-      id: slot,
-      ambiguityLabel: slot,
-      followUpGeneratedBy: "ai",
-      followUpSlot: slot,
-      followUpQuestionText: normalizeQuestionCopy(turnResult.next_question.question_text || ""),
-      followUpHelpText: turnResult.next_question.help_text || "",
-      followUpOptionsSnapshot: (turnResult.next_question.options || []).map((opt) => ({
-        id: String(opt.id || "").trim(),
-        label: normalizeOptionLabel(String(opt.label || "").trim()),
-        recommended: opt.recommended === true,
-        recommendReason: opt.reason || ""
-      })),
-      allowOtherText: turnResult.next_question.allow_other_text !== false
-    };
-    wizardState.followUpQuestionHistory.push(record);
-    wizardState.currentQuestionIndex = wizardState.followUpQuestionHistory.length - 1;
-  }
 };
 
 startDeepDiveButton.addEventListener("click", async () => {
-  const deadline = normalizeDeadlineInput((roughDeadlineInput.value || "").trim());
+  const deadline = (roughDeadlineInput.value || "").trim();
   const successState = (roughGoalInput.value || "").trim();
 
-  if (!deadline) return alert("1問目: 期限を入力してください。");
-  if (!successState) return alert("2問目: 成功状態を入力してください。");
+  if (!deadline) {
+    alert("1問目: 期限を入力してください。");
+    return;
+  }
+  if (!successState) {
+    alert("2問目: 成功状態を入力してください。");
+    return;
+  }
 
   startDeepDiveButton.disabled = true;
   startDeepDiveButton.textContent = "処理中...";
   try {
     clearLocalDraft();
     resetWizardSessionState();
+    wizardState.lastError = null;
+    wizardState.pendingAction = null;
     wizardState.kgiDeadline = deadline;
     wizardState.rawSuccessStateInput = successState;
     wizardState.upperGoal = pickUpperGoal(successState);
+    logSessionInfo("new session started", { fingerprint: getSessionFingerprint(deadline, successState) });
+    setStatus("AIがジャンル判定中です...", false);
+    const genre = await classifyKgiGenre();
+    const genreKey = normalizeGenreKey(genre?.primaryGenre || "");
+    wizardState.genreKey = genreKey;
+    wizardState.requiredSlotsByGenre = REQUIRED_SLOTS_BY_GENRE[genreKey] || REQUIRED_SLOTS_BY_GENRE.other;
+    wizardState.minimumQuestionCountForGenre = MIN_QUESTION_COUNT_BY_GENRE[genreKey] || 4;
+    wizardState.currentKgiScope = `${deadline}時点で完結判定できる範囲に限定`;
+    wizardState.ambiguityPointsInitial = deriveAmbiguityPoints(successState, genre?.primaryGenre || "");
+    wizardState.ambiguityPointsResolved = [];
+    wizardState.ambiguityPointsRemaining = [...wizardState.ambiguityPointsInitial];
+    wizardState.ambiguityPoints = wizardState.ambiguityPointsRemaining.map((point) => point.label);
+    wizardState.maxFollowUpQuestions = Math.max(wizardState.minimumQuestionCountForGenre + 2, wizardState.requiredSlotsByGenre.length + 1);
+    wizardState.currentQuestionIndex = 0;
+    wizardState.missingRequiredSlots = [...wizardState.requiredSlotsByGenre];
 
-    setStatus("AIが面談を開始しています...", false);
-    const turnResult = await runKgiInterviewTurn(null);
-    applyInterviewTurnResult(turnResult, null);
+    const firstQuestionPoint = chooseNextQuestion();
+    if (firstQuestionPoint) {
+      const firstQuestionRecord = await createQuestionRecordForSlot(firstQuestionPoint.id, firstQuestionPoint.label);
+      if (firstQuestionRecord) wizardState.followUpQuestionHistory = [firstQuestionRecord];
+    }
+
     await ensureCreationSession();
     await syncPersistence();
 
-    if (wizardState.sourceDataReady || !wizardState.nextQuestion?.should_ask) {
-      questionSection.classList.add("hidden");
+    if (wizardState.followUpQuestionHistory.length === 0 || canGenerateKgiNow()) {
+      wizardState.followUpStopReason = "ambiguity_resolved";
+      buildKgiSourceData();
+      await syncPersistence();
       proposalSection.classList.remove("hidden");
+      questionSection.classList.add("hidden");
       renderProposal();
       setStep(3);
-      setStatus("KGI候補を表示しました。内容を確認してください。", false);
-    } else {
-      questionSection.classList.remove("hidden");
-      proposalSection.classList.add("hidden");
-      renderQuestion();
-      setStep(2);
-      setStatus("まず不足を埋めるための1問です。", false);
+      setStatus("KGI元データを作成しました。内容確認後にKGI本体を生成します。", false);
+      return;
     }
+
+    questionSection.classList.remove("hidden");
+    proposalSection.classList.add("hidden");
+    renderQuestion();
+    setStep(2);
+    await syncPersistence();
+    setStatus("この目標を達成したと言える条件をそろえるため、必要な質問だけ続けます。", false);
   } catch (error) {
+    wizardState.lastError = "AIとの通信に失敗しましたが、回答内容は保存されています。";
+    wizardState.pendingAction = async () => {
+      wizardState.lastError = null;
+      renderRecoveryCard();
+      startDeepDiveButton.click();
+    };
+    renderRecoveryCard();
     setStatus(`開始処理に失敗しました: ${error?.message || "unknown"}`, true);
   } finally {
     startDeepDiveButton.disabled = false;
@@ -1778,53 +1703,112 @@ nextQuestionButton.addEventListener("click", async () => {
   if (isAdvancingQuestion) return;
   const questionId = wizardState.followUpQuestionHistory[wizardState.currentQuestionIndex]?.id;
   const question = getQuestionRecord(questionId);
-  if (!question) return;
-
-  const answer = wizardState.followUpAnswers[question.id];
-  if (!answer?.selectedOptionId) return alert("選択肢を1つ選んでください。");
-  if (answer.selectedOptionId === "other" && question.allowOtherText && !answer.otherText) {
-    otherAnswerInput.focus();
-    return alert("「その他」の内容を短く入力してください。");
+  if (!question) {
+    alert("質問の読み込みに失敗しました。");
+    setStatus("通信に失敗しました。再度お試しください。", true);
+    return;
   }
-
+  const answer = wizardState.followUpAnswers[question?.id || ""];
+  if (!answer?.selectedOptionId) {
+    alert("選択肢を1つ選んでください。");
+    return;
+  }
+  if (answer.selectedOptionId === "other" && question?.allowOtherText && !answer.otherText) {
+    alert("「その他」の内容を短く入力してください。");
+    otherAnswerInput.focus();
+    return;
+  }
   isAdvancingQuestion = true;
   nextQuestionButton.disabled = true;
   nextQuestionButton.textContent = "処理中...";
 
   try {
-    const latestAnswer = {
-      slot: question.id,
-      question_text: question.text,
-      selected_option_id: answer.selectedOptionId,
-      selected_option_label: answer.selectedOptionLabel,
-      other_text: answer.otherText || ""
+    wizardState.lastError = null;
+    const existingHistoryIndex = wizardState.followUpAnswerHistory.findIndex((item) => item.questionId === question.id);
+    const historyEntry = {
+      questionId: question.id,
+      followUpGeneratedBy: wizardState.followUpQuestionHistory[wizardState.currentQuestionIndex]?.followUpGeneratedBy || "fallback_logic",
+      followUpSlot: question.id,
+      followUpQuestionText: question.text,
+      followUpHelpText: question.helpText || "",
+      followUpOptionsSnapshot: question.options,
+      followUpSelectedOptionId: answer.selectedOptionId,
+      followUpSelectedOptionLabel: answer.selectedOptionLabel,
+      followUpOtherText: answer.otherText || "",
+      questionText: question.text,
+      selectedOptionId: answer.selectedOptionId,
+      selectedOptionLabel: answer.selectedOptionLabel,
+      otherText: answer.otherText || ""
     };
-
-    wizardState.followUpAnswerHistory.push(latestAnswer);
-    const turnResult = await runKgiInterviewTurn(latestAnswer);
-    applyInterviewTurnResult(turnResult, latestAnswer);
+    if (existingHistoryIndex >= 0) wizardState.followUpAnswerHistory[existingHistoryIndex] = historyEntry;
+    else wizardState.followUpAnswerHistory.push(historyEntry);
     await syncPersistence();
 
-    const shouldAsk = wizardState.nextQuestion?.should_ask;
-    if (wizardState.sourceDataReady || !shouldAsk) {
-      questionSection.classList.add("hidden");
-      proposalSection.classList.remove("hidden");
-      renderProposal();
-      setStep(3);
-      setStatus("KGI候補と不足点を更新しました。", false);
-    } else {
-      questionSection.classList.remove("hidden");
-      proposalSection.classList.add("hidden");
+    const isLast = wizardState.currentQuestionIndex === wizardState.followUpQuestionHistory.length - 1;
+    if (!isLast) {
+      wizardState.currentQuestionIndex += 1;
       renderQuestion();
-      setStep(2);
-      setStatus("ありがとうございます。次の1問です。", false);
+      return;
     }
+
+    recomputeRequiredSlotState();
+    const reachedMax = wizardState.followUpAnswerHistory.length >= wizardState.maxFollowUpQuestions;
+    const nextPointCandidate = chooseNextQuestion();
+    const shouldStop = canGenerateKgiNow() || reachedMax || nextPointCandidate == null;
+    if (!shouldStop) {
+      setStatus("質問を作成中です... AIに質問文を作ってもらっています（少し時間がかかる場合があります）。", false);
+      const nextPoint = nextPointCandidate;
+      const nextQuestionRecord = await createQuestionRecordForSlot(nextPoint.id, nextPoint.label);
+      if (!nextQuestionRecord) {
+        wizardState.followUpStopReason = "question_generation_failed";
+        wizardState.lastError = "AIとの通信に失敗しましたが、回答内容は保存されています。";
+        wizardState.pendingAction = async () => {
+          wizardState.lastError = null;
+          renderRecoveryCard();
+          nextQuestionButton.click();
+        };
+        await syncPersistence();
+        setStep(2);
+        renderRecoveryCard();
+        setStatus("KGI元データの生成に失敗しましたが、回答内容は保存されています。もう一度生成してください。", true);
+        return;
+      }
+      wizardState.followUpQuestionHistory.push(nextQuestionRecord);
+      wizardState.currentQuestionIndex += 1;
+      await syncPersistence();
+      if (nextQuestionRecord.followUpGeneratedBy === "fallback_logic") {
+        setStatus("通常質問へ切り替えました。続けて回答してください。", false);
+      } else {
+        setStatus("次の質問を表示しました。", false);
+      }
+      renderQuestion();
+      return;
+    }
+
+    wizardState.followUpStopReason = reachedMax ? "max_questions_reached" : "ambiguity_resolved";
+    buildKgiSourceData();
+    await syncPersistence();
+    questionSection.classList.add("hidden");
+    proposalSection.classList.remove("hidden");
+    renderProposal();
+    setStep(3);
+    const hasMissing = wizardState.missingRequiredSlots.length > 0;
+    setStatus(hasMissing ? "まだ情報が足りないため、保存可能なKGIにはなっていません。追加質問に戻って埋めてください。" : "KGI元データを作成しました。まず内容確認をお願いします。", hasMissing);
   } catch (error) {
-    setStatus("面談処理に失敗しました。時間をおいて再試行してください。", true);
+    logFollowUpError("次へ処理中に予期しないエラー", { error: error?.message || String(error) });
+    wizardState.lastError = "AIとの通信に失敗しましたが、回答内容は保存されています。";
+    wizardState.pendingAction = async () => {
+      wizardState.lastError = null;
+      renderRecoveryCard();
+      nextQuestionButton.click();
+    };
+    await syncPersistence();
+    renderRecoveryCard();
+    setStatus("KGI元データの生成に失敗しましたが、回答内容は保存されています。", true);
   } finally {
     isAdvancingQuestion = false;
     nextQuestionButton.disabled = false;
-    nextQuestionButton.textContent = "次へ";
+    nextQuestionButton.textContent = wizardState.currentQuestionIndex === wizardState.followUpQuestionHistory.length - 1 ? "次へ" : "次の質問へ";
   }
 });
 
@@ -1933,18 +1917,6 @@ const persistKgi = async () => {
         followUpStopReason: wizardState.followUpStopReason,
         nextKgiSuggestion: wizardState.nextKgiSuggestion,
         genreClassification: wizardState.genreClassification,
-    kgiSplitDecision: wizardState.kgiSplitDecision,
-    currentUnderstanding: wizardState.currentUnderstanding,
-    qualityCheck: wizardState.qualityCheck,
-    draftOutput: wizardState.draftOutput,
-    nextQuestion: wizardState.nextQuestion,
-    conversationTurns: wizardState.conversationTurns,
-  kgiSplitDecision: wizardState.kgiSplitDecision,
-  currentUnderstanding: wizardState.currentUnderstanding,
-  qualityCheck: wizardState.qualityCheck,
-  draftOutput: wizardState.draftOutput,
-  nextQuestion: wizardState.nextQuestion,
-  conversationTurns: wizardState.conversationTurns,
         gapAnalysis: wizardState.gapAnalysis,
         kpiDrafts: wizardState.kpiDrafts,
         interviewNotes: wizardState.interviewNotes,
