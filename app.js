@@ -63,6 +63,50 @@ let db;
 
 const FOLLOW_UP_LIBRARY = [
   {
+    id: "service_type",
+    ambiguityLabel: "副業/サービスの種類",
+    text: "何の副業・何のサービスに最も近いですか？",
+    options: [
+      { id: "blog", label: "ブログ" },
+      { id: "sns", label: "SNS発信" },
+      { id: "youtube", label: "YouTube" },
+      { id: "digital_product", label: "デジタル商品" },
+      { id: "consulting", label: "相談/代行" },
+      { id: "app_tool", label: "アプリ/ツール" },
+      { id: "commerce", label: "物販" },
+      { id: "investment", label: "FX/投資" },
+      { id: "other", label: "その他" }
+    ]
+  },
+  {
+    id: "domain",
+    ambiguityLabel: "ジャンル",
+    text: "どのジャンルに最も近いですか？",
+    options: [
+      { id: "ai", label: "AI" },
+      { id: "side_business", label: "副業" },
+      { id: "investment", label: "投資" },
+      { id: "health", label: "健康" },
+      { id: "career", label: "転職" },
+      { id: "local", label: "地域情報" },
+      { id: "other", label: "その他" }
+    ]
+  },
+  {
+    id: "monetization_path",
+    ambiguityLabel: "収益化手段",
+    text: "収益は何で発生する想定ですか？",
+    options: [
+      { id: "affiliate", label: "アフィリエイト" },
+      { id: "product_sale", label: "商品販売" },
+      { id: "consulting", label: "相談/代行" },
+      { id: "ads", label: "広告" },
+      { id: "subscription", label: "課金" },
+      { id: "undecided", label: "まだ未定" },
+      { id: "other", label: "その他" }
+    ]
+  },
+  {
     id: "publish_level",
     trigger: ["公開", "サイト", "LP", "アプリ", "リリース"],
     ambiguityLabel: "公開の達成レベル",
@@ -119,25 +163,29 @@ const FOLLOW_UP_LIBRARY = [
 ];
 
 const AMBIGUITY_CONFIG = [
-  { id: "publish_level", label: "公開の達成レベル", priority: 1, keywords: ["公開", "サイト", "LP", "アプリ", "リリース"] },
-  { id: "traffic_level", label: "集客の達成定義", priority: 1, keywords: ["集客", "アクセス", "PV", "流入", "登録者"] },
-  { id: "target_user", label: "誰向けか/何を提供するか", priority: 2, keywords: ["向け", "対象", "初心者", "ユーザー"] },
-  { id: "minimum_line", label: "最低公開ライン", priority: 3, keywords: ["最低", "必須", "公開ライン", "必要"] },
-  { id: "must_vs_ideal", label: "理想条件と必須条件の区別", priority: 4, keywords: ["理想", "できれば", "っぽい", "みたい"] },
-  { id: "monetization_required", label: "収益導線が今回必須か", priority: 5, keywords: ["収益", "売上", "販売", "問い合わせ", "集客"] },
-  { id: "beginner_level", label: "対象読者レベル", priority: 6, keywords: ["初心者", "わかりやす", "入門", "初学者"] },
-  { id: "ui_completion", label: "UIの完成条件", priority: 6, keywords: ["UI", "デザイン", "見た目", "Yahoo"] }
+  { id: "service_type", label: "副業/サービスの種類", priority: 1, keywords: ["ブログ", "SNS", "YouTube", "商品", "相談", "代行", "アプリ", "ツール", "物販", "投資"] },
+  { id: "domain", label: "ジャンル", priority: 2, keywords: ["AI", "副業", "投資", "健康", "転職", "地域"] },
+  { id: "monetization_path", label: "収益化手段", priority: 3, keywords: ["収益", "売上", "課金", "アフィリエイト", "広告", "販売"] },
+  { id: "publish_level", label: "公開の達成レベル", priority: 4, keywords: ["公開", "サイト", "LP", "アプリ", "リリース"] },
+  { id: "minimum_line", label: "最低公開ライン", priority: 5, keywords: ["最低", "必須", "公開ライン", "必要"] },
+  { id: "must_vs_ideal", label: "理想条件と必須条件の区別", priority: 6, keywords: ["理想", "できれば", "っぽい", "みたい"] },
+  { id: "target_user", label: "誰向けか", priority: 7, keywords: ["向け", "対象", "ユーザー"] },
+  { id: "traffic_level", label: "集客の達成定義", priority: 8, keywords: ["集客", "アクセス", "PV", "流入", "登録者"] },
+  { id: "monetization_required", label: "収益導線が今回必須か", priority: 9, keywords: ["収益", "売上", "販売", "問い合わせ", "集客"] },
+  { id: "beginner_level", label: "対象読者レベル", priority: 10, keywords: ["初心者", "わかりやす", "入門", "初学者"] },
+  { id: "ui_completion", label: "UIの完成条件", priority: 10, keywords: ["UI", "デザイン", "見た目", "Yahoo"] }
 ];
 
 const EXTRA_FOLLOW_UP_LIBRARY = [
   {
     id: "target_user",
-    ambiguityLabel: "誰向けか/何を提供するか",
-    text: "この目標は、主に誰に何を提供できる状態なら達成としますか？",
+    ambiguityLabel: "誰向けか",
+    text: "主な対象ユーザーはどれに最も近いですか？",
     options: [
-      { id: "specific_persona", label: "対象ユーザー像が1つ以上明確で、提供価値も説明できる状態" },
-      { id: "broad_persona", label: "対象は広めだが、提供価値の方向性は説明できる状態" },
-      { id: "own_use_first", label: "まず自分向けに成立し、後から対象拡張する状態" },
+      { id: "beginner_individual", label: "初心者の個人ユーザー" },
+      { id: "experienced_individual", label: "経験者の個人ユーザー" },
+      { id: "small_business", label: "小規模事業者" },
+      { id: "own_use_first", label: "まず自分向け（後で拡張）" },
       { id: "other", label: "その他" }
     ]
   },
@@ -189,6 +237,29 @@ const EXTRA_FOLLOW_UP_LIBRARY = [
 
 const ALL_FOLLOW_UP_LIBRARY = [...FOLLOW_UP_LIBRARY, ...EXTRA_FOLLOW_UP_LIBRARY];
 const FOLLOW_UP_BY_ID = new Map(ALL_FOLLOW_UP_LIBRARY.map((question) => [question.id, question]));
+const QUESTION_RULES = {
+  service_type: { requiredContext: [], specificityLevel: "specific", priority: 1 },
+  domain: { requiredContext: ["service_type"], specificityLevel: "specific", priority: 2 },
+  monetization_path: { requiredContext: ["service_type"], specificityLevel: "specific", priority: 3 },
+  publish_level: { requiredContext: [], specificityLevel: "specific", priority: 4 },
+  minimum_line: { requiredContext: ["service_type"], specificityLevel: "specific", priority: 5 },
+  must_vs_ideal: { requiredContext: [], specificityLevel: "specific", priority: 6 },
+  target_user: { requiredContext: ["service_type", "domain", "monetization_path"], specificityLevel: "specific", priority: 7 },
+  traffic_level: { requiredContext: [], specificityLevel: "specific", priority: 8 },
+  monetization_required: { requiredContext: ["monetization_path"], specificityLevel: "specific", priority: 9 },
+  beginner_level: { requiredContext: ["target_user"], specificityLevel: "specific", priority: 10 },
+  ui_completion: { requiredContext: [], specificityLevel: "specific", priority: 10 }
+};
+const CONTEXT_BY_QUESTION_ID = {
+  service_type: "service_type",
+  domain: "domain",
+  monetization_path: "monetization_path",
+  target_user: "target_user",
+  publish_level: "publish_level",
+  minimum_line: "minimum_line",
+  must_vs_ideal: "must_vs_ideal"
+};
+const ABSTRACT_TERMS = ["状態", "価値", "達成", "意味", "誰に何を"];
 
 const setStatus = (message, isError = false) => {
   statusText.textContent = message;
@@ -217,7 +288,12 @@ const hasConcreteMetric = (text) => /(\d+|PV|率|売上|件|人|公開|ドメイ
 
 const deriveAmbiguityPoints = (rawText) => {
   const points = [];
+  const contextMissingDefaults = ["service_type", "domain", "monetization_path"];
   AMBIGUITY_CONFIG.forEach((config) => {
+    if (contextMissingDefaults.includes(config.id)) {
+      points.push(config);
+      return;
+    }
     const keywordMatched = shouldAsk(config.keywords, rawText);
     if (keywordMatched) {
       points.push(config);
@@ -250,6 +326,31 @@ const getResolvedAmbiguityIds = () => {
   return Array.from(new Set(ids));
 };
 
+const getResolvedContext = () => {
+  const context = new Set();
+  wizardState.followUpQuestionHistory.forEach((historyItem) => {
+    const answer = wizardState.followUpAnswers[historyItem.id];
+    if (!answer?.selectedOptionId) return;
+    const key = CONTEXT_BY_QUESTION_ID[historyItem.id];
+    if (key) context.add(key);
+  });
+  return context;
+};
+
+const isAbstractQuestion = (question) => {
+  if (!question) return true;
+  const questionRule = QUESTION_RULES[question.id];
+  if (questionRule?.specificityLevel === "abstract") return true;
+  const text = question.text || "";
+  return ABSTRACT_TERMS.some((term) => text.includes(term) && !text.includes("どの状態"));
+};
+
+const hasRequiredContext = (questionId) => {
+  const required = QUESTION_RULES[questionId]?.requiredContext || [];
+  const resolvedContext = getResolvedContext();
+  return required.every((key) => resolvedContext.has(key));
+};
+
 const recomputeAmbiguityState = () => {
   const resolvedIds = getResolvedAmbiguityIds();
   wizardState.ambiguityPointsResolved = wizardState.ambiguityPointsInitial.filter((point) => resolvedIds.includes(point.id));
@@ -260,7 +361,12 @@ const recomputeAmbiguityState = () => {
 const chooseNextQuestion = () => {
   recomputeAmbiguityState();
   const asked = new Set(wizardState.followUpQuestionHistory.map((item) => item.id));
-  return wizardState.ambiguityPointsRemaining.find((point) => !asked.has(point.id) && FOLLOW_UP_BY_ID.has(point.id));
+  return wizardState.ambiguityPointsRemaining.find((point) => {
+    if (asked.has(point.id) || !FOLLOW_UP_BY_ID.has(point.id)) return false;
+    const question = FOLLOW_UP_BY_ID.get(point.id);
+    if (isAbstractQuestion(question)) return false;
+    return hasRequiredContext(point.id);
+  });
 };
 
 const canGenerateKgiNow = () => {
@@ -300,6 +406,9 @@ const buildAiKgiSourceData = () => {
   const raw = wizardState.rawSuccessStateInput || "";
   const deadline = wizardState.kgiDeadline;
   const targetUserAnswer = findAnswerById(answers, "target_user");
+  const serviceTypeAnswer = findAnswerById(answers, "service_type");
+  const domainAnswer = findAnswerById(answers, "domain");
+  const monetizationPathAnswer = findAnswerById(answers, "monetization_path");
   const publishAnswer = findAnswerById(answers, "publish_level");
   const monetizationAnswer = findAnswerById(answers, "monetization_level");
   const trafficAnswer = findAnswerById(answers, "traffic_level");
@@ -313,8 +422,13 @@ const buildAiKgiSourceData = () => {
     upperGoal: wizardState.upperGoal || "叶えたい未来を明確化する",
     currentKgiScope: `${deadline}時点で、今回の挑戦が「達成した」と言える範囲を定義する`,
     kgiDeadline: deadline,
+    serviceType: serviceTypeAnswer?.selectedOptionLabel || "サービス種別は追加確認中",
+    domain: domainAnswer?.selectedOptionLabel || "ジャンルは追加確認中",
+    monetizationPath: monetizationPathAnswer?.selectedOptionLabel || "収益化手段は追加確認中",
     targetUser: targetUserAnswer?.selectedOptionLabel || "対象ユーザーは追加確認中（広すぎない形で絞る）",
-    offeringSummary: raw.includes("サイト") ? "利用者が価値を受け取れる形でサイト/コンテンツを提供する" : "対象ユーザーに価値提供できる成果物を提供する",
+    offeringSummary: serviceTypeAnswer?.selectedOptionLabel
+      ? `${serviceTypeAnswer.selectedOptionLabel}として利用可能な成果物を公開する`
+      : (raw.includes("サイト") ? "利用者が価値を受け取れる形でサイト/コンテンツを提供する" : "対象ユーザーに価値提供できる成果物を提供する"),
     successStateSummary: `${deadline}までに、今回の範囲で「成功した状態」を第三者に説明できる形で成立させる`,
     publicationDefinition: publishAnswer?.selectedOptionLabel || "公開の達成定義は今回の回答範囲で判断",
     monetizationDefinition: monetizationAnswer?.selectedOptionLabel || monetizationRequiredAnswer?.selectedOptionLabel || "収益化は今回の必須条件としては未確定",
