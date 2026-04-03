@@ -1,4 +1,5 @@
 const OPENAI_API_URL = "https://api.openai.com/v1/responses";
+const ROUTE_LOG_PREFIX = "[api/generate-follow-up-question]";
 
 const sendJson = (res, status, body) => {
   res.statusCode = status;
@@ -28,6 +29,27 @@ const extractOutputText = (responseData) => {
     }
   }
   return "";
+};
+
+const logInfo = (message, detail = {}) => {
+  console.log(`${ROUTE_LOG_PREFIX} ${message}`, detail);
+};
+
+const logError = (message, detail = {}) => {
+  console.error(`${ROUTE_LOG_PREFIX} ${message}`, detail);
+};
+
+const validateGeneratedQuestion = (payload) => {
+  if (!payload || typeof payload !== "object") return { ok: false, reason: "schema_invalid:not_object" };
+  if (typeof payload.slot !== "string" || !payload.slot.trim()) return { ok: false, reason: "schema_invalid:slot" };
+  if (typeof payload.question_text !== "string" || !payload.question_text.trim()) return { ok: false, reason: "schema_invalid:question_text" };
+  if (!Array.isArray(payload.options)) return { ok: false, reason: "schema_invalid:options_not_array" };
+  if (payload.options.length < 3 || payload.options.length > 5) return { ok: false, reason: "schema_invalid:options_size" };
+  if (payload.options.some((opt) => !opt || typeof opt !== "object" || !String(opt.id || "").trim() || !String(opt.label || "").trim())) {
+    return { ok: false, reason: "schema_invalid:option_item" };
+  }
+  if (typeof payload.allow_other_text !== "boolean") return { ok: false, reason: "schema_invalid:allow_other_text" };
+  return { ok: true };
 };
 
 const RESPONSE_SCHEMA = {
@@ -77,14 +99,21 @@ module.exports = async function handler(req, res) {
   }
 
   const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) return sendJson(res, 500, { error: "OPENAI_API_KEY is missing" });
+  if (!apiKey) {
+    logError("環境変数読み込み失敗", { hasOpenAiApiKey: false });
+    return sendJson(res, 500, { error: "Server configuration error" });
+  }
+  logInfo("環境変数読み込み成功", { hasOpenAiApiKey: true });
 
   const requestBody = getRequestBody(req);
   if (!requestBody || typeof requestBody !== "object" || typeof requestBody.slot !== "string") {
+    logError("不正payload(400)", { bodyType: typeof requestBody, hasSlot: Boolean(requestBody?.slot) });
     return sendJson(res, 400, { error: "Invalid request body" });
   }
+  logInfo("入力payload検証成功", { slot: requestBody.slot });
 
   try {
+    logInfo("OpenAI呼び出し開始", { slot: requestBody.slot });
     const openAiResponse = await fetch(OPENAI_API_URL, {
       method: "POST",
       headers: {
@@ -100,31 +129,53 @@ module.exports = async function handler(req, res) {
         text: { format: { type: "json_schema", ...RESPONSE_SCHEMA } }
       })
     });
+    logInfo("OpenAI応答受信", { slot: requestBody.slot, status: openAiResponse.status, ok: openAiResponse.ok });
 
     const rawText = await openAiResponse.text();
     if (!openAiResponse.ok) {
-      return sendJson(res, openAiResponse.status, { error: "OpenAI API request failed", details: rawText });
+      logError("OpenAI応答エラー", { slot: requestBody.slot, status: openAiResponse.status, rawText });
+      return sendJson(res, 502, { error: "Upstream AI request failed" });
     }
 
     let responseData;
     try {
       responseData = JSON.parse(rawText);
+      logInfo("OpenAIレスポンスJSON parse成功", { slot: requestBody.slot });
     } catch {
-      return sendJson(res, 502, { error: "OpenAI response parse failed" });
+      logError("OpenAIレスポンスJSON parse失敗", { slot: requestBody.slot, rawText });
+      return sendJson(res, 502, { error: "Upstream response parse failed" });
     }
 
     const outputText = extractOutputText(responseData);
-    if (!outputText) return sendJson(res, 502, { error: "OpenAI empty output" });
+    if (!outputText) {
+      logError("OpenAI出力が空", { slot: requestBody.slot, responseKeys: Object.keys(responseData || {}) });
+      return sendJson(res, 502, { error: "Upstream AI output was empty" });
+    }
+    logInfo("OpenAI出力テキスト抽出成功", { slot: requestBody.slot, outputLength: outputText.length });
 
     let parsed;
     try {
       parsed = JSON.parse(outputText);
+      logInfo("モデル出力JSON parse成功", { slot: requestBody.slot });
     } catch {
-      return sendJson(res, 502, { error: "Model output JSON parse failed" });
+      logError("モデル出力JSON parse失敗", { slot: requestBody.slot, outputText });
+      return sendJson(res, 500, { error: "AI output format error" });
     }
+
+    const validation = validateGeneratedQuestion(parsed);
+    if (!validation.ok) {
+      logError("JSON schema validation失敗", { slot: requestBody.slot, reason: validation.reason, parsed });
+      return sendJson(res, 500, { error: `AI output schema error: ${validation.reason}` });
+    }
+    if (parsed.slot !== requestBody.slot) {
+      logError("slot不一致", { requestedSlot: requestBody.slot, generatedSlot: parsed.slot });
+      return sendJson(res, 500, { error: "AI output schema error: slot mismatch" });
+    }
+    logInfo("JSON schema validation成功", { slot: requestBody.slot, optionsCount: parsed.options.length });
 
     return sendJson(res, 200, parsed);
   } catch (error) {
-    return sendJson(res, 500, { error: "Unexpected server error", details: error?.message || "unknown" });
+    logError("Unexpected server error", { slot: requestBody.slot, message: error?.message || "unknown" });
+    return sendJson(res, 500, { error: "Unexpected server error" });
   }
 };
