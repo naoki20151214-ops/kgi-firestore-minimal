@@ -157,6 +157,11 @@
         display: grid;
         gap: 8px;
       }
+      .source-data-actions {
+        display: grid;
+        gap: 8px;
+        margin-top: 4px;
+      }
       .proposal-card {
         border: 1px solid #d1d5db;
         border-radius: 12px;
@@ -278,8 +283,12 @@
 
       <section id="proposalSection" class="section hidden" data-state="future">
         <h2 class="section-title">3. KGI確認・保存 <span id="proposalStateChip" class="state-chip">これから</span></h2>
-        <p class="helper">KGI本体と、このKGIを達成したと判断する条件を確認して保存します。</p>
+        <p class="helper">まずAIが整理した「KGI元データ」を確認し、OKならKGI本体と判定条件を生成して保存します。</p>
         <div id="understandingCheckSection" class="understanding-check hidden"></div>
+        <div class="source-data-actions">
+          <button id="sourceDataApproveButton" type="button">だいたい合っている</button>
+          <button id="sourceDataBackButton" class="secondary" type="button">少し違うので質問に戻る</button>
+        </div>
         <div id="proposalList" class="proposal-list"></div>
 
         <div id="editSection" class="hidden">

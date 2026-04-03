@@ -17,6 +17,9 @@ const otherAnswerInput = document.getElementById("otherAnswerInput");
 
 const proposalSection = document.getElementById("proposalSection");
 const proposalList = document.getElementById("proposalList");
+const understandingCheckSection = document.getElementById("understandingCheckSection");
+const sourceDataApproveButton = document.getElementById("sourceDataApproveButton");
+const sourceDataBackButton = document.getElementById("sourceDataBackButton");
 const editSection = document.getElementById("editSection");
 const nameInput = document.getElementById("kgiName");
 const goalTextInput = document.getElementById("kgiGoalText");
@@ -47,9 +50,12 @@ const wizardState = {
   followUpStopReason: "",
   maxFollowUpQuestions: 4,
   clarifiedSuccessState: "",
+  aiKgiSourceData: null,
   kgiStatement: "",
   kgiSuccessCriteria: [],
   nextKgiSuggestion: "",
+  sourceDataConfirmed: false,
+  sourceDataEdited: false,
   selectedDraft: null
 };
 
@@ -273,39 +279,92 @@ const resolveAnswerLabel = (question, answer) => {
   return question.options.find((opt) => opt.id === answer.selectedOptionId)?.label || "";
 };
 
-const buildKgiResult = () => {
+const collectAnswerSummaries = () => wizardState.followUpQuestionHistory.map((historyItem) => {
+  const question = FOLLOW_UP_BY_ID.get(historyItem.id);
+  if (!question) return null;
+  const answer = wizardState.followUpAnswers[question.id];
+  if (!answer?.selectedOptionId) return null;
+  return {
+    id: question.id,
+    question: question.text,
+    selectedOptionId: answer.selectedOptionId,
+    selectedOptionLabel: resolveAnswerLabel(question, answer),
+    rawOtherText: answer.selectedOptionId === "other" ? (answer.otherText || "").trim() : ""
+  };
+}).filter(Boolean);
+
+const findAnswerById = (answers, id) => answers.find((answer) => answer.id === id);
+
+const buildAiKgiSourceData = () => {
+  const answers = collectAnswerSummaries();
+  const raw = wizardState.rawSuccessStateInput || "";
   const deadline = wizardState.kgiDeadline;
-  const answers = wizardState.followUpQuestionHistory.map((historyItem) => {
-    const question = FOLLOW_UP_BY_ID.get(historyItem.id);
-    if (!question) return null;
-    return {
-      id: question.id,
-      question: question.text,
-      value: resolveAnswerLabel(question, wizardState.followUpAnswers[question.id])
-    };
-  }).filter(Boolean).map((item) => ({
-    id: item.id,
-    question: item.question,
-    value: item.value
-  })).filter((v) => v.value);
+  const targetUserAnswer = findAnswerById(answers, "target_user");
+  const publishAnswer = findAnswerById(answers, "publish_level");
+  const monetizationAnswer = findAnswerById(answers, "monetization_level");
+  const trafficAnswer = findAnswerById(answers, "traffic_level");
+  const minimumAnswer = findAnswerById(answers, "minimum_line");
+  const mustVsIdealAnswer = findAnswerById(answers, "must_vs_ideal");
+  const uiAnswer = findAnswerById(answers, "ui_completion");
+  const beginnerAnswer = findAnswerById(answers, "beginner_level");
+  const monetizationRequiredAnswer = findAnswerById(answers, "monetization_required");
 
-  const clarifiedParts = [wizardState.rawSuccessStateInput, ...answers.map((a) => `${a.question} → ${a.value}`)];
-  wizardState.clarifiedSuccessState = clarifiedParts.join(" / ");
+  const sourceData = {
+    upperGoal: wizardState.upperGoal || "叶えたい未来を明確化する",
+    currentKgiScope: `${deadline}時点で、今回の挑戦が「達成した」と言える範囲を定義する`,
+    kgiDeadline: deadline,
+    targetUser: targetUserAnswer?.selectedOptionLabel || "対象ユーザーは追加確認中（広すぎない形で絞る）",
+    offeringSummary: raw.includes("サイト") ? "利用者が価値を受け取れる形でサイト/コンテンツを提供する" : "対象ユーザーに価値提供できる成果物を提供する",
+    successStateSummary: `${deadline}までに、今回の範囲で「成功した状態」を第三者に説明できる形で成立させる`,
+    publicationDefinition: publishAnswer?.selectedOptionLabel || "公開の達成定義は今回の回答範囲で判断",
+    monetizationDefinition: monetizationAnswer?.selectedOptionLabel || monetizationRequiredAnswer?.selectedOptionLabel || "収益化は今回の必須条件としては未確定",
+    minimumSuccessLine: minimumAnswer?.selectedOptionLabel || "最低ラインは、主要価値が成立し第三者が確認できる公開状態",
+    idealSuccessLine: mustVsIdealAnswer?.selectedOptionId === "ideal_as_must"
+      ? "理想条件も含めて今回期限で到達する"
+      : "必須条件を達成し、理想条件は可能な範囲で先取りする",
+    mustHaveConditions: [
+      `${deadline}時点で達成状態を説明できること`,
+      minimumAnswer?.selectedOptionLabel,
+      publishAnswer?.selectedOptionLabel,
+      targetUserAnswer?.selectedOptionLabel
+    ].filter(Boolean),
+    optionalConditions: [
+      uiAnswer?.selectedOptionLabel,
+      beginnerAnswer?.selectedOptionLabel,
+      trafficAnswer?.selectedOptionLabel
+    ].filter(Boolean),
+    excludedFromCurrentKgi: [
+      mustVsIdealAnswer?.selectedOptionId === "must_only" ? "理想条件のフル達成" : "",
+      monetizationRequiredAnswer?.selectedOptionId === "not_required" ? "売上/収益の結果発生" : "",
+      isCrossDeadlinePhrase(raw) ? "継続運用の安定化（期限後の継続指標）" : ""
+    ].filter(Boolean),
+    nextKgiSuggestion: isCrossDeadlinePhrase(raw)
+      ? "今回達成後は、継続運用と安定流入・収益化を次のKGIとして分離する。"
+      : "今回の必須条件達成後、理想条件や中長期成果を次のKGIに切り出す。",
+    ambiguityPointsRemaining: wizardState.ambiguityPointsRemaining.map((point) => point.label),
+    whyThisStructure: "自由入力はそのまま文面に差し込まず、回答の意味を『必須・任意・今回除外』に分解してKGI生成の元データ化したため。"
+  };
 
-  const statementAddOn = answers.length > 0 ? `（達成定義: ${answers.map((a) => a.value).join("、")}）` : "";
-  wizardState.kgiStatement = `${deadline}までに、${wizardState.rawSuccessStateInput}${statementAddOn}を達成する。`;
+  wizardState.aiKgiSourceData = sourceData;
+  wizardState.clarifiedSuccessState = `${sourceData.successStateSummary} / 必須条件: ${sourceData.mustHaveConditions.join("、")}`;
+  wizardState.nextKgiSuggestion = sourceData.nextKgiSuggestion;
+  return sourceData;
+};
 
-  const baseCriteria = [
-    `${deadline}時点で「${wizardState.rawSuccessStateInput}」が第三者にも説明できる形で成立している`,
-    ...answers.map((a) => a.value)
-  ];
-  wizardState.kgiSuccessCriteria = Array.from(new Set(baseCriteria));
+const buildKgiResultFromSourceData = () => {
+  const sourceData = wizardState.aiKgiSourceData;
+  if (!sourceData) return;
+  const mustConditions = sourceData.mustHaveConditions || [];
+  const optionalConditions = sourceData.optionalConditions || [];
+  const excluded = sourceData.excludedFromCurrentKgi || [];
 
-  if (isCrossDeadlinePhrase(wizardState.rawSuccessStateInput)) {
-    wizardState.nextKgiSuggestion = "今回のKGI達成後に、継続運用の安定化（流入維持・収益安定）を次のKGIとして分けるのがおすすめです。";
-  } else {
-    wizardState.nextKgiSuggestion = "";
-  }
+  wizardState.kgiStatement = `${sourceData.kgiDeadline}までに、${sourceData.targetUser}に対して${sourceData.offeringSummary}が成立し、今回の成功状態（${sourceData.minimumSuccessLine}）を満たした状態を実現する。`;
+
+  wizardState.kgiSuccessCriteria = Array.from(new Set([
+    ...mustConditions.map((item) => `必須: ${item}`),
+    ...optionalConditions.map((item) => `任意: ${item}`),
+    ...excluded.map((item) => `今回除外: ${item}`)
+  ]));
 };
 
 const renderQuestion = () => {
@@ -352,6 +411,29 @@ const renderQuestion = () => {
 };
 
 const renderProposal = () => {
+  const sourceData = wizardState.aiKgiSourceData;
+  if (sourceData) {
+    understandingCheckSection.classList.remove("hidden");
+    const remainingAmbiguity = (sourceData.ambiguityPointsRemaining || []).length > 0
+      ? sourceData.ambiguityPointsRemaining.join("、")
+      : "特になし";
+    understandingCheckSection.innerHTML = `
+      <h3>まず確認: KGIを作る元データ</h3>
+      <p class="proposal-meta"><strong>あなたが本当に叶えたい未来:</strong> ${sourceData.upperGoal}</p>
+      <p class="proposal-meta"><strong>今回の期限で狙う範囲:</strong> ${sourceData.currentKgiScope}</p>
+      <p class="proposal-meta"><strong>誰向けに何を提供するか:</strong> ${sourceData.targetUser} / ${sourceData.offeringSummary}</p>
+      <p class="proposal-meta"><strong>今回達成とみなす最低ライン:</strong> ${sourceData.minimumSuccessLine}</p>
+      <p class="proposal-meta"><strong>今回は入れないもの:</strong> ${(sourceData.excludedFromCurrentKgi || []).join("、") || "特になし"}</p>
+      <p class="proposal-meta"><strong>次のKGI候補:</strong> ${sourceData.nextKgiSuggestion}</p>
+      <details>
+        <summary>補足を見る</summary>
+        <p class="proposal-meta"><strong>理想ライン:</strong> ${sourceData.idealSuccessLine}</p>
+        <p class="proposal-meta"><strong>曖昧さの残り:</strong> ${remainingAmbiguity}</p>
+        <p class="proposal-meta"><strong>この整理にした理由:</strong> ${sourceData.whyThisStructure}</p>
+      </details>
+    `;
+  }
+
   proposalList.innerHTML = "";
   const card = document.createElement("article");
   card.className = "proposal-card selected";
@@ -371,6 +453,9 @@ const renderProposal = () => {
   `;
 
   proposalList.appendChild(card);
+  proposalList.classList.toggle("hidden", !wizardState.sourceDataConfirmed);
+  sourceDataApproveButton?.classList.toggle("hidden", wizardState.sourceDataConfirmed);
+  sourceDataBackButton?.classList.toggle("hidden", wizardState.sourceDataConfirmed);
 
   const defaultName = `${wizardState.kgiDeadline} KGI`;
   wizardState.selectedDraft = {
@@ -384,7 +469,7 @@ const renderProposal = () => {
   goalTextInput.value = wizardState.selectedDraft.goalText;
   deadlineInput.value = wizardState.selectedDraft.deadline;
   levelInput.value = wizardState.selectedDraft.level;
-  editSection.classList.remove("hidden");
+  editSection.classList.toggle("hidden", !wizardState.sourceDataConfirmed);
 };
 
 const ensureCreationSession = async () => {
@@ -399,6 +484,7 @@ const ensureCreationSession = async () => {
     kgiDeadline: wizardState.kgiDeadline,
     rawSuccessStateInput: wizardState.rawSuccessStateInput,
     clarifiedSuccessState: "",
+    aiKgiSourceData: null,
     kgiStatement: "",
     kgiSuccessCriteria: [],
     ambiguityPoints: wizardState.ambiguityPoints,
@@ -410,7 +496,9 @@ const ensureCreationSession = async () => {
     followUpAnswers: {},
     followUpAnswerHistory: wizardState.followUpAnswerHistory,
     followUpStopReason: wizardState.followUpStopReason,
-    nextKgiSuggestion: ""
+    nextKgiSuggestion: "",
+    sourceDataConfirmed: wizardState.sourceDataConfirmed,
+    sourceDataEdited: wizardState.sourceDataEdited
   };
   const ref = await addDoc(collection(db, "kgiCreationSessions"), data);
   wizardState.sessionId = ref.id;
@@ -425,6 +513,7 @@ const updateCreationSession = async () => {
     kgiDeadline: wizardState.kgiDeadline,
     rawSuccessStateInput: wizardState.rawSuccessStateInput,
     clarifiedSuccessState: wizardState.clarifiedSuccessState,
+    aiKgiSourceData: wizardState.aiKgiSourceData,
     kgiStatement: wizardState.kgiStatement,
     kgiSuccessCriteria: wizardState.kgiSuccessCriteria,
     ambiguityPoints: wizardState.ambiguityPoints,
@@ -436,7 +525,9 @@ const updateCreationSession = async () => {
     followUpAnswers: wizardState.followUpAnswers,
     followUpAnswerHistory: wizardState.followUpAnswerHistory,
     followUpStopReason: wizardState.followUpStopReason,
-    nextKgiSuggestion: wizardState.nextKgiSuggestion
+    nextKgiSuggestion: wizardState.nextKgiSuggestion,
+    sourceDataConfirmed: wizardState.sourceDataConfirmed,
+    sourceDataEdited: wizardState.sourceDataEdited
   });
 };
 
@@ -466,6 +557,11 @@ startDeepDiveButton.addEventListener("click", async () => {
   wizardState.followUpQuestionHistory = [];
   wizardState.followUpAnswerHistory = [];
   wizardState.followUpStopReason = "";
+  wizardState.sourceDataConfirmed = false;
+  wizardState.sourceDataEdited = false;
+  wizardState.aiKgiSourceData = null;
+  wizardState.kgiStatement = "";
+  wizardState.kgiSuccessCriteria = [];
 
   const firstQuestionPoint = chooseNextQuestion();
   if (firstQuestionPoint) {
@@ -477,13 +573,13 @@ startDeepDiveButton.addEventListener("click", async () => {
 
   if (wizardState.followUpQuestionHistory.length === 0 || canGenerateKgiNow()) {
     wizardState.followUpStopReason = "ambiguity_resolved";
-    buildKgiResult();
+    buildAiKgiSourceData();
     await updateCreationSession();
     proposalSection.classList.remove("hidden");
     questionSection.classList.add("hidden");
     renderProposal();
     setStep(3);
-    setStatus("必要な追加質問がなかったため、KGIを作成しました。", false);
+    setStatus("必要な追加質問がなかったため、KGI元データを作成しました。内容を確認してください。", false);
     return;
   }
 
@@ -558,13 +654,36 @@ nextQuestionButton.addEventListener("click", async () => {
 
   wizardState.followUpStopReason = reachedMax ? "max_questions_reached" : "ambiguity_resolved";
 
-  buildKgiResult();
+  buildAiKgiSourceData();
   await updateCreationSession();
   questionSection.classList.add("hidden");
   proposalSection.classList.remove("hidden");
   renderProposal();
   setStep(3);
-  setStatus("KGI本体とKGI達成の判定条件を作成しました。", false);
+  setStatus("KGI元データを作成しました。まず内容確認をお願いします。", false);
+});
+
+sourceDataApproveButton?.addEventListener("click", async () => {
+  if (!wizardState.aiKgiSourceData) {
+    setStatus("KGI元データがまだ作成されていません。", true);
+    return;
+  }
+  wizardState.sourceDataConfirmed = true;
+  buildKgiResultFromSourceData();
+  await updateCreationSession();
+  renderProposal();
+  setStatus("KGI元データを反映して、KGI本体と達成判定条件を生成しました。", false);
+});
+
+sourceDataBackButton?.addEventListener("click", () => {
+  wizardState.sourceDataConfirmed = false;
+  wizardState.sourceDataEdited = true;
+  proposalSection.classList.add("hidden");
+  questionSection.classList.remove("hidden");
+  wizardState.currentQuestionIndex = Math.max(0, wizardState.followUpQuestionHistory.length - 1);
+  renderQuestion();
+  setStep(2);
+  setStatus("追加質問に戻りました。補足を回答してから再作成できます。", false);
 });
 
 const persistKgi = async () => {
@@ -580,6 +699,10 @@ const persistKgi = async () => {
 
   if (!name || !goalText || !deadline) {
     alert("KGI名・ゴール説明・期限を入力してください。");
+    return;
+  }
+  if (!wizardState.sourceDataConfirmed) {
+    alert("先にKGI元データを確認して「だいたい合っている」を押してください。");
     return;
   }
 
@@ -603,6 +726,7 @@ const persistKgi = async () => {
         kgiDeadline: wizardState.kgiDeadline,
         rawSuccessStateInput: wizardState.rawSuccessStateInput,
         clarifiedSuccessState: wizardState.clarifiedSuccessState,
+        aiKgiSourceData: wizardState.aiKgiSourceData,
         kgiStatement: wizardState.kgiStatement,
         kgiSuccessCriteria: wizardState.kgiSuccessCriteria,
         ambiguityPoints: wizardState.ambiguityPoints,
@@ -614,7 +738,9 @@ const persistKgi = async () => {
         followUpAnswers: wizardState.followUpAnswers,
         followUpAnswerHistory: wizardState.followUpAnswerHistory,
         followUpStopReason: wizardState.followUpStopReason,
-        nextKgiSuggestion: wizardState.nextKgiSuggestion
+        nextKgiSuggestion: wizardState.nextKgiSuggestion,
+        sourceDataConfirmed: wizardState.sourceDataConfirmed,
+        sourceDataEdited: wizardState.sourceDataEdited
       }
     });
 
