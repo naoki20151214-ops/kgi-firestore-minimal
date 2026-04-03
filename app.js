@@ -403,6 +403,16 @@ const SLOT_LABELS = {
   continuityDefinition: "継続の定義",
   minimumAchievementLine: "最低達成ライン"
 };
+const SLOT_ID_BY_LABEL = Object.fromEntries(Object.entries(SLOT_LABELS).map(([slot, label]) => [label, slot]));
+const MISSING_REASON_TO_SLOT_HINTS = [
+  { matcher: /判定条件が具体的でない/, slotsByGenre: { media: ["publishDefinition", "minimumReleaseBundle", "hardRequirements"], product: ["publishOrSalesDefinition", "minimumReleaseBundle", "hardRequirements"], service: ["applicationDefinition", "minimumServiceLaunchLine", "hardRequirements"], investment: ["successDefinition", "measurementUnit", "stabilityDefinition"], selfImprovement: ["successDefinition", "measurementUnit", "minimumAchievementLine"], other: ["hardRequirements", "concreteDeliverable"] } },
+  { matcher: /最低ラインが曖昧/, slotsByGenre: { media: ["minimumReleaseBundle"], product: ["minimumReleaseBundle"], service: ["minimumServiceLaunchLine"], selfImprovement: ["minimumAchievementLine"], other: ["minimumReleaseBundle", "minimumServiceLaunchLine", "minimumAchievementLine"] } },
+  { matcher: /公開条件が曖昧/, slotsByGenre: { media: ["publishDefinition"], product: ["publishOrSalesDefinition"], service: ["applicationDefinition"], other: ["publishDefinition", "publishOrSalesDefinition", "applicationDefinition"] } },
+  { matcher: /想定読者が曖昧/, slotsByGenre: { media: ["audienceSummary"], product: ["targetBuyer"], service: ["targetClient"], selfImprovement: ["targetBehavior"], other: ["audienceSummary", "targetClient"] } },
+  { matcher: /成功定義が曖昧/, slotsByGenre: { investment: ["successDefinition"], selfImprovement: ["successDefinition"], other: ["successDefinition"] } },
+  { matcher: /利益の測定単位が曖昧/, slotsByGenre: { investment: ["measurementUnit"], selfImprovement: ["measurementUnit"], other: ["measurementUnit"] } },
+  { matcher: /安定の定義が曖昧/, slotsByGenre: { investment: ["stabilityDefinition"], other: ["stabilityDefinition"] } }
+];
 const QUESTION_RULES = {
   service_type: { requiredContext: [], specificityLevel: "specific", priority: 1 },
   domain: { requiredContext: ["service_type"], specificityLevel: "specific", priority: 2 },
@@ -604,6 +614,12 @@ const logFollowUpInfo = (stage, detail = {}) => {
 
 const logFollowUpError = (stage, detail = {}) => {
   console.error(`${FOLLOW_UP_DEBUG_PREFIX} ${stage}`, detail);
+};
+const logMissingFlowInfo = (stage, detail = {}) => {
+  console.log(`[KGI_MISSING_FLOW] ${stage}`, detail);
+};
+const logMissingFlowError = (stage, detail = {}) => {
+  console.error(`[KGI_MISSING_FLOW] ${stage}`, detail);
 };
 
 const setStep = (step) => {
@@ -1175,20 +1191,123 @@ const updateSpecificityButtonState = () => {
   saveWithSpecificityButton.textContent = gate.pass ? "この補正を反映して保存" : "この補正を編集欄に反映";
 };
 
-const moveToMissingSlotQuestion = async () => {
-  recomputeRequiredSlotState();
-  const firstMissingSlot = wizardState.missingRequiredSlots[0];
-  if (!firstMissingSlot) return false;
-  const existingIndex = wizardState.followUpQuestionHistory.findIndex((item) => item.id === firstMissingSlot);
-  if (existingIndex >= 0) {
-    wizardState.currentQuestionIndex = existingIndex;
-    return true;
+let isMovingToMissingQuestion = false;
+const pickFirstExistingQuestionIndex = () => Math.max(0, wizardState.followUpQuestionHistory.length - 1);
+
+const resolveMissingReasonToSlot = (reason, genre, missingRequiredSlots, sourceData) => {
+  const candidates = [...(missingRequiredSlots || [])].filter((slot) => FOLLOW_UP_BY_ID.has(slot));
+  const normalizedReason = String(reason || "").trim();
+  if (!normalizedReason) return candidates[0] || null;
+
+  const labelHit = Object.entries(SLOT_LABELS).find(([, label]) => normalizedReason.includes(`${label}が未確定`));
+  if (labelHit && candidates.includes(labelHit[0])) return labelHit[0];
+
+  const slotInReason = Object.keys(SLOT_LABELS).find((slot) => normalizedReason.includes(slot));
+  if (slotInReason && candidates.includes(slotInReason)) return slotInReason;
+
+  const byLabel = Object.keys(SLOT_ID_BY_LABEL).find((label) => normalizedReason.includes(label));
+  if (byLabel && candidates.includes(SLOT_ID_BY_LABEL[byLabel])) return SLOT_ID_BY_LABEL[byLabel];
+
+  for (const rule of MISSING_REASON_TO_SLOT_HINTS) {
+    if (!rule.matcher.test(normalizedReason)) continue;
+    const priority = rule.slotsByGenre?.[genre] || rule.slotsByGenre?.other || [];
+    const slot = priority.find((id) => candidates.includes(id) || FOLLOW_UP_BY_ID.has(id));
+    if (slot) return slot;
   }
-  const questionRecord = await createQuestionRecordForSlot(firstMissingSlot, SLOT_LABELS[firstMissingSlot] || firstMissingSlot);
-  if (!questionRecord) return false;
-  wizardState.followUpQuestionHistory.push(questionRecord);
-  wizardState.currentQuestionIndex = wizardState.followUpQuestionHistory.length - 1;
-  return true;
+
+  if (sourceData && /公開/.test(normalizedReason)) {
+    const publishCandidate = ["publishDefinition", "publishOrSalesDefinition", "applicationDefinition"].find((id) => candidates.includes(id));
+    if (publishCandidate) return publishCandidate;
+  }
+  return candidates[0] || null;
+};
+
+const revertToQuestionList = async () => {
+  const fallbackSlot = wizardState.requiredSlotsByGenre.find((slot) => FOLLOW_UP_BY_ID.has(slot) && !wizardState.followUpQuestionHistory.some((q) => q.id === slot));
+  if (wizardState.followUpQuestionHistory.length === 0 && fallbackSlot) {
+    const emergency = buildFallbackQuestionRecord(fallbackSlot);
+    if (emergency) wizardState.followUpQuestionHistory.push(emergency);
+  }
+  wizardState.currentQuestionIndex = pickFirstExistingQuestionIndex();
+  proposalSection.classList.add("hidden");
+  questionSection.classList.remove("hidden");
+  sourceDataApproveButton.disabled = true;
+  renderQuestion();
+  setStep(2);
+  await syncPersistence();
+  setStatus("不足項目用の質問生成に失敗したため、質問一覧に戻りました。続きから見直してください。", true);
+  logMissingFlowError("reverted to question list", { questionCount: wizardState.followUpQuestionHistory.length, currentQuestionIndex: wizardState.currentQuestionIndex });
+};
+
+const goToMissingQuestion = async () => {
+  if (isMovingToMissingQuestion) return;
+  isMovingToMissingQuestion = true;
+  logMissingFlowInfo("button clicked");
+  setStatus("不足している項目に戻ります...", false);
+  try {
+    recomputeRequiredSlotState();
+    const gate = applyQualityGate();
+    const firstIssue = gate.issues[0] || "";
+    const resolvedSlot = resolveMissingReasonToSlot(firstIssue, wizardState.genreKey, wizardState.missingRequiredSlots, wizardState.aiKgiSourceData);
+    const targetSlot = resolvedSlot || wizardState.missingRequiredSlots.find((slot) => FOLLOW_UP_BY_ID.has(slot));
+    logMissingFlowInfo("resolved slot", { issue: firstIssue, slot: targetSlot, missingRequiredSlots: wizardState.missingRequiredSlots });
+    if (!targetSlot) {
+      logMissingFlowError("failed reason", { reason: "slot_not_resolved", issue: firstIssue });
+      await revertToQuestionList();
+      return;
+    }
+
+    const existingIndex = wizardState.followUpQuestionHistory.findIndex((item) => item.id === targetSlot);
+    if (existingIndex >= 0) {
+      wizardState.currentQuestionIndex = existingIndex;
+      proposalSection.classList.add("hidden");
+      questionSection.classList.remove("hidden");
+      sourceDataApproveButton.disabled = true;
+      renderQuestion();
+      setStep(2);
+      await syncPersistence();
+      setStatus(`${SLOT_LABELS[targetSlot] || targetSlot}を具体化するための質問を表示します。`, false);
+      return;
+    }
+
+    const questionRecord = await createQuestionRecordForSlot(targetSlot, SLOT_LABELS[targetSlot] || targetSlot);
+    if (questionRecord) {
+      wizardState.followUpQuestionHistory.push(questionRecord);
+      wizardState.currentQuestionIndex = wizardState.followUpQuestionHistory.length - 1;
+      logMissingFlowInfo(questionRecord.followUpGeneratedBy === "ai" ? "ai question generated" : "fallback question used", { slot: targetSlot });
+      proposalSection.classList.add("hidden");
+      questionSection.classList.remove("hidden");
+      sourceDataApproveButton.disabled = true;
+      renderQuestion();
+      setStep(2);
+      await syncPersistence();
+      setStatus(`${SLOT_LABELS[targetSlot] || targetSlot}を具体化するための質問を表示します。`, false);
+      return;
+    }
+
+    const directFallback = buildFallbackQuestionRecord(targetSlot);
+    if (directFallback) {
+      wizardState.followUpQuestionHistory.push(directFallback);
+      wizardState.currentQuestionIndex = wizardState.followUpQuestionHistory.length - 1;
+      logMissingFlowInfo("fallback question used", { slot: targetSlot, fallback: "direct_slot_fallback" });
+      proposalSection.classList.add("hidden");
+      questionSection.classList.remove("hidden");
+      sourceDataApproveButton.disabled = true;
+      renderQuestion();
+      setStep(2);
+      await syncPersistence();
+      setStatus("質問生成に失敗したため、通常質問へ切り替えました。", true);
+      return;
+    }
+
+    logMissingFlowError("failed reason", { reason: "question_generation_and_fallback_failed", slot: targetSlot });
+    await revertToQuestionList();
+  } catch (error) {
+    logMissingFlowError("failed reason", { reason: error?.message || String(error) });
+    await revertToQuestionList();
+  } finally {
+    isMovingToMissingQuestion = false;
+  }
 };
 
 const renderQuestion = () => {
@@ -1381,19 +1500,17 @@ const renderProposal = () => {
     setStatus("まだ情報が足りないため、保存可能なKGIにはなっていません。不足している質問へ進んでください。", true);
   }
   updateSpecificityButtonState();
-  understandingCheckSection.querySelector("#goToMissingSlotButton")?.addEventListener("click", async () => {
-    const moved = await moveToMissingSlotQuestion();
-    if (!moved) {
-      setStatus("不足質問の表示に失敗しました。もう一度お試しください。", true);
-      return;
+  understandingCheckSection.querySelector("#goToMissingSlotButton")?.addEventListener("click", async (event) => {
+    const button = event.currentTarget;
+    if (button instanceof HTMLButtonElement) {
+      button.disabled = true;
+      button.textContent = "不足している項目に戻ります...";
     }
-    proposalSection.classList.add("hidden");
-    questionSection.classList.remove("hidden");
-    sourceDataApproveButton.disabled = true;
-    renderQuestion();
-    setStep(2);
-    await syncPersistence();
-    setStatus("不足している項目の質問に戻りました。ここを埋めれば保存に進めます。", false);
+    await goToMissingQuestion();
+    if (button instanceof HTMLButtonElement) {
+      button.disabled = false;
+      button.textContent = "不足している質問に進む";
+    }
   });
   understandingCheckSection.querySelector("#reviewQuestionsButton")?.addEventListener("click", () => {
     sourceDataBackButton?.click();
