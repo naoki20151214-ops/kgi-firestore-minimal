@@ -8,6 +8,7 @@ const startDeepDiveButton = document.getElementById("startDeepDiveButton");
 const questionSection = document.getElementById("questionSection");
 const questionProgress = document.getElementById("questionProgress");
 const questionText = document.getElementById("questionText");
+const questionHelpText = document.getElementById("questionHelpText");
 const questionAnswerInput = document.getElementById("questionAnswerInput");
 const prevQuestionButton = document.getElementById("prevQuestionButton");
 const nextQuestionButton = document.getElementById("nextQuestionButton");
@@ -237,6 +238,19 @@ const EXTRA_FOLLOW_UP_LIBRARY = [
 
 const ALL_FOLLOW_UP_LIBRARY = [...FOLLOW_UP_LIBRARY, ...EXTRA_FOLLOW_UP_LIBRARY];
 const FOLLOW_UP_BY_ID = new Map(ALL_FOLLOW_UP_LIBRARY.map((question) => [question.id, question]));
+const FOLLOW_UP_SLOT_DEFINITIONS = [
+  "service_type",
+  "domain",
+  "monetization_path",
+  "publish_level",
+  "minimum_line",
+  "must_vs_ideal",
+  "target_user",
+  "traffic_level",
+  "monetization_required",
+  "beginner_level",
+  "ui_completion"
+];
 const QUESTION_RULES = {
   service_type: { requiredContext: [], specificityLevel: "specific", priority: 1 },
   domain: { requiredContext: ["service_type"], specificityLevel: "specific", priority: 2 },
@@ -369,6 +383,112 @@ const chooseNextQuestion = () => {
   });
 };
 
+const getQuestionRecord = (questionId) => {
+  const historyItem = wizardState.followUpQuestionHistory.find((item) => item.id === questionId);
+  if (historyItem?.followUpQuestionText && Array.isArray(historyItem.followUpOptionsSnapshot)) {
+    return {
+      id: historyItem.id,
+      text: historyItem.followUpQuestionText,
+      helpText: historyItem.followUpHelpText || "",
+      options: historyItem.followUpOptionsSnapshot,
+      allowOtherText: historyItem.allowOtherText !== false
+    };
+  }
+  const fallback = FOLLOW_UP_BY_ID.get(questionId);
+  if (!fallback) return null;
+  return {
+    id: fallback.id,
+    text: fallback.text,
+    helpText: "",
+    options: fallback.options,
+    allowOtherText: true
+  };
+};
+
+const buildFollowUpQuestionPayload = (nextSlot) => ({
+  slot: nextSlot,
+  availableSlots: FOLLOW_UP_SLOT_DEFINITIONS,
+  upperGoal: wizardState.upperGoal,
+  kgiDeadline: wizardState.kgiDeadline,
+  rawSuccessStateInput: wizardState.rawSuccessStateInput,
+  ambiguityPointsRemaining: wizardState.ambiguityPointsRemaining.map((point) => ({
+    id: point.id,
+    label: point.label,
+    priority: point.priority
+  })),
+  resolvedSlots: Object.values(wizardState.followUpAnswers).map((answer) => answer?.slot).filter(Boolean),
+  followUpQuestionHistory: wizardState.followUpQuestionHistory.map((item) => ({
+    followUpSlot: item.followUpSlot || item.id,
+    followUpQuestionText: item.followUpQuestionText || "",
+    followUpHelpText: item.followUpHelpText || "",
+    followUpOptionsSnapshot: item.followUpOptionsSnapshot || [],
+    followUpGeneratedBy: item.followUpGeneratedBy || "fallback_logic"
+  })),
+  followUpAnswerHistory: wizardState.followUpAnswerHistory,
+  followUpAnswers: wizardState.followUpAnswers
+});
+
+const generateFollowUpQuestion = async (nextSlot) => {
+  const payload = buildFollowUpQuestionPayload(nextSlot);
+  const response = await fetch("/api/generate-follow-up-question", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+  if (!response.ok) throw new Error(`follow-up generation failed: ${response.status}`);
+  const data = await response.json();
+  if (!data || typeof data !== "object") throw new Error("invalid response");
+  if (data.slot !== nextSlot) throw new Error("slot mismatch");
+  if (!Array.isArray(data.options) || data.options.length < 3 || data.options.length > 5) {
+    throw new Error("invalid options size");
+  }
+  return {
+    slot: data.slot,
+    questionText: (data.question_text || "").trim(),
+    helpText: (data.help_text || "").trim(),
+    options: data.options.map((opt) => ({
+      id: String(opt.id || "").trim(),
+      label: String(opt.label || "").trim()
+    })).filter((opt) => opt.id && opt.label),
+    allowOtherText: data.allow_other_text !== false
+  };
+};
+
+const buildFallbackQuestionRecord = (slot) => {
+  const fallback = FOLLOW_UP_BY_ID.get(slot);
+  if (!fallback) return null;
+  return {
+    id: slot,
+    ambiguityLabel: fallback.ambiguityLabel || slot,
+    followUpGeneratedBy: "fallback_logic",
+    followUpSlot: slot,
+    followUpQuestionText: fallback.text,
+    followUpHelpText: "",
+    followUpOptionsSnapshot: fallback.options,
+    allowOtherText: true
+  };
+};
+
+const createQuestionRecordForSlot = async (slot, ambiguityLabel) => {
+  try {
+    const generated = await generateFollowUpQuestion(slot);
+    if (!generated.questionText || generated.options.length < 3) throw new Error("insufficient generation");
+    return {
+      id: slot,
+      ambiguityLabel,
+      followUpGeneratedBy: "ai",
+      followUpSlot: slot,
+      followUpQuestionText: generated.questionText,
+      followUpHelpText: generated.helpText,
+      followUpOptionsSnapshot: generated.options,
+      allowOtherText: generated.allowOtherText
+    };
+  } catch (error) {
+    console.warn("AI follow-up generation failed, fallback used:", error);
+    return buildFallbackQuestionRecord(slot);
+  }
+};
+
 const canGenerateKgiNow = () => {
   const hasDeadline = Boolean(wizardState.kgiDeadline);
   const hasSuccessState = Boolean(wizardState.rawSuccessStateInput);
@@ -386,7 +506,7 @@ const resolveAnswerLabel = (question, answer) => {
 };
 
 const collectAnswerSummaries = () => wizardState.followUpQuestionHistory.map((historyItem) => {
-  const question = FOLLOW_UP_BY_ID.get(historyItem.id);
+  const question = getQuestionRecord(historyItem.id);
   if (!question) return null;
   const answer = wizardState.followUpAnswers[question.id];
   if (!answer?.selectedOptionId) return null;
@@ -483,11 +603,16 @@ const buildKgiResultFromSourceData = () => {
 
 const renderQuestion = () => {
   const questionId = wizardState.followUpQuestionHistory[wizardState.currentQuestionIndex]?.id;
-  const question = FOLLOW_UP_BY_ID.get(questionId);
+  const question = getQuestionRecord(questionId);
   if (!question) return;
 
   questionProgress.textContent = `質問 ${wizardState.currentQuestionIndex + 1} / 最大${wizardState.maxFollowUpQuestions}`;
   questionText.textContent = question.text;
+  if (questionHelpText) {
+    const help = question.helpText || "";
+    questionHelpText.textContent = help;
+    questionHelpText.classList.toggle("hidden", !help);
+  }
   questionAnswerInput.value = "";
   questionAnswerInput.classList.add("hidden");
 
@@ -503,11 +628,15 @@ const renderQuestion = () => {
     if (answer.selectedOptionId === option.id) input.checked = true;
     input.addEventListener("change", () => {
       wizardState.followUpAnswers[question.id] = {
+        slot: question.id,
         selectedOptionId: option.id,
         selectedOptionLabel: option.label,
-        otherText: option.id === "other" ? (otherAnswerInput.value || "").trim() : ""
+        otherText: option.id === "other" ? (otherAnswerInput.value || "").trim() : "",
+        followUpSelectedOptionId: option.id,
+        followUpSelectedOptionLabel: option.label,
+        followUpOtherText: option.id === "other" ? (otherAnswerInput.value || "").trim() : ""
       };
-      otherAnswerField.classList.toggle("hidden", option.id !== "other");
+      otherAnswerField.classList.toggle("hidden", option.id !== "other" || !question.allowOtherText);
       if (option.id !== "other") otherAnswerInput.value = "";
     });
     const span = document.createElement("span");
@@ -516,7 +645,7 @@ const renderQuestion = () => {
     questionOptions.appendChild(label);
   });
 
-  const showOther = answer.selectedOptionId === "other";
+  const showOther = answer.selectedOptionId === "other" && question.allowOtherText;
   otherAnswerField.classList.toggle("hidden", !showOther);
   otherAnswerInput.value = answer.otherText || "";
 
@@ -679,7 +808,8 @@ startDeepDiveButton.addEventListener("click", async () => {
 
   const firstQuestionPoint = chooseNextQuestion();
   if (firstQuestionPoint) {
-    wizardState.followUpQuestionHistory = [{ id: firstQuestionPoint.id, ambiguityLabel: firstQuestionPoint.label }];
+    const firstQuestionRecord = await createQuestionRecordForSlot(firstQuestionPoint.id, firstQuestionPoint.label);
+    if (firstQuestionRecord) wizardState.followUpQuestionHistory = [firstQuestionRecord];
   }
 
   await ensureCreationSession();
@@ -713,23 +843,28 @@ prevQuestionButton.addEventListener("click", () => {
 
 otherAnswerInput.addEventListener("input", () => {
   const questionId = wizardState.followUpQuestionHistory[wizardState.currentQuestionIndex]?.id;
-  const question = FOLLOW_UP_BY_ID.get(questionId);
+  const question = getQuestionRecord(questionId);
   if (!question) return;
   const answer = wizardState.followUpAnswers[question.id];
   if (answer?.selectedOptionId === "other") {
     answer.otherText = (otherAnswerInput.value || "").trim();
+    answer.followUpOtherText = answer.otherText;
   }
 });
 
 nextQuestionButton.addEventListener("click", async () => {
   const questionId = wizardState.followUpQuestionHistory[wizardState.currentQuestionIndex]?.id;
-  const question = FOLLOW_UP_BY_ID.get(questionId);
+  const question = getQuestionRecord(questionId);
+  if (!question) {
+    alert("質問の読み込みに失敗しました。");
+    return;
+  }
   const answer = wizardState.followUpAnswers[question?.id || ""];
   if (!answer?.selectedOptionId) {
     alert("選択肢を1つ選んでください。");
     return;
   }
-  if (answer.selectedOptionId === "other" && !answer.otherText) {
+  if (answer.selectedOptionId === "other" && question?.allowOtherText && !answer.otherText) {
     alert("「その他」の内容を短く入力してください。");
     otherAnswerInput.focus();
     return;
@@ -738,6 +873,14 @@ nextQuestionButton.addEventListener("click", async () => {
   const existingHistoryIndex = wizardState.followUpAnswerHistory.findIndex((item) => item.questionId === question.id);
   const historyEntry = {
     questionId: question.id,
+    followUpGeneratedBy: wizardState.followUpQuestionHistory[wizardState.currentQuestionIndex]?.followUpGeneratedBy || "fallback_logic",
+    followUpSlot: question.id,
+    followUpQuestionText: question.text,
+    followUpHelpText: question.helpText || "",
+    followUpOptionsSnapshot: question.options,
+    followUpSelectedOptionId: answer.selectedOptionId,
+    followUpSelectedOptionLabel: answer.selectedOptionLabel,
+    followUpOtherText: answer.otherText || "",
     questionText: question.text,
     selectedOptionId: answer.selectedOptionId,
     selectedOptionLabel: answer.selectedOptionLabel,
@@ -759,7 +902,19 @@ nextQuestionButton.addEventListener("click", async () => {
   const shouldStop = canGenerateKgiNow() || reachedMax || nextPointCandidate == null;
   if (!shouldStop) {
     const nextPoint = nextPointCandidate;
-    wizardState.followUpQuestionHistory.push({ id: nextPoint.id, ambiguityLabel: nextPoint.label });
+    const nextQuestionRecord = await createQuestionRecordForSlot(nextPoint.id, nextPoint.label);
+    if (!nextQuestionRecord) {
+      wizardState.followUpStopReason = "question_generation_failed";
+      buildAiKgiSourceData();
+      await updateCreationSession();
+      questionSection.classList.add("hidden");
+      proposalSection.classList.remove("hidden");
+      renderProposal();
+      setStep(3);
+      setStatus("質問生成に失敗したため、現時点の情報でKGI元データを作成しました。", false);
+      return;
+    }
+    wizardState.followUpQuestionHistory.push(nextQuestionRecord);
     wizardState.currentQuestionIndex += 1;
     await updateCreationSession();
     renderQuestion();
