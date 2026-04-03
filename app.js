@@ -583,6 +583,29 @@ const collectAnswerSummaries = () => wizardState.followUpQuestionHistory.map((hi
 
 const findAnswerById = (answers, id) => answers.find((answer) => answer.id === id);
 
+const inferProductShape = (serviceTypeLabel = "") => {
+  if (serviceTypeLabel.includes("ブログ")) return "ブログ型";
+  if (serviceTypeLabel.includes("SNS")) return "SNS発信型";
+  if (serviceTypeLabel.includes("YouTube")) return "動画メディア型";
+  if (serviceTypeLabel.includes("アプリ") || serviceTypeLabel.includes("ツール")) return "ツール提供型";
+  if (serviceTypeLabel.includes("相談") || serviceTypeLabel.includes("代行")) return "相談・代行型";
+  if (serviceTypeLabel.includes("デジタル商品")) return "デジタル商品販売型";
+  if (serviceTypeLabel.includes("物販")) return "物販型";
+  return "情報提供型（仮説）";
+};
+
+const buildSourceDataNarrative = (sourceData) => [
+  `- あなたが本当に叶えたい未来: ${sourceData.upperGoal}`,
+  `- 今回の期限で狙う範囲: ${sourceData.currentKgiScope}`,
+  `- 今回作るもの: ${sourceData.concreteDeliverable}`,
+  `- 想定する読者: ${sourceData.audienceSummary}`,
+  `- どんな価値を届けるか: ${sourceData.valuePromise}`,
+  `- 公開してよい最低ライン: ${(sourceData.minimumReleaseBundle || []).join("、") || sourceData.minimumSuccessLine}`,
+  `- 理想ライン: ${(sourceData.idealReleaseBundle || []).join("、") || sourceData.idealSuccessLine}`,
+  `- 今回は入れないもの: ${(sourceData.excludedFromCurrentKgi || []).join("、") || "特になし"}`,
+  `- 次のKGI候補: ${sourceData.nextKgiSuggestion}`
+].join("\n");
+
 const buildAiKgiSourceData = () => {
   const answers = collectAnswerSummaries();
   const raw = wizardState.rawSuccessStateInput || "";
@@ -599,47 +622,87 @@ const buildAiKgiSourceData = () => {
   const uiAnswer = findAnswerById(answers, "ui_completion");
   const beginnerAnswer = findAnswerById(answers, "beginner_level");
   const monetizationRequiredAnswer = findAnswerById(answers, "monetization_required");
+  const serviceTypeLabel = serviceTypeAnswer?.selectedOptionLabel || "情報サイト/コンテンツ（仮説）";
+  const domainLabel = domainAnswer?.selectedOptionLabel || "テーマは要確認（仮説）";
+  const targetUserLabel = targetUserAnswer?.selectedOptionLabel || "情報が必要な個人ユーザー（仮説）";
+  const publishLabel = publishAnswer?.selectedOptionLabel || "一般公開され第三者が見られる状態（仮説）";
+  const minimumLabel = minimumAnswer?.selectedOptionLabel || "主要導線が1本動き、最低限の説明コンテンツがある";
+  const productShape = inferProductShape(serviceTypeLabel);
+  const contentScope = [
+    `${domainLabel}に関する基本情報`,
+    `${domainLabel}の初心者向け解説`,
+    "利用者が次の行動を決めやすい整理コンテンツ"
+  ];
+  const minimumReleaseBundle = [
+    publishLabel,
+    minimumLabel,
+    uiAnswer?.selectedOptionLabel || "情報が読みやすい最低限のUI",
+    beginnerAnswer?.selectedOptionLabel ? `読者配慮: ${beginnerAnswer.selectedOptionLabel}` : "読者配慮: 初心者にも理解しやすい表現"
+  ];
+  const idealReleaseBundle = [
+    "最低ラインを満たしたうえで、カテゴリやコンテンツ量を追加して比較しやすくする",
+    uiAnswer?.selectedOptionId === "high_fidelity"
+      ? "デザイン品質まで高水準で整える"
+      : "統一感のある見た目まで整える",
+    trafficAnswer?.selectedOptionLabel ? `初期流入の確認: ${trafficAnswer.selectedOptionLabel}` : "初期流入の確認まで進める"
+  ];
+  const optionalRequirements = [
+    uiAnswer?.selectedOptionLabel,
+    beginnerAnswer?.selectedOptionLabel,
+    trafficAnswer?.selectedOptionLabel,
+    monetizationAnswer?.selectedOptionLabel
+  ].filter(Boolean);
 
   const sourceData = {
     upperGoal: wizardState.upperGoal || "叶えたい未来を明確化する",
-    currentKgiScope: `${deadline}時点で、今回の挑戦が「達成した」と言える範囲を定義する`,
+    currentKgiScope: `${deadline}までに、まずは公開して運用を開始できる土台を完成させる`,
     kgiDeadline: deadline,
-    serviceType: serviceTypeAnswer?.selectedOptionLabel || "サービス種別は追加確認中",
-    domain: domainAnswer?.selectedOptionLabel || "ジャンルは追加確認中",
-    monetizationPath: monetizationPathAnswer?.selectedOptionLabel || "収益化手段は追加確認中",
-    targetUser: targetUserAnswer?.selectedOptionLabel || "対象ユーザーは追加確認中（広すぎない形で絞る）",
-    offeringSummary: serviceTypeAnswer?.selectedOptionLabel
-      ? `${serviceTypeAnswer.selectedOptionLabel}として利用可能な成果物を公開する`
-      : (raw.includes("サイト") ? "利用者が価値を受け取れる形でサイト/コンテンツを提供する" : "対象ユーザーに価値提供できる成果物を提供する"),
+    serviceType: serviceTypeLabel,
+    domain: domainLabel,
+    monetizationPath: monetizationPathAnswer?.selectedOptionLabel || "収益導線は公開後に検証（仮説）",
+    targetUser: targetUserLabel,
+    offeringSummary: `${targetUserLabel}に向けた${serviceTypeLabel}を公開し、利用可能な状態にする`,
+    concreteDeliverable: `${domainLabel}を扱う${productShape}の${serviceTypeLabel}`,
+    productShape,
+    contentScope,
+    audienceSummary: beginnerAnswer?.selectedOptionLabel
+      ? `${targetUserLabel}（${beginnerAnswer.selectedOptionLabel}の分かりやすさを前提）`
+      : `${targetUserLabel}（仮説）`,
+    valuePromise: `${targetUserLabel}が、散らばった情報を短時間で理解し、次に何をすべきか判断しやすくなる状態を提供する`,
     successStateSummary: `${deadline}までに、今回の範囲で「成功した状態」を第三者に説明できる形で成立させる`,
-    publicationDefinition: publishAnswer?.selectedOptionLabel || "公開の達成定義は今回の回答範囲で判断",
+    publicationDefinition: publishLabel,
     monetizationDefinition: monetizationAnswer?.selectedOptionLabel || monetizationRequiredAnswer?.selectedOptionLabel || "収益化は今回の必須条件としては未確定",
-    minimumSuccessLine: minimumAnswer?.selectedOptionLabel || "最低ラインは、主要価値が成立し第三者が確認できる公開状態",
+    minimumSuccessLine: minimumLabel,
     idealSuccessLine: mustVsIdealAnswer?.selectedOptionId === "ideal_as_must"
       ? "理想条件も含めて今回期限で到達する"
       : "必須条件を達成し、理想条件は可能な範囲で先取りする",
+    minimumReleaseBundle,
+    idealReleaseBundle,
     mustHaveConditions: [
       `${deadline}時点で達成状態を説明できること`,
-      minimumAnswer?.selectedOptionLabel,
-      publishAnswer?.selectedOptionLabel,
-      targetUserAnswer?.selectedOptionLabel
+      minimumLabel,
+      publishLabel,
+      targetUserLabel
     ].filter(Boolean),
-    optionalConditions: [
-      uiAnswer?.selectedOptionLabel,
-      beginnerAnswer?.selectedOptionLabel,
-      trafficAnswer?.selectedOptionLabel
-    ].filter(Boolean),
+    optionalConditions: optionalRequirements,
+    hardRequirements: [
+      `${deadline}までに公開可能な状態`,
+      ...minimumReleaseBundle
+    ],
+    optionalRequirements,
     excludedFromCurrentKgi: [
       mustVsIdealAnswer?.selectedOptionId === "must_only" ? "理想条件のフル達成" : "",
       monetizationRequiredAnswer?.selectedOptionId === "not_required" ? "売上/収益の結果発生" : "",
-      isCrossDeadlinePhrase(raw) ? "継続運用の安定化（期限後の継続指標）" : ""
+      isCrossDeadlinePhrase(raw) ? "継続運用の安定化（期限後の継続指標）" : "",
+      trafficAnswer?.selectedOptionLabel ? `公開後の流入検証（${trafficAnswer.selectedOptionLabel}）` : ""
     ].filter(Boolean),
     nextKgiSuggestion: isCrossDeadlinePhrase(raw)
-      ? "今回達成後は、継続運用と安定流入・収益化を次のKGIとして分離する。"
-      : "今回の必須条件達成後、理想条件や中長期成果を次のKGIに切り出す。",
+      ? "公開後の継続運用、安定流入、収益化検証を次のKGIとして分離して設定する。"
+      : "公開後の初期流入確認と収益導線の検証を次のKGI候補として設定する。",
     ambiguityPointsRemaining: wizardState.ambiguityPointsRemaining.map((point) => point.label),
-    whyThisStructure: "自由入力はそのまま文面に差し込まず、回答の意味を『必須・任意・今回除外』に分解してKGI生成の元データ化したため。"
+    whyThisStructure: "自由入力をそのまま使わず、今回やること・やらないこと・次に回すことへ分けて具体化したため。"
   };
+  sourceData.sourceDataNarrative = buildSourceDataNarrative(sourceData);
 
   wizardState.aiKgiSourceData = sourceData;
   wizardState.clarifiedSuccessState = `${sourceData.successStateSummary} / 必須条件: ${sourceData.mustHaveConditions.join("、")}`;
@@ -734,16 +797,21 @@ const renderProposal = () => {
       ? sourceData.ambiguityPointsRemaining.join("、")
       : "特になし";
     understandingCheckSection.innerHTML = `
-      <h3>まず確認: KGIを作る元データ</h3>
+      <h3>まず確認: 今回のKGIの具体案</h3>
       <p class="proposal-meta"><strong>あなたが本当に叶えたい未来:</strong> ${sourceData.upperGoal}</p>
       <p class="proposal-meta"><strong>今回の期限で狙う範囲:</strong> ${sourceData.currentKgiScope}</p>
-      <p class="proposal-meta"><strong>誰向けに何を提供するか:</strong> ${sourceData.targetUser} / ${sourceData.offeringSummary}</p>
-      <p class="proposal-meta"><strong>今回達成とみなす最低ライン:</strong> ${sourceData.minimumSuccessLine}</p>
+      <p class="proposal-meta"><strong>今回作るもの:</strong> ${sourceData.concreteDeliverable}</p>
+      <p class="proposal-meta"><strong>想定する読者:</strong> ${sourceData.audienceSummary}</p>
+      <p class="proposal-meta"><strong>どんな価値を届けるか:</strong> ${sourceData.valuePromise}</p>
+      <p class="proposal-meta"><strong>公開してよい最低ライン:</strong> ${(sourceData.minimumReleaseBundle || []).join("、") || sourceData.minimumSuccessLine}</p>
+      <p class="proposal-meta"><strong>理想ライン:</strong> ${(sourceData.idealReleaseBundle || []).join("、") || sourceData.idealSuccessLine}</p>
       <p class="proposal-meta"><strong>今回は入れないもの:</strong> ${(sourceData.excludedFromCurrentKgi || []).join("、") || "特になし"}</p>
       <p class="proposal-meta"><strong>次のKGI候補:</strong> ${sourceData.nextKgiSuggestion}</p>
       <details>
         <summary>補足を見る</summary>
-        <p class="proposal-meta"><strong>理想ライン:</strong> ${sourceData.idealSuccessLine}</p>
+        <p class="proposal-meta"><strong>形（productShape）:</strong> ${sourceData.productShape}</p>
+        <p class="proposal-meta"><strong>載せる内容（contentScope）:</strong> ${(sourceData.contentScope || []).join("、")}</p>
+        <p class="proposal-meta"><strong>要約（sourceDataNarrative）:</strong><br>${sourceData.sourceDataNarrative.replaceAll("\n", "<br>")}</p>
         <p class="proposal-meta"><strong>曖昧さの残り:</strong> ${remainingAmbiguity}</p>
         <p class="proposal-meta"><strong>この整理にした理由:</strong> ${sourceData.whyThisStructure}</p>
       </details>
