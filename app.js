@@ -28,6 +28,7 @@ const deadlineInput = document.getElementById("kgiDeadline");
 const levelInput = document.getElementById("kgiLevel");
 const saveButton = document.getElementById("saveButton");
 const statusText = document.getElementById("statusText");
+const errorRecoveryCard = document.getElementById("errorRecoveryCard");
 const step1Label = document.getElementById("step1Label");
 const step2Label = document.getElementById("step2Label");
 const step3Label = document.getElementById("step3Label");
@@ -69,7 +70,9 @@ const wizardState = {
   sourceDataReady: false,
   gapAnalysis: null,
   kpiDrafts: [],
-  interviewNotes: []
+  interviewNotes: [],
+  pendingAction: null,
+  lastError: null
 };
 
 const GENRE_KEYS = {
@@ -400,10 +403,103 @@ const CONTEXT_BY_QUESTION_ID = {
 const ABSTRACT_TERMS = ["状態", "価値", "達成", "意味", "誰に何を"];
 const FOLLOW_UP_DEBUG_PREFIX = "[KGI_FOLLOWUP_DEBUG]";
 let isAdvancingQuestion = false;
+const LOCAL_DRAFT_KEY = "kgi_wizard_draft_v1";
 
 const setStatus = (message, isError = false) => {
   statusText.textContent = message;
   statusText.classList.toggle("error", isError);
+};
+
+const getPersistableWizardSnapshot = () => ({
+  sessionId: wizardState.sessionId,
+  step: wizardState.step,
+  upperGoal: wizardState.upperGoal,
+  kgiDeadline: wizardState.kgiDeadline,
+  rawSuccessStateInput: wizardState.rawSuccessStateInput,
+  followUpQuestionHistory: wizardState.followUpQuestionHistory,
+  currentQuestionIndex: wizardState.currentQuestionIndex,
+  followUpAnswers: wizardState.followUpAnswers,
+  followUpAnswerHistory: wizardState.followUpAnswerHistory,
+  followUpStopReason: wizardState.followUpStopReason,
+  aiKgiSourceData: wizardState.aiKgiSourceData,
+  sourceDataConfirmed: wizardState.sourceDataConfirmed,
+  sourceDataEdited: wizardState.sourceDataEdited,
+  genreClassification: wizardState.genreClassification,
+  genreKey: wizardState.genreKey,
+  currentKgiScope: wizardState.currentKgiScope,
+  requiredSlotsByGenre: wizardState.requiredSlotsByGenre,
+  filledSlots: wizardState.filledSlots,
+  missingRequiredSlots: wizardState.missingRequiredSlots,
+  minimumQuestionCountForGenre: wizardState.minimumQuestionCountForGenre,
+  followUpCount: wizardState.followUpCount,
+  sourceDataReady: wizardState.sourceDataReady,
+  kgiStatement: wizardState.kgiStatement,
+  kgiSuccessCriteria: wizardState.kgiSuccessCriteria,
+  clarifiedSuccessState: wizardState.clarifiedSuccessState,
+  nextKgiSuggestion: wizardState.nextKgiSuggestion,
+  gapAnalysis: wizardState.gapAnalysis,
+  kpiDrafts: wizardState.kpiDrafts
+});
+
+const persistDraftToLocal = () => {
+  try {
+    localStorage.setItem(LOCAL_DRAFT_KEY, JSON.stringify({
+      updatedAt: new Date().toISOString(),
+      payload: getPersistableWizardSnapshot()
+    }));
+  } catch (error) {
+    console.warn("localStorage保存に失敗", error);
+  }
+};
+
+const clearLocalDraft = () => {
+  try { localStorage.removeItem(LOCAL_DRAFT_KEY); } catch (_) {}
+};
+
+const syncPersistence = async () => {
+  persistDraftToLocal();
+  try {
+    await updateCreationSession();
+  } catch (error) {
+    console.warn("セッション更新に失敗。ローカル下書きは保持", error);
+  }
+};
+
+const renderRecoveryCard = () => {
+  if (!errorRecoveryCard) return;
+  const shouldShow = Boolean(wizardState.lastError);
+  errorRecoveryCard.classList.toggle("hidden", !shouldShow);
+  if (!shouldShow) {
+    errorRecoveryCard.innerHTML = "";
+    return;
+  }
+  errorRecoveryCard.innerHTML = `
+    <p>${wizardState.lastError}</p>
+    <div class="error-recovery-actions">
+      <button id="retryActionButton" type="button">もう一度生成する</button>
+      <button id="switchFallbackButton" class="secondary" type="button">通常生成に切り替える</button>
+      <button id="saveDraftButton" class="secondary" type="button">下書きを保存して後で再開する</button>
+    </div>
+  `;
+  document.getElementById("retryActionButton")?.addEventListener("click", async () => {
+    const action = wizardState.pendingAction;
+    if (typeof action === "function") await action();
+  });
+  document.getElementById("switchFallbackButton")?.addEventListener("click", async () => {
+    wizardState.lastError = "通常生成に切り替えました。回答内容は保持されています。";
+    renderRecoveryCard();
+    setStatus("通常生成モードで続行します。", false);
+    if (!wizardState.aiKgiSourceData && wizardState.followUpAnswerHistory.length > 0) {
+      buildKgiSourceData();
+      wizardState.sourceDataReady = true;
+      await syncPersistence();
+      renderProposal();
+    }
+  });
+  document.getElementById("saveDraftButton")?.addEventListener("click", () => {
+    persistDraftToLocal();
+    setStatus("下書きを保存しました。後でこの端末から再開できます。", false);
+  });
 };
 
 const logFollowUpInfo = (stage, detail = {}) => {
@@ -415,13 +511,26 @@ const logFollowUpError = (stage, detail = {}) => {
 };
 
 const setStep = (step) => {
+  if (step >= 3 && !wizardState.sourceDataReady) step = 2;
   wizardState.step = step;
   [step1Label, step2Label, step3Label, step4Label].forEach((node, index) => {
     const n = index + 1;
     node.classList.toggle("active", n === step);
     node.classList.toggle("completed", n < step);
   });
+  persistDraftToLocal();
 };
+
+const hasRenderableSourceData = () => Boolean(wizardState.sourceDataReady && wizardState.aiKgiSourceData);
+
+roughDeadlineInput?.addEventListener("input", () => {
+  wizardState.kgiDeadline = (roughDeadlineInput.value || "").trim();
+  persistDraftToLocal();
+});
+roughGoalInput?.addEventListener("input", () => {
+  wizardState.rawSuccessStateInput = (roughGoalInput.value || "").trim();
+  persistDraftToLocal();
+});
 
 const pickUpperGoal = (rawText) => {
   const first = (rawText || "").split(/[。\n]/).map((v) => v.trim()).find(Boolean) || "叶えたい未来を言語化中";
@@ -906,7 +1015,7 @@ const renderQuestion = () => {
 
   questionOptions.innerHTML = "";
   const answer = wizardState.followUpAnswers[question.id] || {};
-  question.options.forEach((option) => {
+  question.options.forEach((option, index) => {
     const label = document.createElement("label");
     label.className = "option-row";
     const input = document.createElement("input");
@@ -926,10 +1035,24 @@ const renderQuestion = () => {
       };
       otherAnswerField.classList.toggle("hidden", option.id !== "other" || !question.allowOtherText);
       if (option.id !== "other") otherAnswerInput.value = "";
+      persistDraftToLocal();
     });
+    const wrapper = document.createElement("div");
+    wrapper.className = "option-label-wrap";
     const span = document.createElement("span");
     span.textContent = option.label;
-    label.append(input, span);
+    wrapper.appendChild(span);
+    const isRecommended = option.recommended === true || (index === 0 && option.id !== "other");
+    if (isRecommended) {
+      const badge = document.createElement("span");
+      badge.className = "option-recommended";
+      badge.textContent = "推奨";
+      const note = document.createElement("p");
+      note.className = "option-recommended-note";
+      note.textContent = "この目標ならこれが現実的です。";
+      wrapper.append(badge, note);
+    }
+    label.append(input, wrapper);
     questionOptions.appendChild(label);
   });
 
@@ -951,6 +1074,24 @@ const renderProposal = () => {
   const sourceData = wizardState.aiKgiSourceData;
   const genreInfo = wizardState.genreClassification;
   const gap = wizardState.gapAnalysis;
+  if (!hasRenderableSourceData()) {
+    understandingCheckSection.classList.remove("hidden");
+    understandingCheckSection.innerHTML = `
+      <h3>KGI元データの生成に失敗しました</h3>
+      <p class="proposal-meta">KGI元データの生成に失敗しましたが、回答内容は保存されています。</p>
+      <p class="proposal-meta">ステップ2に戻って再試行してください。</p>
+    `;
+    proposalList.innerHTML = "";
+    proposalList.classList.add("hidden");
+    sourceDataApproveButton?.classList.add("hidden");
+    sourceDataApproveButton.disabled = true;
+    sourceDataBackButton?.classList.remove("hidden");
+    editSection.classList.add("hidden");
+    setStep(2);
+    renderRecoveryCard();
+    return;
+  }
+  sourceDataApproveButton.disabled = false;
   if (sourceData) {
     understandingCheckSection.classList.remove("hidden");
     const remainingAmbiguity = (sourceData.ambiguityPointsRemaining || []).length > 0
@@ -1030,6 +1171,7 @@ const renderProposal = () => {
   deadlineInput.value = wizardState.selectedDraft.deadline;
   levelInput.value = wizardState.selectedDraft.level;
   editSection.classList.toggle("hidden", !wizardState.sourceDataConfirmed);
+  renderRecoveryCard();
 };
 
 const ensureCreationSession = async () => {
@@ -1129,6 +1271,8 @@ startDeepDiveButton.addEventListener("click", async () => {
   startDeepDiveButton.disabled = true;
   startDeepDiveButton.textContent = "処理中...";
   try {
+    wizardState.lastError = null;
+    wizardState.pendingAction = null;
     wizardState.kgiDeadline = deadline;
     wizardState.rawSuccessStateInput = successState;
     wizardState.upperGoal = pickUpperGoal(successState);
@@ -1168,12 +1312,12 @@ startDeepDiveButton.addEventListener("click", async () => {
     }
 
     await ensureCreationSession();
-    await updateCreationSession();
+    await syncPersistence();
 
     if (wizardState.followUpQuestionHistory.length === 0 || canGenerateKgiNow()) {
       wizardState.followUpStopReason = "ambiguity_resolved";
       buildKgiSourceData();
-      await updateCreationSession();
+      await syncPersistence();
       proposalSection.classList.remove("hidden");
       questionSection.classList.add("hidden");
       renderProposal();
@@ -1186,8 +1330,16 @@ startDeepDiveButton.addEventListener("click", async () => {
     proposalSection.classList.add("hidden");
     renderQuestion();
     setStep(2);
+    await syncPersistence();
     setStatus("この目標を達成したと言える条件をそろえるため、必要な質問だけ続けます。", false);
   } catch (error) {
+    wizardState.lastError = "AIとの通信に失敗しましたが、回答内容は保存されています。";
+    wizardState.pendingAction = async () => {
+      wizardState.lastError = null;
+      renderRecoveryCard();
+      startDeepDiveButton.click();
+    };
+    renderRecoveryCard();
     setStatus(`開始処理に失敗しました: ${error?.message || "unknown"}`, true);
   } finally {
     startDeepDiveButton.disabled = false;
@@ -1210,6 +1362,7 @@ otherAnswerInput.addEventListener("input", () => {
   if (answer?.selectedOptionId === "other") {
     answer.otherText = (otherAnswerInput.value || "").trim();
     answer.followUpOtherText = answer.otherText;
+    persistDraftToLocal();
   }
 });
 
@@ -1237,6 +1390,7 @@ nextQuestionButton.addEventListener("click", async () => {
   nextQuestionButton.textContent = "処理中...";
 
   try {
+    wizardState.lastError = null;
     const existingHistoryIndex = wizardState.followUpAnswerHistory.findIndex((item) => item.questionId === question.id);
     const historyEntry = {
       questionId: question.id,
@@ -1255,6 +1409,7 @@ nextQuestionButton.addEventListener("click", async () => {
     };
     if (existingHistoryIndex >= 0) wizardState.followUpAnswerHistory[existingHistoryIndex] = historyEntry;
     else wizardState.followUpAnswerHistory.push(historyEntry);
+    await syncPersistence();
 
     const isLast = wizardState.currentQuestionIndex === wizardState.followUpQuestionHistory.length - 1;
     if (!isLast) {
@@ -1273,18 +1428,21 @@ nextQuestionButton.addEventListener("click", async () => {
       const nextQuestionRecord = await createQuestionRecordForSlot(nextPoint.id, nextPoint.label);
       if (!nextQuestionRecord) {
         wizardState.followUpStopReason = "question_generation_failed";
-        buildKgiSourceData();
-        await updateCreationSession();
-        questionSection.classList.add("hidden");
-        proposalSection.classList.remove("hidden");
-        renderProposal();
-        setStep(3);
-        setStatus("AI質問の生成に失敗しました。通常質問へ切り替えられなかったため、現時点の情報でKGI元データを作成しました。", true);
+        wizardState.lastError = "AIとの通信に失敗しましたが、回答内容は保存されています。";
+        wizardState.pendingAction = async () => {
+          wizardState.lastError = null;
+          renderRecoveryCard();
+          nextQuestionButton.click();
+        };
+        await syncPersistence();
+        setStep(2);
+        renderRecoveryCard();
+        setStatus("KGI元データの生成に失敗しましたが、回答内容は保存されています。もう一度生成してください。", true);
         return;
       }
       wizardState.followUpQuestionHistory.push(nextQuestionRecord);
       wizardState.currentQuestionIndex += 1;
-      await updateCreationSession();
+      await syncPersistence();
       if (nextQuestionRecord.followUpGeneratedBy === "fallback_logic") {
         setStatus("通常質問へ切り替えました。続けて回答してください。", false);
       } else {
@@ -1296,7 +1454,7 @@ nextQuestionButton.addEventListener("click", async () => {
 
     wizardState.followUpStopReason = reachedMax ? "max_questions_reached" : "ambiguity_resolved";
     buildKgiSourceData();
-    await updateCreationSession();
+    await syncPersistence();
     questionSection.classList.add("hidden");
     proposalSection.classList.remove("hidden");
     renderProposal();
@@ -1305,7 +1463,15 @@ nextQuestionButton.addEventListener("click", async () => {
     setStatus(hasMissing ? "最大質問数に達したため、未確定項目を含む仮KGI元データを作成しました。" : "KGI元データを作成しました。まず内容確認をお願いします。", false);
   } catch (error) {
     logFollowUpError("次へ処理中に予期しないエラー", { error: error?.message || String(error) });
-    setStatus("通信に失敗しました。再度お試しください。", true);
+    wizardState.lastError = "AIとの通信に失敗しましたが、回答内容は保存されています。";
+    wizardState.pendingAction = async () => {
+      wizardState.lastError = null;
+      renderRecoveryCard();
+      nextQuestionButton.click();
+    };
+    await syncPersistence();
+    renderRecoveryCard();
+    setStatus("KGI元データの生成に失敗しましたが、回答内容は保存されています。", true);
   } finally {
     isAdvancingQuestion = false;
     nextQuestionButton.disabled = false;
@@ -1314,17 +1480,24 @@ nextQuestionButton.addEventListener("click", async () => {
 });
 
 sourceDataApproveButton?.addEventListener("click", async () => {
-  if (!wizardState.aiKgiSourceData) {
+  if (!hasRenderableSourceData()) {
     setStatus("KGI元データがまだ作成されていません。", true);
     return;
   }
-  wizardState.sourceDataConfirmed = true;
-  if (!wizardState.kgiStatement || !wizardState.kgiSuccessCriteria.length) buildKgiStatementAndCriteria();
-  buildGapAnalysis();
-  buildKpiDrafts();
-  await updateCreationSession();
-  renderProposal();
-  setStatus("KGI元データを反映して、KGI本体→達成条件→差分整理→KPI下書きを順番に生成しました。", false);
+  sourceDataApproveButton.disabled = true;
+  sourceDataApproveButton.textContent = "処理中...";
+  try {
+    wizardState.sourceDataConfirmed = true;
+    if (!wizardState.kgiStatement || !wizardState.kgiSuccessCriteria.length) buildKgiStatementAndCriteria();
+    buildGapAnalysis();
+    buildKpiDrafts();
+    await syncPersistence();
+    renderProposal();
+    setStatus("KGI元データを反映して、KGI本体→達成条件→差分整理→KPI下書きを順番に生成しました。", false);
+  } finally {
+    sourceDataApproveButton.disabled = false;
+    sourceDataApproveButton.textContent = "だいたい合っている";
+  }
 });
 
 sourceDataBackButton?.addEventListener("click", () => {
@@ -1335,6 +1508,7 @@ sourceDataBackButton?.addEventListener("click", () => {
   wizardState.currentQuestionIndex = Math.max(0, wizardState.followUpQuestionHistory.length - 1);
   renderQuestion();
   setStep(2);
+  persistDraftToLocal();
   setStatus("追加質問に戻りました。補足を回答してから再作成できます。", false);
 });
 
@@ -1359,6 +1533,7 @@ const persistKgi = async () => {
   }
 
   saveButton.disabled = true;
+  saveButton.textContent = "処理中...";
   setStep(4);
   setStatus("保存中です...");
 
@@ -1407,13 +1582,15 @@ const persistKgi = async () => {
       }
     });
 
-    await updateCreationSession();
+    await syncPersistence();
+    clearLocalDraft();
     setStatus("保存が完了しました。詳細画面へ移動します。", false);
     location.href = `./detail.html?id=${docRef.id}`;
   } catch (error) {
     console.error(error);
     setStatus("保存に失敗しました。Firebase設定とルールを確認してください。", true);
     saveButton.disabled = false;
+    saveButton.textContent = "この内容で保存";
   }
 };
 
@@ -1422,8 +1599,36 @@ saveButton.addEventListener("click", persistKgi);
 saveButton.disabled = true;
 setStatus("Firebase接続を初期化しています...");
 
+const restoreDraftFromLocal = () => {
+  try {
+    const raw = localStorage.getItem(LOCAL_DRAFT_KEY);
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    const draft = parsed?.payload;
+    if (!draft) return;
+    Object.assign(wizardState, draft);
+    if (wizardState.kgiDeadline) roughDeadlineInput.value = wizardState.kgiDeadline;
+    if (wizardState.rawSuccessStateInput) roughGoalInput.value = wizardState.rawSuccessStateInput;
+    if (wizardState.step >= 2 && wizardState.followUpQuestionHistory.length > 0) {
+      questionSection.classList.remove("hidden");
+      renderQuestion();
+      setStep(2);
+    }
+    if (wizardState.sourceDataReady) {
+      proposalSection.classList.remove("hidden");
+      questionSection.classList.add("hidden");
+      renderProposal();
+      setStep(wizardState.sourceDataConfirmed ? 3 : 2);
+    }
+    setStatus("前回の下書きを復元しました。", false);
+  } catch (error) {
+    console.warn("下書き復元に失敗", error);
+  }
+};
+
 (async () => {
   try {
+    restoreDraftFromLocal();
     db = await getDb();
     saveButton.disabled = false;
     setStatus("Firebase接続が完了しました。", false);
