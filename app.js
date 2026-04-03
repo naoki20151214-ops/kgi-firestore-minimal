@@ -274,10 +274,20 @@ const CONTEXT_BY_QUESTION_ID = {
   must_vs_ideal: "must_vs_ideal"
 };
 const ABSTRACT_TERMS = ["状態", "価値", "達成", "意味", "誰に何を"];
+const FOLLOW_UP_DEBUG_PREFIX = "[KGI_FOLLOWUP_DEBUG]";
+let isAdvancingQuestion = false;
 
 const setStatus = (message, isError = false) => {
   statusText.textContent = message;
   statusText.classList.toggle("error", isError);
+};
+
+const logFollowUpInfo = (stage, detail = {}) => {
+  console.log(`${FOLLOW_UP_DEBUG_PREFIX} ${stage}`, detail);
+};
+
+const logFollowUpError = (stage, detail = {}) => {
+  console.error(`${FOLLOW_UP_DEBUG_PREFIX} ${stage}`, detail);
 };
 
 const setStep = (step) => {
@@ -430,17 +440,60 @@ const buildFollowUpQuestionPayload = (nextSlot) => ({
 
 const generateFollowUpQuestion = async (nextSlot) => {
   const payload = buildFollowUpQuestionPayload(nextSlot);
+  logFollowUpInfo("API呼び出し開始", {
+    slot: nextSlot,
+    historyCount: wizardState.followUpQuestionHistory.length,
+    answeredCount: wizardState.followUpAnswerHistory.length
+  });
   const response = await fetch("/api/generate-follow-up-question", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload)
   });
-  if (!response.ok) throw new Error(`follow-up generation failed: ${response.status}`);
-  const data = await response.json();
-  if (!data || typeof data !== "object") throw new Error("invalid response");
-  if (data.slot !== nextSlot) throw new Error("slot mismatch");
+  logFollowUpInfo("APIレスポンス受信", { slot: nextSlot, status: response.status, ok: response.ok });
+
+  let rawBody = "";
+  try {
+    rawBody = await response.text();
+    logFollowUpInfo("レスポンス本文取得成功", { slot: nextSlot, bodyLength: rawBody.length });
+  } catch (error) {
+    logFollowUpError("レスポンス本文取得失敗", { slot: nextSlot, error: error?.message || String(error) });
+    throw new Error("response_body_read_failed");
+  }
+
+  if (!response.ok) {
+    logFollowUpError("APIレスポンスがokではありません", { slot: nextSlot, status: response.status, rawBody });
+    throw new Error(`response_not_ok:${response.status}`);
+  }
+
+  let data;
+  try {
+    data = JSON.parse(rawBody);
+    logFollowUpInfo("JSON parse 成功", { slot: nextSlot });
+  } catch (error) {
+    logFollowUpError("JSON parse 失敗", { slot: nextSlot, rawBody, error: error?.message || String(error) });
+    throw new Error("json_parse_failed");
+  }
+
+  if (!data || typeof data !== "object") {
+    logFollowUpError("schema不一致: objectでない", { slot: nextSlot, dataType: typeof data });
+    throw new Error("schema_invalid:not_object");
+  }
+  if (data.slot !== nextSlot) {
+    logFollowUpError("schema不一致: slot mismatch", { expected: nextSlot, actual: data.slot });
+    throw new Error("schema_invalid:slot_mismatch");
+  }
+  if (typeof data.question_text !== "string" || !data.question_text.trim()) {
+    logFollowUpError("schema不一致: question_text が空", { slot: nextSlot });
+    throw new Error("schema_invalid:question_text_empty");
+  }
   if (!Array.isArray(data.options) || data.options.length < 3 || data.options.length > 5) {
-    throw new Error("invalid options size");
+    logFollowUpError("schema不一致: options size が不正", { slot: nextSlot, optionsCount: data.options?.length });
+    throw new Error("schema_invalid:options_size");
+  }
+  if (data.options.some((opt) => !opt || typeof opt !== "object" || !String(opt.id || "").trim() || !String(opt.label || "").trim())) {
+    logFollowUpError("schema不一致: options item が不正", { slot: nextSlot });
+    throw new Error("schema_invalid:options_item");
   }
   return {
     slot: data.slot,
@@ -472,7 +525,7 @@ const buildFallbackQuestionRecord = (slot) => {
 const createQuestionRecordForSlot = async (slot, ambiguityLabel) => {
   try {
     const generated = await generateFollowUpQuestion(slot);
-    if (!generated.questionText || generated.options.length < 3) throw new Error("insufficient generation");
+    if (!generated.questionText || generated.options.length < 3) throw new Error("insufficient_generation");
     return {
       id: slot,
       ambiguityLabel,
@@ -484,8 +537,17 @@ const createQuestionRecordForSlot = async (slot, ambiguityLabel) => {
       allowOtherText: generated.allowOtherText
     };
   } catch (error) {
-    console.warn("AI follow-up generation failed, fallback used:", error);
-    return buildFallbackQuestionRecord(slot);
+    const fallbackRecord = buildFallbackQuestionRecord(slot);
+    logFollowUpError("AI質問生成失敗 -> fallback切替", {
+      slot,
+      reason: error?.message || String(error),
+      fallbackReady: Boolean(fallbackRecord)
+    });
+    if (fallbackRecord) {
+      setStatus("AI質問の生成に失敗したため、通常質問へ切り替えました。", false);
+      return fallbackRecord;
+    }
+    return null;
   }
 };
 
@@ -605,6 +667,11 @@ const renderQuestion = () => {
   const questionId = wizardState.followUpQuestionHistory[wizardState.currentQuestionIndex]?.id;
   const question = getQuestionRecord(questionId);
   if (!question) return;
+  logFollowUpInfo("画面反映", {
+    currentQuestionIndex: wizardState.currentQuestionIndex,
+    questionId: question.id,
+    slot: question.id
+  });
 
   questionProgress.textContent = `質問 ${wizardState.currentQuestionIndex + 1} / 最大${wizardState.maxFollowUpQuestions}`;
   questionText.textContent = question.text;
@@ -651,6 +718,12 @@ const renderQuestion = () => {
 
   prevQuestionButton.disabled = wizardState.currentQuestionIndex === 0;
   nextQuestionButton.textContent = wizardState.currentQuestionIndex === wizardState.followUpQuestionHistory.length - 1 ? "次へ" : "次の質問へ";
+  if (isAdvancingQuestion) {
+    nextQuestionButton.disabled = true;
+    nextQuestionButton.textContent = "処理中...";
+  } else {
+    nextQuestionButton.disabled = false;
+  }
 };
 
 const renderProposal = () => {
@@ -853,10 +926,12 @@ otherAnswerInput.addEventListener("input", () => {
 });
 
 nextQuestionButton.addEventListener("click", async () => {
+  if (isAdvancingQuestion) return;
   const questionId = wizardState.followUpQuestionHistory[wizardState.currentQuestionIndex]?.id;
   const question = getQuestionRecord(questionId);
   if (!question) {
     alert("質問の読み込みに失敗しました。");
+    setStatus("通信に失敗しました。再度お試しください。", true);
     return;
   }
   const answer = wizardState.followUpAnswers[question?.id || ""];
@@ -869,67 +944,85 @@ nextQuestionButton.addEventListener("click", async () => {
     otherAnswerInput.focus();
     return;
   }
+  isAdvancingQuestion = true;
+  nextQuestionButton.disabled = true;
+  nextQuestionButton.textContent = "処理中...";
 
-  const existingHistoryIndex = wizardState.followUpAnswerHistory.findIndex((item) => item.questionId === question.id);
-  const historyEntry = {
-    questionId: question.id,
-    followUpGeneratedBy: wizardState.followUpQuestionHistory[wizardState.currentQuestionIndex]?.followUpGeneratedBy || "fallback_logic",
-    followUpSlot: question.id,
-    followUpQuestionText: question.text,
-    followUpHelpText: question.helpText || "",
-    followUpOptionsSnapshot: question.options,
-    followUpSelectedOptionId: answer.selectedOptionId,
-    followUpSelectedOptionLabel: answer.selectedOptionLabel,
-    followUpOtherText: answer.otherText || "",
-    questionText: question.text,
-    selectedOptionId: answer.selectedOptionId,
-    selectedOptionLabel: answer.selectedOptionLabel,
-    otherText: answer.otherText || ""
-  };
-  if (existingHistoryIndex >= 0) wizardState.followUpAnswerHistory[existingHistoryIndex] = historyEntry;
-  else wizardState.followUpAnswerHistory.push(historyEntry);
+  try {
+    const existingHistoryIndex = wizardState.followUpAnswerHistory.findIndex((item) => item.questionId === question.id);
+    const historyEntry = {
+      questionId: question.id,
+      followUpGeneratedBy: wizardState.followUpQuestionHistory[wizardState.currentQuestionIndex]?.followUpGeneratedBy || "fallback_logic",
+      followUpSlot: question.id,
+      followUpQuestionText: question.text,
+      followUpHelpText: question.helpText || "",
+      followUpOptionsSnapshot: question.options,
+      followUpSelectedOptionId: answer.selectedOptionId,
+      followUpSelectedOptionLabel: answer.selectedOptionLabel,
+      followUpOtherText: answer.otherText || "",
+      questionText: question.text,
+      selectedOptionId: answer.selectedOptionId,
+      selectedOptionLabel: answer.selectedOptionLabel,
+      otherText: answer.otherText || ""
+    };
+    if (existingHistoryIndex >= 0) wizardState.followUpAnswerHistory[existingHistoryIndex] = historyEntry;
+    else wizardState.followUpAnswerHistory.push(historyEntry);
 
-  const isLast = wizardState.currentQuestionIndex === wizardState.followUpQuestionHistory.length - 1;
-  if (!isLast) {
-    wizardState.currentQuestionIndex += 1;
-    renderQuestion();
-    return;
-  }
-
-  recomputeAmbiguityState();
-  const reachedMax = wizardState.followUpAnswerHistory.length >= wizardState.maxFollowUpQuestions;
-  const nextPointCandidate = chooseNextQuestion();
-  const shouldStop = canGenerateKgiNow() || reachedMax || nextPointCandidate == null;
-  if (!shouldStop) {
-    const nextPoint = nextPointCandidate;
-    const nextQuestionRecord = await createQuestionRecordForSlot(nextPoint.id, nextPoint.label);
-    if (!nextQuestionRecord) {
-      wizardState.followUpStopReason = "question_generation_failed";
-      buildAiKgiSourceData();
-      await updateCreationSession();
-      questionSection.classList.add("hidden");
-      proposalSection.classList.remove("hidden");
-      renderProposal();
-      setStep(3);
-      setStatus("質問生成に失敗したため、現時点の情報でKGI元データを作成しました。", false);
+    const isLast = wizardState.currentQuestionIndex === wizardState.followUpQuestionHistory.length - 1;
+    if (!isLast) {
+      wizardState.currentQuestionIndex += 1;
+      renderQuestion();
       return;
     }
-    wizardState.followUpQuestionHistory.push(nextQuestionRecord);
-    wizardState.currentQuestionIndex += 1;
+
+    recomputeAmbiguityState();
+    const reachedMax = wizardState.followUpAnswerHistory.length >= wizardState.maxFollowUpQuestions;
+    const nextPointCandidate = chooseNextQuestion();
+    const shouldStop = canGenerateKgiNow() || reachedMax || nextPointCandidate == null;
+    if (!shouldStop) {
+      setStatus("質問を作成中です... AIに質問文を作ってもらっています（少し時間がかかる場合があります）。", false);
+      const nextPoint = nextPointCandidate;
+      const nextQuestionRecord = await createQuestionRecordForSlot(nextPoint.id, nextPoint.label);
+      if (!nextQuestionRecord) {
+        wizardState.followUpStopReason = "question_generation_failed";
+        buildAiKgiSourceData();
+        await updateCreationSession();
+        questionSection.classList.add("hidden");
+        proposalSection.classList.remove("hidden");
+        renderProposal();
+        setStep(3);
+        setStatus("AI質問の生成に失敗しました。通常質問へ切り替えられなかったため、現時点の情報でKGI元データを作成しました。", true);
+        return;
+      }
+      wizardState.followUpQuestionHistory.push(nextQuestionRecord);
+      wizardState.currentQuestionIndex += 1;
+      await updateCreationSession();
+      if (nextQuestionRecord.followUpGeneratedBy === "fallback_logic") {
+        setStatus("通常質問へ切り替えました。続けて回答してください。", false);
+      } else {
+        setStatus("次の質問を表示しました。", false);
+      }
+      renderQuestion();
+      return;
+    }
+
+    wizardState.followUpStopReason = reachedMax ? "max_questions_reached" : "ambiguity_resolved";
+
+    buildAiKgiSourceData();
     await updateCreationSession();
-    renderQuestion();
-    return;
+    questionSection.classList.add("hidden");
+    proposalSection.classList.remove("hidden");
+    renderProposal();
+    setStep(3);
+    setStatus("KGI元データを作成しました。まず内容確認をお願いします。", false);
+  } catch (error) {
+    logFollowUpError("次へ処理中に予期しないエラー", { error: error?.message || String(error) });
+    setStatus("通信に失敗しました。再度お試しください。", true);
+  } finally {
+    isAdvancingQuestion = false;
+    nextQuestionButton.disabled = false;
+    nextQuestionButton.textContent = wizardState.currentQuestionIndex === wizardState.followUpQuestionHistory.length - 1 ? "次へ" : "次の質問へ";
   }
-
-  wizardState.followUpStopReason = reachedMax ? "max_questions_reached" : "ambiguity_resolved";
-
-  buildAiKgiSourceData();
-  await updateCreationSession();
-  questionSection.classList.add("hidden");
-  proposalSection.classList.remove("hidden");
-  renderProposal();
-  setStep(3);
-  setStatus("KGI元データを作成しました。まず内容確認をお願いします。", false);
 });
 
 sourceDataApproveButton?.addEventListener("click", async () => {
