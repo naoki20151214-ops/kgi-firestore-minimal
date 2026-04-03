@@ -468,8 +468,18 @@ const logSessionInfo = (message, detail = {}) => {
   console.info(`${SESSION_LOG_PREFIX} ${message}`, detail);
 };
 
+const normalizeDeadlineInput = (value = "") => {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  const unified = raw.replace(/[/.]/g, "-").replace(/年/g, "-").replace(/月/g, "-").replace(/日/g, "");
+  const match = unified.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if (!match) return raw;
+  const [, year, month, day] = match;
+  return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
+};
+
 const getSessionFingerprint = (deadline = wizardState.kgiDeadline, rawInput = wizardState.rawSuccessStateInput) => {
-  const normalizedDeadline = String(deadline || "").trim();
+  const normalizedDeadline = normalizeDeadlineInput(deadline);
   const normalizedRawInput = String(rawInput || "").trim().replace(/\s+/g, " ");
   return `${normalizedDeadline}::${normalizedRawInput}`;
 };
@@ -1594,8 +1604,9 @@ const updateCreationSession = async () => {
 };
 
 const runKgiInterviewTurn = async (latestAnswer = null) => {
+  const normalizedDeadline = normalizeDeadlineInput(wizardState.kgiDeadline);
   const payload = {
-    deadline: wizardState.kgiDeadline,
+    deadline: normalizedDeadline,
     initial_input: wizardState.rawSuccessStateInput,
     latest_answer: latestAnswer,
     conversation_turns: wizardState.conversationTurns,
@@ -1615,7 +1626,19 @@ const runKgiInterviewTurn = async (latestAnswer = null) => {
     body: JSON.stringify(payload)
   });
   const data = await response.json().catch(() => null);
-  if (!response.ok || !data?.quality_check) throw new Error("run_turn_api_error");
+  if (!response.ok) {
+    console.error("[KGI_INTERVIEW] run turn api failed", {
+      status: response.status,
+      error: data?.error || "unknown_error",
+      code: data?.code || "",
+      detail: data?.details || null
+    });
+    throw new Error(data?.code || data?.error || "run_turn_api_error");
+  }
+  if (!data?.quality_check) {
+    console.error("[KGI_INTERVIEW] run turn api schema mismatch", { data });
+    throw new Error("run_turn_api_error");
+  }
   return data;
 };
 
@@ -1689,7 +1712,7 @@ const applyInterviewTurnResult = (turnResult, latestAnswer = null) => {
 };
 
 startDeepDiveButton.addEventListener("click", async () => {
-  const deadline = (roughDeadlineInput.value || "").trim();
+  const deadline = normalizeDeadlineInput((roughDeadlineInput.value || "").trim());
   const successState = (roughGoalInput.value || "").trim();
 
   if (!deadline) return alert("1問目: 期限を入力してください。");
