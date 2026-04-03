@@ -36,9 +36,16 @@ const wizardState = {
   kgiDeadline: "",
   rawSuccessStateInput: "",
   ambiguityPoints: [],
+  ambiguityPointsInitial: [],
+  ambiguityPointsResolved: [],
+  ambiguityPointsRemaining: [],
   followUpQuestions: [],
+  followUpQuestionHistory: [],
   currentQuestionIndex: 0,
   followUpAnswers: {},
+  followUpAnswerHistory: [],
+  followUpStopReason: "",
+  maxFollowUpQuestions: 4,
   clarifiedSuccessState: "",
   kgiStatement: "",
   kgiSuccessCriteria: [],
@@ -105,6 +112,78 @@ const FOLLOW_UP_LIBRARY = [
   }
 ];
 
+const AMBIGUITY_CONFIG = [
+  { id: "publish_level", label: "公開の達成レベル", priority: 1, keywords: ["公開", "サイト", "LP", "アプリ", "リリース"] },
+  { id: "traffic_level", label: "集客の達成定義", priority: 1, keywords: ["集客", "アクセス", "PV", "流入", "登録者"] },
+  { id: "target_user", label: "誰向けか/何を提供するか", priority: 2, keywords: ["向け", "対象", "初心者", "ユーザー"] },
+  { id: "minimum_line", label: "最低公開ライン", priority: 3, keywords: ["最低", "必須", "公開ライン", "必要"] },
+  { id: "must_vs_ideal", label: "理想条件と必須条件の区別", priority: 4, keywords: ["理想", "できれば", "っぽい", "みたい"] },
+  { id: "monetization_required", label: "収益導線が今回必須か", priority: 5, keywords: ["収益", "売上", "販売", "問い合わせ", "集客"] },
+  { id: "beginner_level", label: "対象読者レベル", priority: 6, keywords: ["初心者", "わかりやす", "入門", "初学者"] },
+  { id: "ui_completion", label: "UIの完成条件", priority: 6, keywords: ["UI", "デザイン", "見た目", "Yahoo"] }
+];
+
+const EXTRA_FOLLOW_UP_LIBRARY = [
+  {
+    id: "target_user",
+    ambiguityLabel: "誰向けか/何を提供するか",
+    text: "この目標は、主に誰に何を提供できる状態なら達成としますか？",
+    options: [
+      { id: "specific_persona", label: "対象ユーザー像が1つ以上明確で、提供価値も説明できる状態" },
+      { id: "broad_persona", label: "対象は広めだが、提供価値の方向性は説明できる状態" },
+      { id: "own_use_first", label: "まず自分向けに成立し、後から対象拡張する状態" },
+      { id: "other", label: "その他" }
+    ]
+  },
+  {
+    id: "minimum_line",
+    ambiguityLabel: "最低公開ライン",
+    text: "最低公開ラインとして、どこまで満たせば「公開してよい」と判断しますか？",
+    options: [
+      { id: "minimum_one_flow", label: "主要導線が1本動き、最低限の説明コンテンツがある" },
+      { id: "minimum_multi_content", label: "主要導線+複数コンテンツ（例: 3本以上）がある" },
+      { id: "minimum_quality_check", label: "導線と中身に加え、簡易な品質確認まで完了している" },
+      { id: "other", label: "その他" }
+    ]
+  },
+  {
+    id: "must_vs_ideal",
+    ambiguityLabel: "理想条件と必須条件の区別",
+    text: "理想条件と必須条件の関係は、どれに近いですか？",
+    options: [
+      { id: "must_only", label: "必須条件を満たせば達成。理想条件は次のKGIで扱う" },
+      { id: "must_plus_some_ideal", label: "必須条件+理想条件の一部が必要" },
+      { id: "ideal_as_must", label: "理想条件も今回の必須条件として扱う" },
+      { id: "other", label: "その他" }
+    ]
+  },
+  {
+    id: "monetization_required",
+    ambiguityLabel: "収益導線が今回必須か",
+    text: "今回のKGIで、収益導線や売上はどこまで必須にしますか？",
+    options: [
+      { id: "not_required", label: "今回は必須にしない（公開と価値提供を優先）" },
+      { id: "route_required", label: "収益導線の実装までは必須" },
+      { id: "first_result_required", label: "初回の問い合わせ/販売など結果発生まで必須" },
+      { id: "other", label: "その他" }
+    ]
+  },
+  {
+    id: "ui_completion",
+    ambiguityLabel: "UIの完成条件",
+    text: "UI・見た目の完成条件は、今回どこまでを必須にしますか？",
+    options: [
+      { id: "readable_only", label: "情報が読みやすく使える最低限でよい" },
+      { id: "brand_consistent", label: "最低限+統一感のある見た目が必要" },
+      { id: "high_fidelity", label: "デザイン品質まで高水準で整える必要がある" },
+      { id: "other", label: "その他" }
+    ]
+  }
+];
+
+const ALL_FOLLOW_UP_LIBRARY = [...FOLLOW_UP_LIBRARY, ...EXTRA_FOLLOW_UP_LIBRARY];
+const FOLLOW_UP_BY_ID = new Map(ALL_FOLLOW_UP_LIBRARY.map((question) => [question.id, question]));
+
 const setStatus = (message, isError = false) => {
   statusText.textContent = message;
   statusText.classList.toggle("error", isError);
@@ -124,11 +203,66 @@ const pickUpperGoal = (rawText) => {
   return first;
 };
 
-const shouldAsk = (question, rawText) => question.trigger.some((keyword) => rawText.includes(keyword));
+const shouldAsk = (keywords, rawText) => keywords.some((keyword) => rawText.includes(keyword));
 
-const buildFollowUpQuestions = (rawText) => {
-  const matched = FOLLOW_UP_LIBRARY.filter((q) => shouldAsk(q, rawText));
-  return matched.slice(0, 4);
+const isAudienceClearlyDefined = (text) => /(向け|対象|ペルソナ|初心者|中級者|法人|個人)/.test(text);
+const isMinimumLineDefined = (text) => /(最低|少なくとも|必須|本以上|件以上|導線|ページ)/.test(text);
+const hasConcreteMetric = (text) => /(\d+|PV|率|売上|件|人|公開|ドメイン)/.test(text);
+
+const deriveAmbiguityPoints = (rawText) => {
+  const points = [];
+  AMBIGUITY_CONFIG.forEach((config) => {
+    const keywordMatched = shouldAsk(config.keywords, rawText);
+    if (keywordMatched) {
+      points.push(config);
+      return;
+    }
+    if (config.id === "target_user" && !isAudienceClearlyDefined(rawText)) points.push(config);
+    if (config.id === "minimum_line" && !isMinimumLineDefined(rawText)) points.push(config);
+    if (config.id === "must_vs_ideal" && /(理想|できれば|っぽい|みたい)/.test(rawText)) points.push(config);
+    if (config.id === "traffic_level" && !hasConcreteMetric(rawText) && /(集客|アクセス|流入)/.test(rawText)) points.push(config);
+  });
+
+  const unique = [];
+  const seen = new Set();
+  points
+    .sort((a, b) => a.priority - b.priority)
+    .forEach((point) => {
+      if (seen.has(point.id)) return;
+      seen.add(point.id);
+      unique.push(point);
+    });
+  return unique;
+};
+
+const getResolvedAmbiguityIds = () => {
+  const ids = [];
+  wizardState.followUpQuestionHistory.forEach((historyItem) => {
+    const answer = wizardState.followUpAnswers[historyItem.id];
+    if (answer?.selectedOptionId) ids.push(historyItem.id);
+  });
+  return Array.from(new Set(ids));
+};
+
+const recomputeAmbiguityState = () => {
+  const resolvedIds = getResolvedAmbiguityIds();
+  wizardState.ambiguityPointsResolved = wizardState.ambiguityPointsInitial.filter((point) => resolvedIds.includes(point.id));
+  wizardState.ambiguityPointsRemaining = wizardState.ambiguityPointsInitial.filter((point) => !resolvedIds.includes(point.id));
+  wizardState.ambiguityPoints = wizardState.ambiguityPointsRemaining.map((point) => point.label);
+};
+
+const chooseNextQuestion = () => {
+  recomputeAmbiguityState();
+  const asked = new Set(wizardState.followUpQuestionHistory.map((item) => item.id));
+  return wizardState.ambiguityPointsRemaining.find((point) => !asked.has(point.id) && FOLLOW_UP_BY_ID.has(point.id));
+};
+
+const canGenerateKgiNow = () => {
+  const hasDeadline = Boolean(wizardState.kgiDeadline);
+  const hasSuccessState = Boolean(wizardState.rawSuccessStateInput);
+  const unresolvedHighPriority = wizardState.ambiguityPointsRemaining.filter((point) => point.priority <= 3).length;
+  const answeredCount = getResolvedAmbiguityIds().length;
+  return hasDeadline && hasSuccessState && unresolvedHighPriority === 0 && answeredCount >= 2;
 };
 
 const isCrossDeadlinePhrase = (raw) => /継続|安定|維持|毎月|ずっと|習慣/.test(raw);
@@ -141,10 +275,18 @@ const resolveAnswerLabel = (question, answer) => {
 
 const buildKgiResult = () => {
   const deadline = wizardState.kgiDeadline;
-  const answers = wizardState.followUpQuestions.map((question) => ({
-    id: question.id,
-    question: question.text,
-    value: resolveAnswerLabel(question, wizardState.followUpAnswers[question.id])
+  const answers = wizardState.followUpQuestionHistory.map((historyItem) => {
+    const question = FOLLOW_UP_BY_ID.get(historyItem.id);
+    if (!question) return null;
+    return {
+      id: question.id,
+      question: question.text,
+      value: resolveAnswerLabel(question, wizardState.followUpAnswers[question.id])
+    };
+  }).filter(Boolean).map((item) => ({
+    id: item.id,
+    question: item.question,
+    value: item.value
   })).filter((v) => v.value);
 
   const clarifiedParts = [wizardState.rawSuccessStateInput, ...answers.map((a) => `${a.question} → ${a.value}`)];
@@ -167,10 +309,11 @@ const buildKgiResult = () => {
 };
 
 const renderQuestion = () => {
-  const question = wizardState.followUpQuestions[wizardState.currentQuestionIndex];
+  const questionId = wizardState.followUpQuestionHistory[wizardState.currentQuestionIndex]?.id;
+  const question = FOLLOW_UP_BY_ID.get(questionId);
   if (!question) return;
 
-  questionProgress.textContent = `質問 ${wizardState.currentQuestionIndex + 1} / ${wizardState.followUpQuestions.length}`;
+  questionProgress.textContent = `質問 ${wizardState.currentQuestionIndex + 1} / 最大${wizardState.maxFollowUpQuestions}`;
   questionText.textContent = question.text;
   questionAnswerInput.value = "";
   questionAnswerInput.classList.add("hidden");
@@ -205,7 +348,7 @@ const renderQuestion = () => {
   otherAnswerInput.value = answer.otherText || "";
 
   prevQuestionButton.disabled = wizardState.currentQuestionIndex === 0;
-  nextQuestionButton.textContent = wizardState.currentQuestionIndex === wizardState.followUpQuestions.length - 1 ? "KGIを作成する" : "次へ";
+  nextQuestionButton.textContent = wizardState.currentQuestionIndex === wizardState.followUpQuestionHistory.length - 1 ? "次へ" : "次の質問へ";
 };
 
 const renderProposal = () => {
@@ -259,8 +402,14 @@ const ensureCreationSession = async () => {
     kgiStatement: "",
     kgiSuccessCriteria: [],
     ambiguityPoints: wizardState.ambiguityPoints,
-    followUpQuestions: wizardState.followUpQuestions,
+    ambiguityPointsInitial: wizardState.ambiguityPointsInitial.map((point) => point.label),
+    ambiguityPointsResolved: wizardState.ambiguityPointsResolved.map((point) => point.label),
+    ambiguityPointsRemaining: wizardState.ambiguityPointsRemaining.map((point) => point.label),
+    followUpQuestions: wizardState.followUpQuestionHistory,
+    followUpQuestionHistory: wizardState.followUpQuestionHistory,
     followUpAnswers: {},
+    followUpAnswerHistory: wizardState.followUpAnswerHistory,
+    followUpStopReason: wizardState.followUpStopReason,
     nextKgiSuggestion: ""
   };
   const ref = await addDoc(collection(db, "kgiCreationSessions"), data);
@@ -279,8 +428,14 @@ const updateCreationSession = async () => {
     kgiStatement: wizardState.kgiStatement,
     kgiSuccessCriteria: wizardState.kgiSuccessCriteria,
     ambiguityPoints: wizardState.ambiguityPoints,
-    followUpQuestions: wizardState.followUpQuestions,
+    ambiguityPointsInitial: wizardState.ambiguityPointsInitial.map((point) => point.label),
+    ambiguityPointsResolved: wizardState.ambiguityPointsResolved.map((point) => point.label),
+    ambiguityPointsRemaining: wizardState.ambiguityPointsRemaining.map((point) => point.label),
+    followUpQuestions: wizardState.followUpQuestionHistory,
+    followUpQuestionHistory: wizardState.followUpQuestionHistory,
     followUpAnswers: wizardState.followUpAnswers,
+    followUpAnswerHistory: wizardState.followUpAnswerHistory,
+    followUpStopReason: wizardState.followUpStopReason,
     nextKgiSuggestion: wizardState.nextKgiSuggestion
   });
 };
@@ -301,22 +456,34 @@ startDeepDiveButton.addEventListener("click", async () => {
   wizardState.kgiDeadline = deadline;
   wizardState.rawSuccessStateInput = successState;
   wizardState.upperGoal = pickUpperGoal(successState);
-  wizardState.followUpQuestions = buildFollowUpQuestions(successState);
-  wizardState.ambiguityPoints = wizardState.followUpQuestions.map((q) => q.ambiguityLabel);
+  wizardState.ambiguityPointsInitial = deriveAmbiguityPoints(successState);
+  wizardState.ambiguityPointsResolved = [];
+  wizardState.ambiguityPointsRemaining = [...wizardState.ambiguityPointsInitial];
+  wizardState.ambiguityPoints = wizardState.ambiguityPointsRemaining.map((point) => point.label);
+  wizardState.maxFollowUpQuestions = Math.min(6, Math.max(2, wizardState.ambiguityPointsInitial.length));
   wizardState.currentQuestionIndex = 0;
   wizardState.followUpAnswers = {};
+  wizardState.followUpQuestionHistory = [];
+  wizardState.followUpAnswerHistory = [];
+  wizardState.followUpStopReason = "";
+
+  const firstQuestionPoint = chooseNextQuestion();
+  if (firstQuestionPoint) {
+    wizardState.followUpQuestionHistory = [{ id: firstQuestionPoint.id, ambiguityLabel: firstQuestionPoint.label }];
+  }
 
   await ensureCreationSession();
   await updateCreationSession();
 
-  if (wizardState.followUpQuestions.length === 0) {
+  if (wizardState.followUpQuestionHistory.length === 0 || canGenerateKgiNow()) {
+    wizardState.followUpStopReason = "ambiguity_resolved";
     buildKgiResult();
     await updateCreationSession();
     proposalSection.classList.remove("hidden");
     questionSection.classList.add("hidden");
     renderProposal();
     setStep(3);
-    setStatus("追加質問なしでKGIを作成しました。", false);
+    setStatus("必要な追加質問がなかったため、KGIを作成しました。", false);
     return;
   }
 
@@ -324,7 +491,7 @@ startDeepDiveButton.addEventListener("click", async () => {
   proposalSection.classList.add("hidden");
   renderQuestion();
   setStep(2);
-  setStatus("達成状態の解釈ズレを減らすために、追加質問に答えてください。", false);
+  setStatus("この目標を達成したと言える条件をそろえるため、必要な質問だけ続けます。", false);
 });
 
 prevQuestionButton.addEventListener("click", () => {
@@ -335,7 +502,8 @@ prevQuestionButton.addEventListener("click", () => {
 });
 
 otherAnswerInput.addEventListener("input", () => {
-  const question = wizardState.followUpQuestions[wizardState.currentQuestionIndex];
+  const questionId = wizardState.followUpQuestionHistory[wizardState.currentQuestionIndex]?.id;
+  const question = FOLLOW_UP_BY_ID.get(questionId);
   if (!question) return;
   const answer = wizardState.followUpAnswers[question.id];
   if (answer?.selectedOptionId === "other") {
@@ -344,7 +512,8 @@ otherAnswerInput.addEventListener("input", () => {
 });
 
 nextQuestionButton.addEventListener("click", async () => {
-  const question = wizardState.followUpQuestions[wizardState.currentQuestionIndex];
+  const questionId = wizardState.followUpQuestionHistory[wizardState.currentQuestionIndex]?.id;
+  const question = FOLLOW_UP_BY_ID.get(questionId);
   const answer = wizardState.followUpAnswers[question?.id || ""];
   if (!answer?.selectedOptionId) {
     alert("選択肢を1つ選んでください。");
@@ -356,12 +525,38 @@ nextQuestionButton.addEventListener("click", async () => {
     return;
   }
 
-  const isLast = wizardState.currentQuestionIndex === wizardState.followUpQuestions.length - 1;
+  const existingHistoryIndex = wizardState.followUpAnswerHistory.findIndex((item) => item.questionId === question.id);
+  const historyEntry = {
+    questionId: question.id,
+    questionText: question.text,
+    selectedOptionId: answer.selectedOptionId,
+    selectedOptionLabel: answer.selectedOptionLabel,
+    otherText: answer.otherText || ""
+  };
+  if (existingHistoryIndex >= 0) wizardState.followUpAnswerHistory[existingHistoryIndex] = historyEntry;
+  else wizardState.followUpAnswerHistory.push(historyEntry);
+
+  const isLast = wizardState.currentQuestionIndex === wizardState.followUpQuestionHistory.length - 1;
   if (!isLast) {
     wizardState.currentQuestionIndex += 1;
     renderQuestion();
     return;
   }
+
+  recomputeAmbiguityState();
+  const reachedMax = wizardState.followUpAnswerHistory.length >= wizardState.maxFollowUpQuestions;
+  const nextPointCandidate = chooseNextQuestion();
+  const shouldStop = canGenerateKgiNow() || reachedMax || nextPointCandidate == null;
+  if (!shouldStop) {
+    const nextPoint = nextPointCandidate;
+    wizardState.followUpQuestionHistory.push({ id: nextPoint.id, ambiguityLabel: nextPoint.label });
+    wizardState.currentQuestionIndex += 1;
+    await updateCreationSession();
+    renderQuestion();
+    return;
+  }
+
+  wizardState.followUpStopReason = reachedMax ? "max_questions_reached" : "ambiguity_resolved";
 
   buildKgiResult();
   await updateCreationSession();
@@ -411,8 +606,14 @@ const persistKgi = async () => {
         kgiStatement: wizardState.kgiStatement,
         kgiSuccessCriteria: wizardState.kgiSuccessCriteria,
         ambiguityPoints: wizardState.ambiguityPoints,
-        followUpQuestions: wizardState.followUpQuestions,
+        ambiguityPointsInitial: wizardState.ambiguityPointsInitial.map((point) => point.label),
+        ambiguityPointsResolved: wizardState.ambiguityPointsResolved.map((point) => point.label),
+        ambiguityPointsRemaining: wizardState.ambiguityPointsRemaining.map((point) => point.label),
+        followUpQuestions: wizardState.followUpQuestionHistory,
+        followUpQuestionHistory: wizardState.followUpQuestionHistory,
         followUpAnswers: wizardState.followUpAnswers,
+        followUpAnswerHistory: wizardState.followUpAnswerHistory,
+        followUpStopReason: wizardState.followUpStopReason,
         nextKgiSuggestion: wizardState.nextKgiSuggestion
       }
     });
