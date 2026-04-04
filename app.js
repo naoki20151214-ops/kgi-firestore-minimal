@@ -1159,9 +1159,11 @@ const buildKgiStatementAndCriteria = () => {
   } else {
     const mainDeliverable = sourceData.concreteDeliverable || sourceData.serviceSummary || "成果";
     const minimumLine = (sourceData.minimumReleaseBundle || [])[0] || sourceData.minimumServiceLaunchLine || sourceData.minimumAchievementLine || "";
-    wizardState.kgiStatement = `${sourceData.kgiDeadline}までに、${mainDeliverable}を${minimumLine}の条件で達成し、今回範囲の成功状態を判定可能にする。`;
+    const provisionalCriterion = buildProvisionalCriterionByGenre(sourceData);
+    wizardState.kgiStatement = `${sourceData.kgiDeadline}時点で、${mainDeliverable}について「達成した/未達」を判定できる成功ラインを満たしている。`;
     wizardState.kgiSuccessCriteria = [
       `期限日（${sourceData.kgiDeadline}）時点で達成判定できる`,
+      `仮の判定条件案: ${provisionalCriterion}`,
       `必須条件: ${(sourceData.hardRequirements || []).join("、")}`,
       `最低ライン: ${minimumLine}`,
       `今回除外: ${(sourceData.excludedFromCurrentKgi || []).join("、") || "特になし"}`
@@ -1189,6 +1191,34 @@ const updateSpecificityButtonState = () => {
   const gate = applyQualityGate();
   if (!saveWithSpecificityButton) return;
   saveWithSpecificityButton.textContent = gate.pass ? "この補正を反映して保存" : "この補正を編集欄に反映";
+};
+
+const pickPriorityGateIssue = (issues = []) => {
+  const criteriaIssue = issues.find((issue) => /判定条件が具体的でない|最低ラインが曖昧|公開条件が曖昧|成功定義が曖昧|利益の測定単位が曖昧|安定の定義が曖昧/.test(issue));
+  return criteriaIssue || issues[0] || "";
+};
+
+const inferNumericSuccessLine = () => {
+  const raw = `${wizardState.rawSuccessStateInput || ""} ${(wizardState.aiKgiSourceData?.valuePromise || "")}`.replace(/\s+/g, " ");
+  const directNumberMatch = raw.match(/(\d+(?:\.\d+)?)\s*(万円|円|件|人|本|回|%|％)/);
+  if (directNumberMatch) return `${directNumberMatch[1]}${directNumberMatch[2]}`;
+  if (/売上|収益|収入/.test(raw)) return "1万円";
+  if (/申込|受注|契約/.test(raw)) return "1件";
+  if (/投稿|記事|動画|発信/.test(raw)) return "10本";
+  if (/習慣|継続|実行/.test(raw)) return "80%";
+  return "1件";
+};
+
+const buildProvisionalCriterionByGenre = (sourceData) => {
+  const deadline = sourceData.kgiDeadline || wizardState.kgiDeadline;
+  const deliverable = sourceData.concreteDeliverable || sourceData.serviceSummary || "目標対象";
+  const numericLine = inferNumericSuccessLine();
+  if (wizardState.genreKey === "product") return `${deadline}時点で副業経由の月売上${numericLine}を達成している`;
+  if (wizardState.genreKey === "media") return `${deadline}時点で「${deliverable}」が公開済みで、主要導線から到達できる状態である`;
+  if (wizardState.genreKey === "service") return `${deadline}時点で申込み導線が稼働し、受注可能状態である（最低${numericLine}目標）`;
+  if (wizardState.genreKey === "investment") return `${deadline}時点で${sourceData.measurementUnit || "月次"}損益が${sourceData.successDefinition || "プラス"}で判定できる`;
+  if (wizardState.genreKey === "selfImprovement") return `${deadline}時点で${sourceData.measurementUnit || "週次"}の実行率${numericLine}以上を達成している`;
+  return `${deadline}時点で「${deliverable}」の達成判定ができる具体条件を1つ以上満たしている`;
 };
 
 let isMovingToMissingQuestion = false;
@@ -1247,7 +1277,7 @@ const goToMissingQuestion = async () => {
   try {
     recomputeRequiredSlotState();
     const gate = applyQualityGate();
-    const firstIssue = gate.issues[0] || "";
+    const firstIssue = pickPriorityGateIssue(gate.issues);
     const resolvedSlot = resolveMissingReasonToSlot(firstIssue, wizardState.genreKey, wizardState.missingRequiredSlots, wizardState.aiKgiSourceData);
     const targetSlot = resolvedSlot || wizardState.missingRequiredSlots.find((slot) => FOLLOW_UP_BY_ID.has(slot));
     logMissingFlowInfo("resolved slot", { issue: firstIssue, slot: targetSlot, missingRequiredSlots: wizardState.missingRequiredSlots });
@@ -1266,7 +1296,7 @@ const goToMissingQuestion = async () => {
       renderQuestion();
       setStep(2);
       await syncPersistence();
-      setStatus(`${SLOT_LABELS[targetSlot] || targetSlot}を具体化するための質問を表示します。`, false);
+      setStatus(`あと1つ決めると保存できます。${SLOT_LABELS[targetSlot] || targetSlot}を具体化する質問に進みます。`, false);
       return;
     }
 
@@ -1281,7 +1311,7 @@ const goToMissingQuestion = async () => {
       renderQuestion();
       setStep(2);
       await syncPersistence();
-      setStatus(`${SLOT_LABELS[targetSlot] || targetSlot}を具体化するための質問を表示します。`, false);
+      setStatus(`あと1つ決めると保存できます。${SLOT_LABELS[targetSlot] || targetSlot}を具体化する質問に進みます。`, false);
       return;
     }
 
@@ -1420,12 +1450,12 @@ const renderProposal = () => {
       .map((item) => `<p class="proposal-meta"><strong>${item.label}:</strong> ${item.value || "未入力"}</p>`)
       .join("");
     const gateHtml = !gate.pass ? `
-      <div class="proposal-meta error">
-        <p><strong>まだ保存できるKGIではありません</strong></p>
-        <p>次の点が未確定です</p>
+      <div class="proposal-meta">
+        <p><strong>あと1つ決めると保存できます</strong></p>
+        <p>成功ラインを数字や判定条件で決めましょう。次の点を埋めると保存できます。</p>
         <ul>${gate.issues.map((issue) => `<li>${issue}</li>`).join("")}</ul>
         <div class="proposal-actions-inline">
-          <button id="goToMissingSlotButton" type="button">不足している質問に進む</button>
+          <button id="goToMissingSlotButton" type="button">判定条件を具体化する質問に進む</button>
           <button id="reviewQuestionsButton" class="secondary" type="button">内容全体を見直すために質問一覧へ戻る</button>
         </div>
       </div>
@@ -1497,7 +1527,7 @@ const renderProposal = () => {
   editSection.classList.toggle("hidden", !wizardState.sourceDataConfirmed);
   saveButton.disabled = !wizardState.sourceDataConfirmed || !gate.pass;
   if (!gate.pass && wizardState.sourceDataConfirmed) {
-    setStatus("まだ情報が足りないため、保存可能なKGIにはなっていません。不足している質問へ進んでください。", true);
+    setStatus("あと1つ決めると保存できます。成功ラインを数字で決める質問へ進んでください。", false);
   }
   updateSpecificityButtonState();
   understandingCheckSection.querySelector("#goToMissingSlotButton")?.addEventListener("click", async (event) => {
@@ -1509,7 +1539,7 @@ const renderProposal = () => {
     await goToMissingQuestion();
     if (button instanceof HTMLButtonElement) {
       button.disabled = false;
-      button.textContent = "不足している質問に進む";
+      button.textContent = "判定条件を具体化する質問に進む";
     }
   });
   understandingCheckSection.querySelector("#reviewQuestionsButton")?.addEventListener("click", () => {
@@ -1793,7 +1823,7 @@ nextQuestionButton.addEventListener("click", async () => {
     renderProposal();
     setStep(3);
     const hasMissing = wizardState.missingRequiredSlots.length > 0;
-    setStatus(hasMissing ? "まだ情報が足りないため、保存可能なKGIにはなっていません。追加質問に戻って埋めてください。" : "KGI元データを作成しました。まず内容確認をお願いします。", hasMissing);
+    setStatus(hasMissing ? "あと1つ決めると保存できます。追加質問で成功ラインを具体化しましょう。" : "KGI元データを作成しました。まず内容確認をお願いします。", false);
   } catch (error) {
     logFollowUpError("次へ処理中に予期しないエラー", { error: error?.message || String(error) });
     wizardState.lastError = "AIとの通信に失敗しましたが、回答内容は保存されています。";
@@ -1825,7 +1855,7 @@ sourceDataApproveButton?.addEventListener("click", async () => {
     if (!gate.pass) {
       wizardState.sourceDataConfirmed = false;
       console.warn("[KGI_QUALITY_GATE] step3 blocked", gate.issues);
-      setStatus(`まだ情報が足りないため、保存可能なKGIにはなっていません。(${gate.issues.join(" / ")})`, true);
+      setStatus(`あと1つ決めると保存できます。成功ラインを数字で決めましょう。(${gate.issues.join(" / ")})`, false);
       renderProposal();
       await syncPersistence();
       return;
@@ -1876,7 +1906,7 @@ const persistKgi = async () => {
   const gate = applyQualityGate();
   if (!gate.pass) {
     console.warn("[KGI_SAVE_BLOCKED] quality gate", gate.issues);
-    setStatus(`まだ保存できるKGIではありません。次の点を埋めてください: ${gate.issues.join(" / ")}`, true);
+    setStatus(`あと1つ決めると保存できます。次の点を埋めてください: ${gate.issues.join(" / ")}`, true);
     saveButton.disabled = true;
     return;
   }
