@@ -78,7 +78,10 @@ const wizardState = {
   kpiDrafts: [],
   interviewNotes: [],
   pendingAction: null,
-  lastError: null
+  lastError: null,
+  missingReasonLoopCounts: {},
+  missingReasonLastIssue: "",
+  missingReasonLastResolvedSlot: ""
 };
 
 const GENRE_KEYS = {
@@ -413,6 +416,15 @@ const MISSING_REASON_TO_SLOT_HINTS = [
   { matcher: /利益の測定単位が曖昧/, slotsByGenre: { investment: ["measurementUnit"], selfImprovement: ["measurementUnit"], other: ["measurementUnit"] } },
   { matcher: /安定の定義が曖昧/, slotsByGenre: { investment: ["stabilityDefinition"], other: ["stabilityDefinition"] } }
 ];
+const CRITERIA_REASON_PATTERN = /判定条件が具体的でない|最低ラインが曖昧/;
+const CRITERIA_SLOT_FAMILY_BY_GENRE = {
+  media: ["minimumReleaseBundle", "hardRequirements", "publishDefinition"],
+  product: ["minimumReleaseBundle", "hardRequirements", "publishOrSalesDefinition"],
+  service: ["minimumServiceLaunchLine", "hardRequirements", "applicationDefinition"],
+  investment: ["successDefinition", "measurementUnit", "stabilityDefinition"],
+  selfImprovement: ["minimumAchievementLine", "successDefinition", "measurementUnit"],
+  other: ["minimumReleaseBundle", "minimumServiceLaunchLine", "minimumAchievementLine", "hardRequirements"]
+};
 const QUESTION_RULES = {
   service_type: { requiredContext: [], specificityLevel: "specific", priority: 1 },
   domain: { requiredContext: ["service_type"], specificityLevel: "specific", priority: 2 },
@@ -534,7 +546,10 @@ const getPersistableWizardSnapshot = () => ({
   nextKgiSuggestion: wizardState.nextKgiSuggestion,
   gapAnalysis: wizardState.gapAnalysis,
   kpiDrafts: wizardState.kpiDrafts,
-  interviewNotes: wizardState.interviewNotes
+  interviewNotes: wizardState.interviewNotes,
+  missingReasonLoopCounts: wizardState.missingReasonLoopCounts,
+  missingReasonLastIssue: wizardState.missingReasonLastIssue,
+  missingReasonLastResolvedSlot: wizardState.missingReasonLastResolvedSlot
 });
 
 const persistDraftToLocal = () => {
@@ -1224,10 +1239,76 @@ const buildProvisionalCriterionByGenre = (sourceData) => {
 let isMovingToMissingQuestion = false;
 const pickFirstExistingQuestionIndex = () => Math.max(0, wizardState.followUpQuestionHistory.length - 1);
 
+const getCriteriaSlotsByGenre = (genre) => CRITERIA_SLOT_FAMILY_BY_GENRE[genre] || CRITERIA_SLOT_FAMILY_BY_GENRE.other;
+
+const normalizeMissingReasonKey = (reason = "") => String(reason || "").trim() || "__none__";
+
+const selectSlotFromPriority = (priority = [], candidates = []) => {
+  if (!Array.isArray(priority) || priority.length === 0) return null;
+  const strict = priority.find((id) => candidates.includes(id));
+  if (strict) return strict;
+  return priority.find((id) => FOLLOW_UP_BY_ID.has(id)) || null;
+};
+
+const buildCriteriaRetryQuestionRecord = (slot, reason) => {
+  const slotLabel = SLOT_LABELS[slot] || "判定条件";
+  return {
+    id: slot,
+    ambiguityLabel: slotLabel,
+    followUpGeneratedBy: "criteria_retry_logic",
+    followUpSlot: slot,
+    followUpQuestionText: `${slotLabel}がまだ曖昧です。成功判定に使う数字を1つ決めてください。`,
+    followUpHelpText: `不足理由: ${reason || "判定条件が具体的でない"}。数値が難しければ「その他」で短く入力してください。`,
+    followUpOptionsSnapshot: [
+      { id: "criteria_retry_minimum", label: "最低ラインの数値を1つ決める（例: 1件 / 10本 / 80%）", recommended: true },
+      { id: "criteria_retry_measure", label: "判定単位を固定する（例: 週次 / 月次）" },
+      { id: "criteria_retry_with_condition", label: "数値+必須条件をセットで決める" },
+      { id: "other", label: "具体的な数字を入力する" }
+    ],
+    allowOtherText: true
+  };
+};
+
+const buildMinimumLineEmergencyQuestionRecord = (slot) => ({
+  id: slot,
+  ambiguityLabel: SLOT_LABELS[slot] || "最低ライン",
+  followUpGeneratedBy: "loop_guard",
+  followUpSlot: slot,
+  followUpQuestionText: "保存のため、最低ラインだけ数字で決めてください。",
+  followUpHelpText: "最低ラインを1つ決めると次へ進めます。迷う場合は最小の数値で構いません。",
+  followUpOptionsSnapshot: [
+    { id: "minimum_emergency_1", label: "まずは最低 1件（または同等の1単位）にする", recommended: true },
+    { id: "minimum_emergency_3", label: "最低 3件（または同等の3単位）にする" },
+    { id: "minimum_emergency_rate", label: "最低 80%（実行率など）にする" },
+    { id: "other", label: "具体的な数字を入力する" }
+  ],
+  allowOtherText: true
+});
+
+const upsertQuestionRecord = (questionRecord) => {
+  if (!questionRecord?.id) return -1;
+  const existingIndex = wizardState.followUpQuestionHistory.findIndex((item) => item.id === questionRecord.id);
+  if (existingIndex >= 0) {
+    wizardState.followUpQuestionHistory[existingIndex] = questionRecord;
+    return existingIndex;
+  }
+  wizardState.followUpQuestionHistory.push(questionRecord);
+  return wizardState.followUpQuestionHistory.length - 1;
+};
+
 const resolveMissingReasonToSlot = (reason, genre, missingRequiredSlots, sourceData) => {
   const candidates = [...(missingRequiredSlots || [])].filter((slot) => FOLLOW_UP_BY_ID.has(slot));
   const normalizedReason = String(reason || "").trim();
   if (!normalizedReason) return candidates[0] || null;
+
+  if (/最低ラインが曖昧/.test(normalizedReason)) {
+    const criteriaPriority = getCriteriaSlotsByGenre(genre);
+    return selectSlotFromPriority(criteriaPriority, candidates) || candidates[0] || null;
+  }
+  if (/判定条件が具体的でない/.test(normalizedReason)) {
+    const criteriaPriority = getCriteriaSlotsByGenre(genre);
+    return selectSlotFromPriority(criteriaPriority, candidates) || candidates[0] || null;
+  }
 
   const labelHit = Object.entries(SLOT_LABELS).find(([, label]) => normalizedReason.includes(`${label}が未確定`));
   if (labelHit && candidates.includes(labelHit[0])) return labelHit[0];
@@ -1241,7 +1322,7 @@ const resolveMissingReasonToSlot = (reason, genre, missingRequiredSlots, sourceD
   for (const rule of MISSING_REASON_TO_SLOT_HINTS) {
     if (!rule.matcher.test(normalizedReason)) continue;
     const priority = rule.slotsByGenre?.[genre] || rule.slotsByGenre?.other || [];
-    const slot = priority.find((id) => candidates.includes(id) || FOLLOW_UP_BY_ID.has(id));
+    const slot = selectSlotFromPriority(priority, candidates);
     if (slot) return slot;
   }
 
@@ -1278,12 +1359,65 @@ const goToMissingQuestion = async () => {
     recomputeRequiredSlotState();
     const gate = applyQualityGate();
     const firstIssue = pickPriorityGateIssue(gate.issues);
+    const issueKey = normalizeMissingReasonKey(firstIssue);
+    wizardState.missingReasonLoopCounts[issueKey] = (wizardState.missingReasonLoopCounts[issueKey] || 0) + 1;
+    const loopCount = wizardState.missingReasonLoopCounts[issueKey];
     const resolvedSlot = resolveMissingReasonToSlot(firstIssue, wizardState.genreKey, wizardState.missingRequiredSlots, wizardState.aiKgiSourceData);
     const targetSlot = resolvedSlot || wizardState.missingRequiredSlots.find((slot) => FOLLOW_UP_BY_ID.has(slot));
-    logMissingFlowInfo("resolved slot", { issue: firstIssue, slot: targetSlot, missingRequiredSlots: wizardState.missingRequiredSlots });
+    wizardState.missingReasonLastIssue = firstIssue || "";
+    wizardState.missingReasonLastResolvedSlot = targetSlot || "";
+    logMissingFlowInfo("resolved slot", {
+      issue: firstIssue,
+      resolvedSlot: resolvedSlot,
+      slot: targetSlot,
+      loopCount,
+      missingRequiredSlots: wizardState.missingRequiredSlots
+    });
     if (!targetSlot) {
       logMissingFlowError("failed reason", { reason: "slot_not_resolved", issue: firstIssue });
       await revertToQuestionList();
+      return;
+    }
+
+    const shouldApplyLoopGuard = CRITERIA_REASON_PATTERN.test(String(firstIssue || "")) && loopCount >= 2;
+    const shouldUseCriteriaRetry = CRITERIA_REASON_PATTERN.test(String(firstIssue || "")) && loopCount === 1;
+    if (shouldApplyLoopGuard) {
+      const emergencyRecord = buildMinimumLineEmergencyQuestionRecord(targetSlot);
+      const idx = upsertQuestionRecord(emergencyRecord);
+      wizardState.currentQuestionIndex = idx;
+      proposalSection.classList.add("hidden");
+      questionSection.classList.remove("hidden");
+      sourceDataApproveButton.disabled = true;
+      renderQuestion();
+      setStep(2);
+      await syncPersistence();
+      logMissingFlowInfo("loop guard activated", {
+        issue: firstIssue,
+        resolvedSlot: resolvedSlot,
+        actualNextQuestionSlot: emergencyRecord.id,
+        loopCount
+      });
+      setStatus("同じ不足理由が続いたため、緊急質問に切り替えました。最低ラインを数字で決めてください。", true);
+      return;
+    }
+
+    if (shouldUseCriteriaRetry) {
+      const retryRecord = buildCriteriaRetryQuestionRecord(targetSlot, firstIssue);
+      const idx = upsertQuestionRecord(retryRecord);
+      wizardState.currentQuestionIndex = idx;
+      proposalSection.classList.add("hidden");
+      questionSection.classList.remove("hidden");
+      sourceDataApproveButton.disabled = true;
+      renderQuestion();
+      setStep(2);
+      await syncPersistence();
+      logMissingFlowInfo("criteria retry activated", {
+        issue: firstIssue,
+        resolvedSlot: resolvedSlot,
+        actualNextQuestionSlot: retryRecord.id,
+        loopCount
+      });
+      setStatus(`判定条件の不足を解消するため、${SLOT_LABELS[targetSlot] || targetSlot}の再質問に切り替えました。`, false);
       return;
     }
 
@@ -1296,6 +1430,7 @@ const goToMissingQuestion = async () => {
       renderQuestion();
       setStep(2);
       await syncPersistence();
+      logMissingFlowInfo("navigated to existing question", { issue: firstIssue, resolvedSlot, actualNextQuestionSlot: targetSlot });
       setStatus(`あと1つ決めると保存できます。${SLOT_LABELS[targetSlot] || targetSlot}を具体化する質問に進みます。`, false);
       return;
     }
@@ -1311,6 +1446,7 @@ const goToMissingQuestion = async () => {
       renderQuestion();
       setStep(2);
       await syncPersistence();
+      logMissingFlowInfo("navigated to generated question", { issue: firstIssue, resolvedSlot, actualNextQuestionSlot: questionRecord.id });
       setStatus(`あと1つ決めると保存できます。${SLOT_LABELS[targetSlot] || targetSlot}を具体化する質問に進みます。`, false);
       return;
     }
@@ -1326,6 +1462,7 @@ const goToMissingQuestion = async () => {
       renderQuestion();
       setStep(2);
       await syncPersistence();
+      logMissingFlowInfo("navigated to fallback question", { issue: firstIssue, resolvedSlot, actualNextQuestionSlot: directFallback.id });
       setStatus("質問生成に失敗したため、通常質問へ切り替えました。", true);
       return;
     }
@@ -1585,7 +1722,10 @@ const ensureCreationSession = async () => {
     missingRequiredSlots: wizardState.missingRequiredSlots,
     minimumQuestionCountForGenre: wizardState.minimumQuestionCountForGenre,
     followUpCount: wizardState.followUpCount,
-    sourceDataReady: wizardState.sourceDataReady
+    sourceDataReady: wizardState.sourceDataReady,
+    missingReasonLoopCounts: wizardState.missingReasonLoopCounts,
+    missingReasonLastIssue: wizardState.missingReasonLastIssue,
+    missingReasonLastResolvedSlot: wizardState.missingReasonLastResolvedSlot
   };
   const ref = await addDoc(collection(db, "kgiCreationSessions"), data);
   wizardState.sessionId = ref.id;
@@ -1625,7 +1765,10 @@ const updateCreationSession = async () => {
     missingRequiredSlots: wizardState.missingRequiredSlots,
     minimumQuestionCountForGenre: wizardState.minimumQuestionCountForGenre,
     followUpCount: wizardState.followUpCount,
-    sourceDataReady: wizardState.sourceDataReady
+    sourceDataReady: wizardState.sourceDataReady,
+    missingReasonLoopCounts: wizardState.missingReasonLoopCounts,
+    missingReasonLastIssue: wizardState.missingReasonLastIssue,
+    missingReasonLastResolvedSlot: wizardState.missingReasonLastResolvedSlot
   });
 };
 
@@ -1958,7 +2101,10 @@ const persistKgi = async () => {
         missingRequiredSlots: wizardState.missingRequiredSlots,
         minimumQuestionCountForGenre: wizardState.minimumQuestionCountForGenre,
         followUpCount: wizardState.followUpCount,
-        sourceDataReady: wizardState.sourceDataReady
+        sourceDataReady: wizardState.sourceDataReady,
+        missingReasonLoopCounts: wizardState.missingReasonLoopCounts,
+        missingReasonLastIssue: wizardState.missingReasonLastIssue,
+        missingReasonLastResolvedSlot: wizardState.missingReasonLastResolvedSlot
       }
     });
 
